@@ -9253,6 +9253,10 @@ const Views = (() => {
   }
 
   function _plUploadCard(mp, title, hint, where) {
+    const sourceUrl = mp === 'ozon'
+      ? 'https://docs.google.com/spreadsheets/d/1y36a1MvDWbGeVx5oU_zAvEqHxANQJwLx2zrQnhazK90/edit?gid=1920079832#gid=1920079832'
+      : 'https://docs.google.com/spreadsheets/d/10DOSqL_q639vD6--XscYWqwrDAWXFTSuCHHjB3-wUoI/edit?pli=1&gid=781930537#gid=781930537';
+    const sourceLabel = mp === 'ozon' ? 'Таблица Ozon' : 'Таблица Wildberries';
     return ''
       + '<div class="card">'
       +   '<h3>' + U.esc(title) + '</h3>'
@@ -9263,6 +9267,11 @@ const Views = (() => {
       +     '<input type="file" id="pl-file-' + mp + '" accept=".xlsx" class="hidden">'
       +   '</div>'
       +   '<div class="muted fact-date-hint">' + U.esc(where) + '</div>'
+      +   '<div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">'
+      +     'Где взять данные: <a href="' + U.esc(sourceUrl) + '" target="_blank" rel="noopener noreferrer"'
+      +     ' title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">'
+      +     U.esc(sourceLabel) + '</a>'
+      +   '</div>'
       + '</div>';
   }
 
