@@ -1,6 +1,6 @@
 """Синхронизация posуточной истории цен маркетплейсов (mp_price_daily).
 
-Модуль знает две операции:
+Операции:
   • recalc_spp_and_buyer_from(marketplace, from_date) — пересчитать колонки
     spp_pct / spp_source_date / spp_is_estimated / buyer_price для всех
     строк mp_price_daily указанного маркетплейса, где date >= from_date.
@@ -9,8 +9,11 @@
     пересчёт нужен и для более поздних строк — потому что раньше СПП там
     бралась через fallback от более раннего дня, а теперь может обновиться.
   • sync_uploaded_prices(tx, marketplace, date, rows) — вызывается ПРИ импорте
-    отчёта цен (Ozon/WB): вставляет/обновляет upload_price для (SKU, MP, date)
+    отчёта цен Ozon (ранее также WB): вставляет/обновляет upload_price для (SKU, MP, date)
     и заодно проставляет актуальные spp_pct/buyer_price по правилу ниже.
+  • sync_wb_report(tx, rows, uploaded_by) — прямые цены/СПП из отчёта WB.
+    Источник upload_wb_spp исключён из пересчёта РНП, в том числе при
+    отсутствующей СПП. Старые источники и поведение Ozon сохраняются.
 
 Правило заполнения СПП для строки (SKU, MP, D):
   1) Если в *_daily_sales есть запись за (SKU, MP, D) с непустой spp_pct —
@@ -26,6 +29,7 @@ from typing import Iterable, Tuple
 
 from . import db
 
+WB_REPORT_SOURCE = "upload_wb_spp"
 
 MP_DAILY_TABLE = {
     "Wildberries": "wb_daily_sales",
@@ -69,6 +73,10 @@ def recalc_spp_and_buyer_from(marketplace: str, from_date):
       SELECT seller_article, marketplace, date, upload_price
         FROM mp_price_daily
        WHERE marketplace = %s AND date >= %s
+         -- Прямые данные нового WB-отчёта, включая NULL при отсутствии
+         -- товара, РНП не имеет права заменять расчётными значениями.
+         AND NOT (marketplace = 'Wildberries'
+                  AND upload_source IS NOT DISTINCT FROM 'upload_wb_spp')
     ),
     resolved AS (
       SELECT
@@ -110,6 +118,10 @@ def recalc_spp_and_buyer_from(marketplace: str, from_date):
      WHERE m.seller_article = r.seller_article
        AND m.marketplace    = r.marketplace
        AND m.date           = r.date
+       -- Повторная проверка на целевой строке защищает от конкурентного
+       -- импорта WB, завершившегося после чтения CTE targets.
+       AND NOT (m.marketplace = 'Wildberries'
+                AND m.upload_source IS NOT DISTINCT FROM 'upload_wb_spp')
     """
     return db.execute(sql, (marketplace, from_date))
 
@@ -261,3 +273,38 @@ def sync_uploaded_prices(tx, marketplace: str, date, rows: Iterable[Tuple[str, f
     row = cur.fetchone()
     upserted = int(row[0] if row else 0)
     return {"upserted": upserted}
+
+
+def sync_wb_report(tx, rows, uploaded_by):
+    """Прямые дневные срезы WB, без чтения РНП и пересчёта цены витрины.
+
+    Все пакеты выполняются внутри транзакции вызывающего. При повторном
+    импорте заменяются только совпавшие (артикул, Wildberries, дата).
+    Остальные дни/артикулы и Ozon не затрагиваются.
+    """
+    values = [
+        (r.article, "Wildberries", r.date, r.upload_price, WB_REPORT_SOURCE,
+         uploaded_by, r.spp_pct, r.date if r.spp_pct is not None else None, r.buyer_price)
+        for r in rows
+    ]
+    count = tx.execute_values(
+        """INSERT INTO mp_price_daily
+             (seller_article, marketplace, date, upload_price, upload_source,
+              upload_loaded_by, spp_pct, spp_source_date, buyer_price,
+              spp_is_estimated, upload_loaded_at, updated_at)
+           VALUES %s
+           ON CONFLICT (seller_article, marketplace, date) DO UPDATE SET
+             upload_price = EXCLUDED.upload_price,
+             upload_source = EXCLUDED.upload_source,
+             upload_loaded_by = EXCLUDED.upload_loaded_by,
+             upload_loaded_at = now(),
+             spp_pct = EXCLUDED.spp_pct,
+             spp_source_date = EXCLUDED.spp_source_date,
+             spp_is_estimated = false,
+             buyer_price = EXCLUDED.buyer_price,
+             updated_at = now()""",
+        values,
+        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,false,now(),now())",
+        page_size=1000,
+    )
+    return {"upserted": count}

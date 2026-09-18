@@ -9213,10 +9213,10 @@ const Views = (() => {
           '</tr>' +
           '<tr class="sp-hrow2">' +
             '<th class="sp-mth" title="Базовая цена Wildberries из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Ср. загружаемая Wildberries / Базовая Wildberries">Pi</th>' +
-            '<th class="sp-mth" title="Ср. загружаемая цена Wildberries за последний день с заказами">Загружаемая</th>' +
-            '<th class="sp-mth" title="Соинвест (СПП) Wildberries за последний день с заказами">СПП</th>' +
-            '<th class="sp-mth" title="Цена для покупателя = Ср. загружаемая × (1 − СПП)">Для покупателя</th>' +
+            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Wildberries / Базовая Wildberries; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth" title="Цена со скидкой (загружаемая) из последнего отчёта WB на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
             '<th class="sp-mth sp-th-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
             '<th class="sp-mth sp-pi" title="Pi = Ср. загружаемая Ozon / Базовая Ozon">Pi</th>' +
             '<th class="sp-mth" title="Ср. загружаемая цена Ozon за последний день с заказами">Загружаемая</th>' +
@@ -9240,8 +9240,8 @@ const Views = (() => {
             'Шаблон цен Ozon, .xlsx · лист «Товары и цены», колонка «Предельная цена, руб.»',
             'Где взять в Ozon: Личный кабинет → Цены и акции → Цены на товары → Скачать шаблон XLSX. Данные берутся из столбца «Предельная цена, руб.».', today)
       +   _plUploadCard('wb',   'Wildberries — загрузка цен',
-            'Шаблон «Цены и скидки» WB, .xlsx · колонка «Цена со скидкой»',
-            'Где взять в WB: Личный кабинет → Товары и цены → Цены и скидки → Excel → «Цены и скидки». Данные берутся из столбца «Цена со скидкой».', today)
+            'Отчёт «Цены с СПП», .xlsx · дата, артикул продавца, загружаемая цена, цена на витрине и СПП',
+            'Даты берутся из файла. Можно загрузить несколько дней: совпавшие дата и артикул будут перезаписаны. Внутри дня берётся самое позднее время. При нулевой или пустой СПП товар отсутствует: СПП и цена для покупателя отображаются прочерками.', null)
       + '</div>'
       + '<div class="card" style="margin:14px 22px 16px;">'
       +   '<h3 style="margin:0 0 10px;">Журнал загрузок</h3>'
@@ -9264,10 +9264,10 @@ const Views = (() => {
       +     '<input type="file" id="pl-file-' + mp + '" accept=".xlsx" class="hidden">'
       +   '</div>'
       +   '<div class="muted fact-date-hint">' + U.esc(where) + '</div>'
-      +   '<label class="fact-date-row">Дата отчёта:'
+      +   (mp === 'wb' ? '' : '<label class="fact-date-row">Дата отчёта:'
       +     '<input type="date" id="pl-date-' + mp + '" class="input-sm" value="' + today + '">'
       +   '</label>'
-      +   '<div class="muted fact-date-hint">На какую дату записать цены. При повторной загрузке той же даты значения будут перезаписаны.</div>'
+      +   '<div class="muted fact-date-hint">На какую дату записать цены. При повторной загрузке той же даты значения будут перезаписаны.</div>')
       + '</div>';
   }
 
@@ -9279,25 +9279,37 @@ const Views = (() => {
     const pick  = root.querySelector('#pl-pick-' + mp);
     if (pick)  pick.addEventListener('click', (e) => { e.preventDefault(); input.click(); });
     input.addEventListener('change', () => { if (input.files[0]) _plDoUpload(mp, input.files[0], zone); });
-    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
-    ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
-    zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) _plDoUpload(mp, f, zone); });
+    // Элемент zone сохраняется при восстановлении innerHTML после импорта.
+    // Связываем drop один раз, иначе повторная загрузка отправляет файл N раз.
+    if (!zone.dataset.dropBound) {
+      zone.dataset.dropBound = '1';
+      ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
+      ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
+      zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) _plDoUpload(mp, f, zone); });
+    }
   }
 
   async function _plDoUpload(mp, file, zone) {
+    if (zone.dataset.busy === '1') return;
+    zone.dataset.busy = '1';
     // Чистим плашки от предыдущей загрузки и сохраняем исходный HTML зоны.
-    zone.querySelectorAll('.up-warn, .note.err').forEach(el => el.remove());
+    zone.parentElement.querySelectorAll('.up-warn, .note.err').forEach(el => el.remove());
     const orig = zone.innerHTML;
     const dateInp = document.getElementById('pl-date-' + mp);
     const reportDate = dateInp && dateInp.value ? dateInp.value : (new Date()).toISOString().slice(0, 10);
     zone.innerHTML = '<div class="loader"><span class="spinner"></span><div style="margin-top:8px">Загрузка ' + U.esc(file.name) + '…</div></div>';
     try {
       const fd  = new FormData(); fd.append('file', file);
-      const url = '/api/prices/upload_' + (mp === 'wb' ? 'wb' : 'ozon') + '?report_date=' + encodeURIComponent(reportDate);
+      const url = '/api/prices/upload_' + (mp === 'wb' ? 'wb' : 'ozon')
+        + (mp === 'wb' ? '' : '?report_date=' + encodeURIComponent(reportDate));
       const res = await API.raw('POST', url, fd);
       const mpLbl = (mp === 'wb' ? 'Wildberries' : 'Ozon');
       const skipped = res.rows_skipped_unknown || res.skipped_unknown || 0;
-      const okBase = '✓ ' + mpLbl + ' · ' + fmtDatePl(reportDate) + ' · строк: ' + U.fmtNum(res.rows_upserted);
+      const dates = mp === 'wb' ? (res.report_dates || []) : [reportDate];
+      const dateLabel = dates.length > 1
+        ? fmtDatePl(dates[0]) + ' – ' + fmtDatePl(dates[dates.length - 1]) + ' · дней: ' + dates.length
+        : fmtDatePl(dates[0]);
+      const okBase = '✓ ' + mpLbl + ' · ' + dateLabel + ' · строк: ' + U.fmtNum(res.rows_upserted);
       if (skipped) {
         App.toast(okBase + ' · пропущено: ' + U.fmtNum(skipped), 'warn');
       } else {
@@ -9325,6 +9337,8 @@ const Views = (() => {
       errBox.textContent = 'Ошибка: ' + (err && err.message ? err.message : String(err));
       zone.after(errBox);
       App.toast('✗ Ошибка: ' + (err && err.message ? err.message : String(err)), 'err');
+    } finally {
+      delete zone.dataset.busy;
     }
   }
 

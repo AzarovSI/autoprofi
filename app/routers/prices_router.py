@@ -703,7 +703,10 @@ def _known_articles_for(marketplace: str) -> set:
 
 
 def _do_price_upload(marketplace: str, report_date: str, file: UploadFile, user):
-    """Общая логика для Ozon/WB. Отличается только parser'ом и upload_source."""
+    """Существующая загрузка Ozon с ручной датой и СПП из РНП.
+
+    WB с 18.09.2026 обрабатывается отдельно в upload_wb_prices.
+    """
     from .. import price_history, price_upload
     # 1. Валидация даты
     try:
@@ -723,9 +726,6 @@ def _do_price_upload(marketplace: str, report_date: str, file: UploadFile, user)
             if marketplace == "Ozon":
                 rows = price_upload.parse_ozon(tmp_path)
                 upload_source = "upload_ozon"
-            elif marketplace == "Wildberries":
-                rows = price_upload.parse_wb(tmp_path)
-                upload_source = "upload_wb"
             else:
                 raise HTTPException(status_code=400, detail=f"Неизвестный marketplace: {marketplace}")
         except ValueError as e:
@@ -804,13 +804,79 @@ def upload_ozon_prices(
 @router.post("/upload_wb")
 def upload_wb_prices(
     file: UploadFile = File(...),
-    report_date: str = Query(..., description="Дата отчёта, YYYY-MM-DD"),
     user=Depends(auth.get_current_user),
 ):
-    """Приём шаблона «Цены и скидки» WB (Sheet1, колонка «Текущая цена»).
-    Пишет upload_price за report_date в mp_price_daily, попутно проставляет
-    СПП/buyer_price."""
-    return _do_price_upload("Wildberries", report_date, file, user)
+    """Отчёт WB «Цены с СПП»: даты из файла, одна атомарная загрузка."""
+    from .. import price_history, price_upload
+
+    fd, tmp_path = _tempfile.mkstemp(suffix=".xlsx")
+    try:
+        with _os.fdopen(fd, "wb") as f:
+            content = file.file.read(price_upload.WB_MAX_FILE_BYTES + 1)
+            if len(content) > price_upload.WB_MAX_FILE_BYTES:
+                raise HTTPException(status_code=413, detail="Файл WB слишком большой: максимум 25 МБ.")
+            f.write(content)
+        del content
+        try:
+            report = price_upload.parse_wb(tmp_path)
+        except Exception as exc:
+            # Ошибки чтения Excel/валидации не должны превращаться в 500.
+            detail = str(exc) if isinstance(exc, ValueError) else "Не удалось прочитать Excel. Проверьте файл отчёта «Цены с СПП»."
+            raise HTTPException(status_code=422, detail=detail) from exc
+
+        known = _known_articles_for("Wildberries")
+        good, unknown = [], []
+        per_date = {
+            date: {"written": 0, "unknown": []}
+            for date in sorted(report.rows_by_date)
+        }
+        for row in report.rows:
+            if row.article in known:
+                good.append(row)
+                per_date[row.date]["written"] += 1
+            else:
+                unknown.append(row.article)
+                per_date[row.date]["unknown"].append(row.article)
+
+        uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+        with db.transaction() as tx:
+            result = price_history.sync_wb_report(tx, good, uid)
+            # Существующий журнал хранит одну дату: строка на каждый день
+            # исходного файла, вместе с данными в той же транзакции.
+            logs = []
+            for date, stats in per_date.items():
+                duplicate_count = report.duplicates_by_date[date]
+                message = (
+                    f"Повторы за день: {duplicate_count}; выбрано самое позднее время."
+                    if duplicate_count else None
+                )
+                logs.append((
+                    uid, "Wildberries", date, file.filename,
+                    report.rows_by_date[date], stats["written"], len(stats["unknown"]),
+                    ";".join(stats["unknown"][:20]) or None, "ok", message,
+                ))
+            tx.execute_values(
+                """INSERT INTO mp_price_upload_log
+                     (loaded_by_user_id, marketplace, report_date, file_name,
+                      rows_in_file, rows_upserted, rows_skipped_unknown,
+                      skipped_sample, status, message) VALUES %s""",
+                logs,
+            )
+        return {
+            "ok": True,
+            "marketplace": "Wildberries",
+            "report_dates": [d.isoformat() for d in sorted(per_date)],
+            "rows_in_file": report.rows_in_file,
+            "rows_upserted": result["upserted"],
+            "skipped_unknown": len(unknown),
+            "unknown_sample": list(dict.fromkeys(unknown))[:10],
+            "duplicates_resolved": sum(report.duplicates_by_date.values()),
+        }
+    finally:
+        try:
+            _os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 @router.get("/upload_log")
