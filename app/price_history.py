@@ -11,9 +11,9 @@
   • sync_uploaded_prices(tx, marketplace, date, rows) — вызывается ПРИ импорте
     отчёта цен Ozon (ранее также WB): вставляет/обновляет upload_price для (SKU, MP, date)
     и заодно проставляет актуальные spp_pct/buyer_price по правилу ниже.
-  • sync_wb_report(tx, rows, uploaded_by) — прямые цены/СПП из отчёта WB.
-    Источник upload_wb_spp исключён из пересчёта РНП, в том числе при
-    отсутствующей СПП. Старые источники и поведение Ozon сохраняются.
+  • sync_direct_report(tx, marketplace, rows, uploaded_by) — прямые цены
+    WB/Ozon. Источники upload_wb_spp / upload_ozon_coinvest исключены из
+    пересчёта РНП, включая отсутствующую СПП. Старые источники сохраняются.
 
 Правило заполнения СПП для строки (SKU, MP, D):
   1) Если в *_daily_sales есть запись за (SKU, MP, D) с непустой spp_pct —
@@ -30,6 +30,8 @@ from typing import Iterable, Tuple
 from . import db
 
 WB_REPORT_SOURCE = "upload_wb_spp"
+OZON_REPORT_SOURCE = "upload_ozon_coinvest"
+DIRECT_REPORT_SOURCES = {"Wildberries": WB_REPORT_SOURCE, "Ozon": OZON_REPORT_SOURCE}
 
 MP_DAILY_TABLE = {
     "Wildberries": "wb_daily_sales",
@@ -77,6 +79,8 @@ def recalc_spp_and_buyer_from(marketplace: str, from_date):
          -- товара, РНП не имеет права заменять расчётными значениями.
          AND NOT (marketplace = 'Wildberries'
                   AND upload_source IS NOT DISTINCT FROM 'upload_wb_spp')
+         AND NOT (marketplace = 'Ozon'
+                  AND upload_source IS NOT DISTINCT FROM 'upload_ozon_coinvest')
     ),
     resolved AS (
       SELECT
@@ -122,6 +126,8 @@ def recalc_spp_and_buyer_from(marketplace: str, from_date):
        -- импорта WB, завершившегося после чтения CTE targets.
        AND NOT (m.marketplace = 'Wildberries'
                 AND m.upload_source IS NOT DISTINCT FROM 'upload_wb_spp')
+       AND NOT (m.marketplace = 'Ozon'
+                AND m.upload_source IS NOT DISTINCT FROM 'upload_ozon_coinvest')
     """
     return db.execute(sql, (marketplace, from_date))
 
@@ -276,14 +282,19 @@ def sync_uploaded_prices(tx, marketplace: str, date, rows: Iterable[Tuple[str, f
 
 
 def sync_wb_report(tx, rows, uploaded_by):
-    """Прямые дневные срезы WB, без чтения РНП и пересчёта цены витрины.
+    """Совместимый вход WB; общая логика прямых дневных отчётов ниже."""
+    return sync_direct_report(tx, "Wildberries", rows, uploaded_by)
 
-    Все пакеты выполняются внутри транзакции вызывающего. При повторном
-    импорте заменяются только совпавшие (артикул, Wildberries, дата).
-    Остальные дни/артикулы и Ozon не затрагиваются.
+
+def sync_direct_report(tx, marketplace, rows, uploaded_by):
+    """Прямые дневные срезы WB/Ozon без РНП и пересчёта цены покупателя.
+
+    Пакеты внутри транзакции вызывающего. Перезаписываем только совпавшие
+    артикул + marketplace + дата, остальные записи остаются нетронутыми.
     """
+    source = DIRECT_REPORT_SOURCES[marketplace]
     values = [
-        (r.article, "Wildberries", r.date, r.upload_price, WB_REPORT_SOURCE,
+        (r.article, marketplace, r.date, r.upload_price, source,
          uploaded_by, r.spp_pct, r.date if r.spp_pct is not None else None, r.buyer_price)
         for r in rows
     ]

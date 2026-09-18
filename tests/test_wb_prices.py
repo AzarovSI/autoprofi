@@ -266,12 +266,11 @@ class IntegrationTests(unittest.TestCase):
             self.upload(report)
         self.assertEqual(self.snapshot(), [])
 
-    def test_ozon_requires_manual_date_wb_does_not(self):
-        self.assertEqual(self.client.post("/api/prices/upload_ozon", files={"file": ("x.xlsx", b"x")}).status_code, 422)
-        with patch.object(pu, "parse_ozon", return_value=[("SKU-1", D(1000))]):
-            res = self.client.post("/api/prices/upload_ozon?report_date=2026-09-18", files={"file": ("x.xlsx", b"x")})
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertEqual(res.json()["marketplace"], "Ozon")
+    def test_neither_marketplace_requires_manual_date(self):
+        schema = self.client.get("/openapi.json").json()
+        for route in ("upload_wb", "upload_ozon"):
+            params = schema["paths"]["/api/prices/" + route]["post"].get("parameters", [])
+            self.assertNotIn("report_date", [p["name"] for p in params])
 
     def test_upload_requires_auth_in_real_router(self):
         app = FastAPI()

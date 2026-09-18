@@ -9218,10 +9218,10 @@ const Views = (() => {
             '<th class="sp-mth" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
             '<th class="sp-mth" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
             '<th class="sp-mth sp-th-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Ср. загружаемая Ozon / Базовая Ozon">Pi</th>' +
-            '<th class="sp-mth" title="Ср. загружаемая цена Ozon за последний день с заказами">Загружаемая</th>' +
-            '<th class="sp-mth" title="Соинвест (СПП) Ozon за последний день с заказами">СПП</th>' +
-            '<th class="sp-mth" title="Цена для покупателя = Ср. загружаемая × (1 − СПП)">Для покупателя</th>' +
+            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Ozon / Базовая Ozon; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth" title="Цена продавца после акций из последнего отчёта Ozon на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth" title="СПП/соинвест из отчёта Ozon; при нулевом или отсутствующем соинвесте товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth" title="Цена продавца с соинвестом из отчёта Ozon; при нулевом или отсутствующем соинвесте показывается прочерк">Для покупателя</th>' +
           '</tr></thead>' +
           '<tbody>' + out.join('') + '</tbody>' +
         '</table>' +
@@ -9233,15 +9233,14 @@ const Views = (() => {
   // Стиль — точно как в «РНП заказы → Загрузка данных»: .card + .upload-zone,
   // драг&дроп, ссылка «выберите файл», журнал — .tbl-wrap > .tbl, mpPill.
   function pricesRenderUploadTab(host) {
-    const today = (new Date()).toISOString().slice(0, 10);
     host.innerHTML = ''
       + '<div class="grid-2" style="padding:16px 22px 0;">'
       +   _plUploadCard('ozon', 'Ozon — загрузка цен',
-            'Шаблон цен Ozon, .xlsx · лист «Товары и цены», колонка «Предельная цена, руб.»',
-            'Где взять в Ozon: Личный кабинет → Цены и акции → Цены на товары → Скачать шаблон XLSX. Данные берутся из столбца «Предельная цена, руб.».', today)
+            'Отчёт «Цены и соинвест», .xlsx · дата, артикул, цена продавца после акций, соинвест и цена с соинвестом',
+            'Даты берутся из файла. Можно загрузить несколько дней: совпавшие дата и артикул будут перезаписаны. Разные значения одной даты и артикула внутри файла отклоняются. При нулевом или пустом соинвесте товар отсутствует: соинвест и цена для покупателя отображаются прочерками.')
       +   _plUploadCard('wb',   'Wildberries — загрузка цен',
             'Отчёт «Цены с СПП», .xlsx · дата, артикул продавца, загружаемая цена, цена на витрине и СПП',
-            'Даты берутся из файла. Можно загрузить несколько дней: совпавшие дата и артикул будут перезаписаны. Внутри дня берётся самое позднее время. При нулевой или пустой СПП товар отсутствует: СПП и цена для покупателя отображаются прочерками.', null)
+            'Даты берутся из файла. Можно загрузить несколько дней: совпавшие дата и артикул будут перезаписаны. Внутри дня берётся самое позднее время. При нулевой или пустой СПП товар отсутствует: СПП и цена для покупателя отображаются прочерками.')
       + '</div>'
       + '<div class="card" style="margin:14px 22px 16px;">'
       +   '<h3 style="margin:0 0 10px;">Журнал загрузок</h3>'
@@ -9253,7 +9252,7 @@ const Views = (() => {
     _reloadPlUploadLog();
   }
 
-  function _plUploadCard(mp, title, hint, where, today) {
+  function _plUploadCard(mp, title, hint, where) {
     return ''
       + '<div class="card">'
       +   '<h3>' + U.esc(title) + '</h3>'
@@ -9264,10 +9263,6 @@ const Views = (() => {
       +     '<input type="file" id="pl-file-' + mp + '" accept=".xlsx" class="hidden">'
       +   '</div>'
       +   '<div class="muted fact-date-hint">' + U.esc(where) + '</div>'
-      +   (mp === 'wb' ? '' : '<label class="fact-date-row">Дата отчёта:'
-      +     '<input type="date" id="pl-date-' + mp + '" class="input-sm" value="' + today + '">'
-      +   '</label>'
-      +   '<div class="muted fact-date-hint">На какую дату записать цены. При повторной загрузке той же даты значения будут перезаписаны.</div>')
       + '</div>';
   }
 
@@ -9295,17 +9290,14 @@ const Views = (() => {
     // Чистим плашки от предыдущей загрузки и сохраняем исходный HTML зоны.
     zone.parentElement.querySelectorAll('.up-warn, .note.err').forEach(el => el.remove());
     const orig = zone.innerHTML;
-    const dateInp = document.getElementById('pl-date-' + mp);
-    const reportDate = dateInp && dateInp.value ? dateInp.value : (new Date()).toISOString().slice(0, 10);
     zone.innerHTML = '<div class="loader"><span class="spinner"></span><div style="margin-top:8px">Загрузка ' + U.esc(file.name) + '…</div></div>';
     try {
       const fd  = new FormData(); fd.append('file', file);
-      const url = '/api/prices/upload_' + (mp === 'wb' ? 'wb' : 'ozon')
-        + (mp === 'wb' ? '' : '?report_date=' + encodeURIComponent(reportDate));
+      const url = '/api/prices/upload_' + (mp === 'wb' ? 'wb' : 'ozon');
       const res = await API.raw('POST', url, fd);
       const mpLbl = (mp === 'wb' ? 'Wildberries' : 'Ozon');
       const skipped = res.rows_skipped_unknown || res.skipped_unknown || 0;
-      const dates = mp === 'wb' ? (res.report_dates || []) : [reportDate];
+      const dates = res.report_dates || [];
       const dateLabel = dates.length > 1
         ? fmtDatePl(dates[0]) + ' – ' + fmtDatePl(dates[dates.length - 1]) + ' · дней: ' + dates.length
         : fmtDatePl(dates[0]);

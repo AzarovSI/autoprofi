@@ -1,16 +1,8 @@
-"""Парсеры пользовательских шаблонов цен Ozon/WB.
+"""Дневные отчёты цен WB и Ozon с датами и прямыми скидками из файла.
 
-Ozon: пары (seller_article, upload_price), дата задаётся при загрузке.
-WB: дневные срезы из отчёта «Цены с СПП», даты и время берутся из строк.
-
-Форматы (проверены на реальных примерах пользователя от 14.09.2026):
-  • Ozon: лист «Товары и цены», row1 — заголовки, данные с row4.
-    Артикул = col0 «Артикул», upload_price = col18 «Предельная цена, руб.».
-  • WB: лист определяется по заголовкам (перед ним может быть пустой лист).
-    Дата, артикул продавца, загружаемая цена, цена витрины и СПП.
-
-Оба читаем через python_calamine — openpyxl на Ozon-шаблонах падает из-за
-глюка стилей (style="none" в границах).
+WB выбирает последнее время внутри дня. Ozon не содержит времени:
+конфликтующие значения одной даты/артикула отклоняются.
+Нулевая/пустая скидка для обоих МП означает отсутствие товара.
 """
 import datetime as dt
 import os
@@ -18,19 +10,19 @@ import zipfile
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import List, Tuple
 
 from python_calamine import CalamineWorkbook
 
 from . import util
 
 
-OZON_SHEET = "Товары и цены"
-OZON_HEADER_ROW = 1        # 0-based
-OZON_DATA_START = 4        # 0-based
-OZON_ART_COL = 0
-OZON_PRICE_COL = 18        # «Предельная цена, руб.»
-OZON_PRICE_HEADER = "Предельная цена, руб."
+OZON_COLUMNS = {
+    "date": ("Дата",),
+    "article": ("Артикул",),
+    "upload_price": ("Цена продавца после акций, ₽",),
+    "buyer_price": ("Цена продавца с соинвестом, ₽",),
+    "spp": ("СПП/соинвест, %",),
+}
 
 WB_COLUMNS = {
     "date": ("Дата",),
@@ -47,7 +39,7 @@ WB_MAX_CELLS = 2_000_000
 
 
 @dataclass(frozen=True)
-class WbPriceRow:
+class PriceReportRow:
     date: dt.date
     article: str
     upload_price: Decimal
@@ -57,8 +49,8 @@ class WbPriceRow:
 
 
 @dataclass
-class WbPriceReport:
-    rows: list[WbPriceRow]
+class PriceReport:
+    rows: list[PriceReportRow]
     rows_by_date: dict
     duplicates_by_date: dict
 
@@ -67,59 +59,9 @@ class WbPriceReport:
         return sum(self.rows_by_date.values())
 
 
-def _to_price(v):
-    """Число → Decimal (2 знака) или None. Пустое/некорректное → None."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, str):
-        v = v.strip().replace(" ", "").replace(",", ".")
-        if v == "" or v == "-":
-            return None
-    try:
-        d = Decimal(str(v))
-    except (InvalidOperation, ValueError):
-        return None
-    if d <= 0:
-        return None
-    return d.quantize(Decimal("0.01"))
-
-
-def parse_ozon(path: str) -> List[Tuple[str, Decimal]]:
-    """Вернуть список [(seller_article, upload_price), ...] из шаблона Ozon.
-
-    Проверяем заголовки, чтобы не молча съесть чужой файл: если row1[0]
-    не «Артикул» или row1[18] не «Предельная цена, руб.» — ValueError.
-    """
-    wb = CalamineWorkbook.from_path(path)
-    if OZON_SHEET not in wb.sheet_names:
-        raise ValueError(f"В файле Ozon нет листа «{OZON_SHEET}». Проверьте, что это шаблон цен из ЛК.")
-    ws = wb.get_sheet_by_name(OZON_SHEET)
-    data = ws.to_python()
-    if len(data) < OZON_DATA_START + 1:
-        raise ValueError("Файл Ozon пустой — нет строк данных.")
-    header = data[OZON_HEADER_ROW]
-    if len(header) <= OZON_PRICE_COL:
-        raise ValueError("В файле Ozon недостаточно колонок — не тот шаблон.")
-    if str(header[OZON_ART_COL]).strip() != "Артикул":
-        raise ValueError(f"Колонка A должна называться «Артикул», а не {header[OZON_ART_COL]!r}")
-    if str(header[OZON_PRICE_COL]).strip() != OZON_PRICE_HEADER:
-        raise ValueError(f"Колонка S должна называться «{OZON_PRICE_HEADER}», а не {header[OZON_PRICE_COL]!r}")
-
-    rows = []
-    for r in data[OZON_DATA_START:]:
-        if len(r) <= OZON_PRICE_COL:
-            continue
-        art_raw = r[OZON_ART_COL]
-        if not art_raw:
-            continue
-        art = util.canon_article(str(art_raw))
-        if not art:
-            continue
-        price = _to_price(r[OZON_PRICE_COL])
-        if price is None:
-            continue
-        rows.append((art, price))
-    return rows
+def parse_ozon(path: str) -> PriceReport:
+    """Цена после акций (G), соинвест (H), покупатель (I); дата в файле."""
+    return _parse_daily_report(path, "Ozon")
 
 
 def _wb_number(value, name, optional=False):
@@ -195,51 +137,64 @@ def _wb_spp(value):
     return number
 
 
-def _validate_wb_container(path):
+def _validate_wb_container(path, label="WB"):
     """Ограничить ресурсы XLSX до его распаковки и построения таблиц в памяти."""
     if os.path.getsize(path) > WB_MAX_FILE_BYTES:
-        raise ValueError("Файл WB слишком большой: максимум 25 МБ.")
+        raise ValueError(f"Файл {label} слишком большой: максимум 25 МБ.")
     try:
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()
             if len(entries) > 4096 or sum(e.file_size for e in entries) > WB_MAX_XML_BYTES:
-                raise ValueError("Файл WB слишком большой после распаковки. Разделите отчёт на несколько файлов.")
+                raise ValueError(f"Файл {label} слишком большой после распаковки. Разделите отчёт на несколько файлов.")
             if any(e.flag_bits & 1 for e in entries):
                 raise ValueError("Защищённый паролем Excel не поддерживается.")
     except zipfile.BadZipFile:
-        raise ValueError("Не удалось прочитать Excel. Проверьте файл отчёта «Цены с СПП».") from None
+        raise ValueError(f"Не удалось прочитать Excel. Проверьте файл отчёта {label}.") from None
 
 
-def parse_wb(path: str) -> WbPriceReport:
+def parse_wb(path: str) -> PriceReport:
     """Разобрать весь отчёт до записи. Любая ошибочная строка отменяет импорт.
 
     Ключ: дата + канонический артикул. Внутри дня выбираем самое позднее время,
     не порядок строк. Нулевая/пустая СПП означает отсутствие товара:
     buyer_price и spp_pct = NULL, загружаемая цена сохраняется.
     """
-    _validate_wb_container(path)
+    return _parse_daily_report(path, "WB")
+
+
+def _parse_daily_report(path, label):
+    is_wb = label == "WB"
+    required = WB_COLUMNS if is_wb else OZON_COLUMNS
+    _validate_wb_container(path, label)
     wb = CalamineWorkbook.from_path(path)
     if len(wb.sheet_names) > 20:
-        raise ValueError("Слишком много листов в файле WB: максимум 20.")
+        raise ValueError(f"Слишком много листов в файле {label}: максимум 20.")
     candidates = []
     cell_count = 0
     for sheet_name in wb.sheet_names:
         sheet = wb.get_sheet_by_name(sheet_name)
         cell_count += sheet.height * sheet.width
         if sheet.height > WB_MAX_ROWS + 1 or sheet.width > 64 or cell_count > WB_MAX_CELLS:
-            raise ValueError("Слишком большой лист WB. Разделите отчёт на файлы до 200 000 строк и 64 колонок.")
+            raise ValueError(f"Слишком большой лист {label}. Разделите отчёт на файлы до 200 000 строк и 64 колонок.")
         data = sheet.to_python()
         if not data:
             continue
         header = {" ".join(str(h).split()): i for i, h in enumerate(data[0]) if h}
         columns = {
             key: next((header[h] for h in aliases if h in header), None)
-            for key, aliases in WB_COLUMNS.items()
+            for key, aliases in required.items()
         }
         if all(i is not None for i in columns.values()):
-            columns.update(time=header.get("Время"), region=header.get("Регион"))
+            columns.update(time=header.get("Время") if is_wb else None,
+                           region=header.get("Регион") if is_wb else None)
             candidates.append((sheet_name, data, columns))
     if len(candidates) != 1:
+        if not is_wb:
+            raise ValueError(
+                "Нужен один лист отчёта Ozon с колонками: Дата, Артикул, "
+                "Цена продавца после акций, ₽, СПП/соинвест, %, "
+                "Цена продавца с соинвестом, ₽. Старый шаблон «Товары и цены» больше не используется."
+            )
         raise ValueError(
             "Нужен один лист отчёта «Цены с СПП» с колонками: Дата, Артикул продавца, "
             "Цена со скидки (загружаемая), Цена на витрине (с СПП), СПП, %. "
@@ -263,8 +218,8 @@ def parse_wb(path: str) -> WbPriceReport:
                 raise ValueError("не заполнен артикул продавца")
             upload_price = _wb_price(value("upload_price"), "Загружаемая цена")
             spp = _wb_spp(value("spp"))
-            buyer = _wb_price(value("buyer_price"), "Цена на витрине (с СПП)") if spp is not None else None
-            row = WbPriceRow(date, article, upload_price, buyer, spp, _wb_time(value("time")))
+            buyer = _wb_price(value("buyer_price"), required["buyer_price"][0]) if spp is not None else None
+            row = PriceReportRow(date, article, upload_price, buyer, spp, _wb_time(value("time")))
             key = (date, article)
             region = str(value("region") or "").strip().casefold()
             if region:
@@ -273,7 +228,8 @@ def parse_wb(path: str) -> WbPriceReport:
                 regions[key] = region
             old = selected.get(key)
             if old and old.time == row.time and old != row:
-                raise ValueError(f"разные значения для {article} на одну дату и время")
+                suffix = " и время" if is_wb else ""
+                raise ValueError(f"разные значения для {article} на одну дату{suffix}")
             if old is None or row.time > old.time:
                 selected[key] = row
             rows_by_date[date] += 1
@@ -283,8 +239,8 @@ def parse_wb(path: str) -> WbPriceReport:
         details = "; ".join(errors[:8])
         raise ValueError(f"Лист «{sheet_name}»: {details}. Ошибочных строк: {len(errors)}. Данные не записаны.")
     if not selected:
-        raise ValueError("Файл WB пустой: нет строк данных.")
+        raise ValueError(f"Файл {label} пустой: нет строк данных.")
     rows = sorted(selected.values(), key=lambda r: (r.date, r.article))
     selected_counts = Counter(r.date for r in rows)
     duplicates = {date: count - selected_counts[date] for date, count in rows_by_date.items()}
-    return WbPriceReport(rows, dict(rows_by_date), duplicates)
+    return PriceReport(rows, dict(rows_by_date), duplicates)

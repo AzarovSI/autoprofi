@@ -702,103 +702,13 @@ def _known_articles_for(marketplace: str) -> set:
     return {r["seller_article"] for r in rows}
 
 
-def _do_price_upload(marketplace: str, report_date: str, file: UploadFile, user):
-    """Существующая загрузка Ozon с ручной датой и СПП из РНП.
-
-    WB с 18.09.2026 обрабатывается отдельно в upload_wb_prices.
-    """
-    from .. import price_history, price_upload
-    # 1. Валидация даты
-    try:
-        d = datetime.date.fromisoformat(report_date)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail=f"Неверная дата отчёта: {report_date!r} (ожидается YYYY-MM-DD)")
-
-    # 2. Сохранить файл во временный путь (парсер работает через python_calamine, ему нужен путь)
-    suffix = _os.path.splitext(file.filename or "")[1] or ".xlsx"
-    fd, tmp_path = _tempfile.mkstemp(suffix=suffix)
-    try:
-        with _os.fdopen(fd, "wb") as f:
-            f.write(file.file.read())
-
-        # 3. Парсинг
-        try:
-            if marketplace == "Ozon":
-                rows = price_upload.parse_ozon(tmp_path)
-                upload_source = "upload_ozon"
-            else:
-                raise HTTPException(status_code=400, detail=f"Неизвестный marketplace: {marketplace}")
-        except ValueError as e:
-            # Плохой формат файла — 422 (Unprocessable), не 500. Одновременно
-            # пишем в журнал загрузок «error», чтобы след остался.
-            db.execute(
-                """INSERT INTO mp_price_upload_log
-                       (loaded_by_user_id, marketplace, report_date, file_name,
-                        rows_in_file, rows_upserted, rows_skipped_unknown,
-                        skipped_sample, status, message)
-                    VALUES (%s,%s,%s,%s, NULL, 0, 0, NULL, 'error', %s)""",
-                (user.get("id") if isinstance(user, dict) else getattr(user, "id", None),
-                 marketplace, d, file.filename, str(e)),
-            )
-            raise HTTPException(status_code=422, detail=str(e))
-
-        rows_in_file = len(rows)
-
-        # 4. Отфильтровать «неизвестные» артикулы (нет в catalog_marketplace).
-        known = _known_articles_for(marketplace)
-        good, unknown = [], []
-        for art, price in rows:
-            if art in known:
-                good.append((art, price))
-            else:
-                unknown.append(art)
-
-        uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
-
-        # 5. Пачечный UPSERT в mp_price_daily + пересчёт СПП/buyer в одной транзакции.
-        upserted = 0
-        if good:
-            with db.transaction() as tx:
-                res = price_history.sync_uploaded_prices(
-                    tx, marketplace, d, good, upload_source, uid,
-                )
-                upserted = res.get("upserted", 0)
-
-        # 6. Журнал загрузок (успех).
-        db.execute(
-            """INSERT INTO mp_price_upload_log
-                   (loaded_by_user_id, marketplace, report_date, file_name,
-                    rows_in_file, rows_upserted, rows_skipped_unknown,
-                    skipped_sample, status, message)
-                VALUES (%s,%s,%s,%s, %s, %s, %s, %s, 'ok', NULL)""",
-            (uid, marketplace, d, file.filename, rows_in_file, upserted,
-             len(unknown), ";".join(unknown[:20]) if unknown else None),
-        )
-
-        return {
-            "ok": True,
-            "marketplace": marketplace,
-            "report_date": d.isoformat(),
-            "rows_in_file": rows_in_file,
-            "rows_upserted": upserted,
-            "skipped_unknown": len(unknown),
-            "unknown_sample": unknown[:10],
-        }
-    finally:
-        try: _os.remove(tmp_path)
-        except OSError: pass
-
-
 @router.post("/upload_ozon")
 def upload_ozon_prices(
     file: UploadFile = File(...),
-    report_date: str = Query(..., description="Дата отчёта, YYYY-MM-DD"),
     user=Depends(auth.get_current_user),
 ):
-    """Приём шаблона цен Ozon из ЛК (лист «Товары и цены», колонка
-    «Предельная цена, руб.»). Пишет upload_price за report_date в mp_price_daily,
-    попутно проставляет СПП/buyer_price."""
-    return _do_price_upload("Ozon", report_date, file, user)
+    """Отчёт Ozon: даты, цена после акций, соинвест и покупатель из файла."""
+    return _do_dated_price_upload("Ozon", file, user)
 
 
 @router.post("/upload_wb")
@@ -807,24 +717,31 @@ def upload_wb_prices(
     user=Depends(auth.get_current_user),
 ):
     """Отчёт WB «Цены с СПП»: даты из файла, одна атомарная загрузка."""
+    return _do_dated_price_upload("Wildberries", file, user)
+
+
+def _do_dated_price_upload(marketplace: str, file: UploadFile, user):
+    """Атомарный импорт всех дней файла и дневных записей журнала."""
     from .. import price_history, price_upload
+    parser = {"Wildberries": price_upload.parse_wb, "Ozon": price_upload.parse_ozon}[marketplace]
+    label = "WB" if marketplace == "Wildberries" else "Ozon"
 
     fd, tmp_path = _tempfile.mkstemp(suffix=".xlsx")
     try:
         with _os.fdopen(fd, "wb") as f:
             content = file.file.read(price_upload.WB_MAX_FILE_BYTES + 1)
             if len(content) > price_upload.WB_MAX_FILE_BYTES:
-                raise HTTPException(status_code=413, detail="Файл WB слишком большой: максимум 25 МБ.")
+                raise HTTPException(status_code=413, detail=f"Файл {label} слишком большой: максимум 25 МБ.")
             f.write(content)
         del content
         try:
-            report = price_upload.parse_wb(tmp_path)
+            report = parser(tmp_path)
         except Exception as exc:
             # Ошибки чтения Excel/валидации не должны превращаться в 500.
-            detail = str(exc) if isinstance(exc, ValueError) else "Не удалось прочитать Excel. Проверьте файл отчёта «Цены с СПП»."
+            detail = str(exc) if isinstance(exc, ValueError) else f"Не удалось прочитать Excel. Проверьте файл отчёта {label}."
             raise HTTPException(status_code=422, detail=detail) from exc
 
-        known = _known_articles_for("Wildberries")
+        known = _known_articles_for(marketplace)
         good, unknown = [], []
         per_date = {
             date: {"written": 0, "unknown": []}
@@ -840,18 +757,20 @@ def upload_wb_prices(
 
         uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
         with db.transaction() as tx:
-            result = price_history.sync_wb_report(tx, good, uid)
+            result = price_history.sync_direct_report(tx, marketplace, good, uid)
             # Существующий журнал хранит одну дату: строка на каждый день
             # исходного файла, вместе с данными в той же транзакции.
             logs = []
             for date, stats in per_date.items():
                 duplicate_count = report.duplicates_by_date[date]
                 message = (
-                    f"Повторы за день: {duplicate_count}; выбрано самое позднее время."
+                    f"Повторы за день: {duplicate_count}; "
+                    + ("выбрано самое позднее время." if marketplace == "Wildberries"
+                       else "одинаковые записи объединены.")
                     if duplicate_count else None
                 )
                 logs.append((
-                    uid, "Wildberries", date, file.filename,
+                    uid, marketplace, date, file.filename,
                     report.rows_by_date[date], stats["written"], len(stats["unknown"]),
                     ";".join(stats["unknown"][:20]) or None, "ok", message,
                 ))
@@ -864,7 +783,7 @@ def upload_wb_prices(
             )
         return {
             "ok": True,
-            "marketplace": "Wildberries",
+            "marketplace": marketplace,
             "report_dates": [d.isoformat() for d in sorted(per_date)],
             "rows_in_file": report.rows_in_file,
             "rows_upserted": result["upserted"],
