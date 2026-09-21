@@ -65,6 +65,8 @@ def prepare_local_db(articles=("SKU-1", "SKU-2")):
         raise RuntimeError("Tests may only write to local wb_price_test")
     with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
         conn.execute(Path(__file__).with_name("wb_test_schema.sql").read_text())
+        if conn.execute("SELECT to_regclass('price_index_daily')").fetchone()[0]:
+            conn.execute("TRUNCATE price_index_daily")
         conn.execute("""TRUNCATE mp_price_daily, mp_price_upload_log,
             wb_daily_sales, ozon_daily_sales, catalog_items, catalog_marketplace,
             catalog_base_prices, catalog_base_prices_hist, fact_weekly, app_users""")

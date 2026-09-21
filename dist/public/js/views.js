@@ -2681,7 +2681,7 @@ const Views = (() => {
   // st — это rnpState (юнитка) или rnpSalesState (заказы); оба имеют .uiSnap.
   function _rnpUiFields(st) {
     // Поля раскрытия, которые надо запоминать (те, что есть у данного state).
-    return ['expanded', 'metricsOpen', 'monthsOpen', 'pricesOpen']
+    return ['expanded', 'metricsOpen', 'monthsOpen', 'pricesOpen', 'piOpen']
       .filter(k => st[k] && typeof st[k] === 'object');
   }
   // Сохранить текущее состояние раскрытия+scroll в снимок МП `mp`.
@@ -4487,7 +4487,7 @@ const Views = (() => {
   // (+ вложенная подгруппа «Цены»). Светофор — только на «Заказы, шт».
   // ============================================================
   const rnpSalesState = {
-    mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, uiSnap: {},
+    mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, piOpen: {}, uiSnap: {},
     // Активная вложенная вкладка внутри подтаба «Загрузка данных»: 'ozon' | 'wb' | 'common'.
     uploadTab: 'ozon',
     data: null, loading: false, error: '',
@@ -4709,20 +4709,24 @@ const Views = (() => {
       const sub = mt.sub || 0;
       // Вложенные метрики подгруппы «Цены» (sub===2) — только когда раскрыта.
       if (sub === 2 && !rnpSalesState.pricesOpen[node.key]) return;
+      if (sub === 4 && !rnpSalesState.piOpen[node.key]) return;
       let nameSt = '';
       if (mt.color) nameSt += `color:#${mt.color};`;
       if (mt.bold) nameSt += 'font-weight:700;';
-      const pad = sub === 2 ? 18 : 0;
+      const pad = (sub === 2 || sub === 4) ? 18 : 0;
       let nameInner;
       if (sub === 1) {
         const tri = rnpSalesState.pricesOpen[node.key] ? '▾' : '▸';
         nameInner = `<button class="rnp-exp-btn rnps-prices-toggle" data-pkey="${U.esc(node.key)}" title="Показать/скрыть цены">${tri}</button>${U.esc(mt.label)}`;
+      } else if (sub === 3) {
+        const open = !!rnpSalesState.piOpen[node.key];
+        nameInner = `<button class="rnp-exp-btn rnps-pi-toggle" data-pkey="${U.esc(node.key)}" aria-expanded="${open}" aria-label="Показать/скрыть индексы цен" title="Показать/скрыть индексы цен">${open ? '▾' : '▸'}</button>${U.esc(mt.label)}`;
       } else {
         nameInner = U.esc(mt.label);
       }
-      const headCls = sub === 1 ? ' rnps-prices-head is-clickable' : '';
+      const headCls = sub === 1 ? ' rnps-prices-head is-clickable' : sub === 3 ? ' rnps-pi-head is-clickable' : '';
       let row = `<div class="rnps-m-row">`
-        + `<span class="rnps-m-name rnp-fixleft${headCls}" data-pkey="${sub === 1 ? U.esc(node.key) : ''}" style="${nameSt}padding-left:${pad}px">${nameInner}</span>`
+        + `<span class="rnps-m-name rnp-fixleft${headCls}" title="${U.esc(mt.label)}" data-pkey="${(sub === 1 || sub === 3) ? U.esc(node.key) : ''}" style="${nameSt}padding-left:${pad}px">${nameInner}</span>`
         + `<span class="rnps-m-status rnp-fixleft"></span>`
         + `<span class="rnps-m-mbtn rnp-fixleft"></span>`
         + `<span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals" style="${nameSt}">`;
@@ -5459,6 +5463,7 @@ const Views = (() => {
       _snap.metricsOpen = rnpSalesState.metricsOpen;
       _snap.monthsOpen = rnpSalesState.monthsOpen;
       _snap.pricesOpenBool = rnpSalesState.pricesOpen;
+      _snap.piOpen = rnpSalesState.piOpen;
     }
   }
 
@@ -5539,6 +5544,15 @@ const Views = (() => {
         const key = el.getAttribute('data-pkey');
         if (!key) return;
         rnpSalesState.pricesOpen[key] = !rnpSalesState.pricesOpen[key];
+        rerender();
+      });
+    });
+    host.querySelectorAll('.rnps-pi-toggle, .rnps-pi-head').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = el.getAttribute('data-pkey');
+        if (!key) return;
+        rnpSalesState.piOpen[key] = !rnpSalesState.piOpen[key];
         rerender();
       });
     });
@@ -5883,6 +5897,9 @@ const Views = (() => {
       const p = { marketplace: myMp };
       if (rnpSalesState.from) p.date_from = rnpSalesState.from;
       if (rnpSalesState.to) p.date_to = rnpSalesState.to;
+      // Server checks persisted Pi revision, including another manager's imports.
+      // Do not let the tab's indefinite promise cache bypass that check.
+      if (myMp !== 'yandex' && API.cacheClear) API.cacheClear('/api/rnp_sales/tree');
       const data = await API.rnpSalesTree(p);
       // Пришёл поздний ответ уже неактуального запроса → выбросить, чтобы
       // не подменить данные текущего МП (причина «задвоения» сумм).

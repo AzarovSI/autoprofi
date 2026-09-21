@@ -26,6 +26,7 @@
 """
 import calendar
 import datetime
+import threading
 
 import json as _json
 
@@ -34,6 +35,7 @@ from fastapi.responses import Response
 
 from .. import db, auth
 from .. import cache
+from .. import daily_pi
 from ..util import l1_sort_key, cat_sort_key
 from . import rnp_router
 
@@ -49,6 +51,19 @@ CACHE_NS_WB = "rnp_sales_tree_wb"
 # таблица ya_daily_sales; должно совпадать с upload_router.RNP_TREE_CACHE_NS_YA).
 CACHE_NS_YA = "rnp_sales_tree_ya"
 CACHE_TTL = 3600.0  # подстраховка: значение протухнет за час даже без bump()
+_pi_cache_revision = None
+_pi_cache_lock = threading.Lock()
+
+
+def _price_revision():
+    global _pi_cache_revision
+    revision = str(daily_pi.revision())
+    with _pi_cache_lock:
+        if revision != _pi_cache_revision:
+            cache.discard_namespace(CACHE_NS)
+            cache.discard_namespace(CACHE_NS_WB)
+            _pi_cache_revision = revision
+    return revision
 
 MP_MAP = {"ozon": "Ozon", "wildberries": "Wildberries", "wb": "Wildberries",
           "yandex": "Yandex", "ya": "Yandex"}
@@ -230,6 +245,14 @@ def _metric_payload(defs, product=False, is_wb=False, is_ya=False):
                             "color": scolor, "bold": sbold, "sub": ssub})
             out.append({"key": k, "label": lbl, "kind": kind,
                         "color": color, "bold": bold, "sub": sub})
+            if k == "price_index_pi" and not is_ya:
+                out[-1]["sub"] = 3
+                out.extend([
+                    {"key": "base_price_pi", "label": "Базовая цена, Pi",
+                     "kind": "pi", "color": "333333", "bold": False, "sub": 4},
+                    {"key": "buyer_price_pi", "label": "Цена покупателя Ozon / WB, Pi",
+                     "kind": "pi", "color": "333333", "bold": False, "sub": 4},
+                ])
         else:
             k, lbl, kind, color, bold = row
             if k in stock_labels:
@@ -264,8 +287,10 @@ def rnp_sales_tree(
     # v2 в ключе — версия ПРАВИЛ ПОСТРОЕНИЯ дерева (порядок групп изменён
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
-    ck = "rnps_tree|v2|" + "|".join([
+    pi_revision = _price_revision() if mp_norm != "Yandex" else ""
+    ck = "rnps_tree|v3|" + "|".join([
         mp_norm,
+        pi_revision,
         date_from or "", date_to or "",
         status or "", manager or "",
     ])
@@ -734,6 +759,17 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         turn_window = {d.isoformat() for d in _win_dates}
         turn_window_days_n = len(_win_dates)
 
+    pi_by_day, pi_month_dates = {}, {}
+    if not is_ya and months:
+        pi_month_dates = {
+            mk: daily_pi.month_end(info["year"], info["month"], info["days"], d_to)
+            for mk, info in months.items()
+        }
+        all_dates = set().union(*(info["days"] for info in months.values()))
+        all_dates.update(pi_month_dates.values())
+        articles = {r["seller_article"] for r in rows if r.get("seller_article")}
+        pi_by_day = daily_pi.load(articles, min(all_dates), max(all_dates), mp)
+
     def finalize(node):
         cells = {}
         # дневные ячейки
@@ -752,6 +788,17 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
             forecast[mk] = node_forecast(node, mk, pv)
             if mk == last_mk:
                 turnover[mk] = node_turnover(node, mk, snap)
+        if node["level"] == 4 and not is_ya:
+            article = node["leaf_info"]["seller_article"]
+            # Price-only dates still appear in an existing RNP day column.
+            # Never forward-fill and never aggregate ratios across days.
+            for info in months.values():
+                for day in info["days"]:
+                    dk = day.isoformat()
+                    cells.setdefault(dk, {}).update(
+                        pi_by_day.get((article, dk), daily_pi.EMPTY))
+            for mk, end in pi_month_dates.items():
+                cells[mk].update(pi_by_day.get((article, end.isoformat()), daily_pi.EMPTY))
         children = [finalize(c) for c in node["children"].values()]
         if children:
             # Единые правила порядка (app/util.py): L1 — фиксированный

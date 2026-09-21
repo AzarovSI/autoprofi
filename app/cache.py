@@ -85,3 +85,10 @@ def stats() -> dict:
     """Диагностика (для отладки): число записей и версии namespace'ов."""
     with _lock:
         return {"entries": len(_store), "versions": dict(_versions)}
+
+
+def discard_namespace(namespace: str):
+    """Remove old large responses rather than retaining one copy per Pi revision."""
+    with _lock:
+        for key in [k for k, rec in _store.items() if rec[0] == namespace]:
+            _store.pop(key, None)

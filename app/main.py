@@ -25,6 +25,11 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
 app = FastAPI(title="ТД АВТОПРОФИ — аналитика маркетплейсов")
 
+@app.on_event("startup")
+def migrate_daily_pi():
+    from .daily_pi import migrate
+    migrate()
+
 # CORS: статика может раздаваться с другого origin (S3 на *.pplx.app).
 app.add_middleware(
     CORSMiddleware,
@@ -63,7 +68,7 @@ if os.path.isdir(STATIC_DIR):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "build": "20260921-daily-pi"}
 
 
 @app.get("/")
