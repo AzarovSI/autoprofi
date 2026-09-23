@@ -472,13 +472,15 @@ def prices_index_export(
 ):
     """Read-only Excel report; same dates, article search and source as the UI."""
     from fastapi.responses import StreamingResponse
-    from ..price_export import index_workbook
+    from urllib.parse import quote
+    from ..price_export import REPORT_TITLE, export_time, index_workbook
     items, period = _export_rows(date_from, date_to, user, search)
-    buf = index_workbook(items, period, show_cost, search.strip())
-    suffix = f"_{period['date_from']}_{period['date_to']}" if period else ""
+    generated_at = export_time()
+    buf = index_workbook(items, period, show_cost, search.strip(), generated_at=generated_at)
+    filename = f"{REPORT_TITLE} {generated_at:%d.%m.%Y}.xlsx"
     return StreamingResponse(
         buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=price_index{suffix}.xlsx",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
                  "Cache-Control": "no-cache, no-store, must-revalidate, private",
                  "Pragma": "no-cache", "Expires": "0"},
     )

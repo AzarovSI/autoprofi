@@ -1,6 +1,9 @@
 """Workbook and read-only endpoint regression tests (no production database)."""
 import io
+import datetime as dt
 import unittest
+from urllib.parse import unquote
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
 import openpyxl
@@ -133,7 +136,9 @@ class PriceExportTests(unittest.TestCase):
         app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1}
         client = TestClient(app)
         data = {"items": fixture(), "period": {"date_from": "2026-09-01", "date_to": "2026-09-19"}}
-        with patch.object(prices, "pricelist", return_value=data) as read:
+        exported_at = dt.datetime(2026, 9, 24, 0, 15, tzinfo=ZoneInfo("Europe/Moscow"))
+        with patch.object(prices, "pricelist", return_value=data) as read, \
+                patch("app.price_export.export_time", return_value=exported_at):
             response = client.get("/api/prices/index_export?date_from=2026-09-01&date_to=2026-09-19&search=компр&show_cost=true")
         self.assertEqual(response.status_code, 200)
         read.assert_called_once_with(date_from="2026-09-01", date_to="2026-09-19", user={"id": 1})
@@ -142,7 +147,14 @@ class PriceExportTests(unittest.TestCase):
         self.assertNotIn("00123", rows(ws))
         self.assertEqual(ws.max_column, 13)
         self.assertIn("private", response.headers["cache-control"])
-        self.assertIn("2026-09-19.xlsx", response.headers["content-disposition"])
+        self.assertEqual(
+            unquote(response.headers["content-disposition"]),
+            "attachment; filename*=UTF-8''Индекс цен на маркетплейсах 24.09.2026.xlsx",
+        )
+        self.assertEqual(ws["A1"].value, "Индекс цен на маркетплейсах 24.09.2026")
+        self.assertIn("2026-09-01", ws["A2"].value)
+        self.assertIn("2026-09-19", ws["A2"].value)
+        self.assertIn("24.09.2026 00:15 МСК", ws["A2"].value)
 
     def test_base_export_cost_optional_import_layout_preserved(self):
         app = FastAPI()

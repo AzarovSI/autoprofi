@@ -15,6 +15,11 @@ from openpyxl.utils import get_column_letter
 from . import util
 
 DASH = "–"
+REPORT_TITLE = "Индекс цен на маркетплейсах"
+
+
+def export_time():
+    return dt.datetime.now(ZoneInfo("Europe/Moscow"))
 
 
 def text_cell(cell, value):
@@ -65,7 +70,7 @@ def _save_with_caches(wb, caches):
     return result
 
 
-def index_workbook(items, period=None, show_cost=False, search=""):
+def index_workbook(items, period=None, show_cost=False, search="", generated_at=None):
     """The same source snapshot/formulas as the on-screen Price Index."""
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -99,9 +104,10 @@ def index_workbook(items, period=None, show_cost=False, search=""):
         c.font = Font(name="Calibri", size=size, bold=row == 1, color=color)
         c.alignment = Alignment(vertical="center", wrap_text=True)
 
-    band(1, "Индекс цен: Wildberries и Ozon", "1F3B57", "FFFFFF", 15)
+    generated_at = generated_at or export_time()
+    band(1, f"{REPORT_TITLE} {generated_at:%d.%m.%Y}", "1F3B57", "FFFFFF", 15)
     period_label = (f"{period['date_from']} — {period['date_to']}" if period else "Весь период")
-    formed = dt.datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M МСК")
+    formed = generated_at.strftime("%d.%m.%Y %H:%M МСК")
     band(2, f"Период: {period_label}. Срез на конец периода. Товаров: {len(items)}. Сформировано: {formed}.",
          "FFFFFF", "555555")
     band(3, "Pi = загружаемая / базовая; для АВТОПРОФИ: покупатель / базовая. "
