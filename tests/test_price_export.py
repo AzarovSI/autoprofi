@@ -77,10 +77,16 @@ class PriceExportTests(unittest.TestCase):
         self.assertEqual(ws["B4"].value, "Себестоимость, ₽")
         r = rows(ws)["AGR-35"]
         self.assertEqual(ws.cell(r, 2).value, 555.25)
-        self.assertIn("2026-09-01", ws.cell(r, 2).comment.text)
+        self.assertIsNone(ws.cell(r, 2).comment)
         self.assertAlmostEqual(ws.cell(r, 8).value, 1.125)
         self.assertEqual(ws.cell(rows(ws)["OUT"], 2).value, 0)
         self.assertEqual(ws.cell(rows(ws)["00123"], 2).value, "–")
+
+    def test_source_date_comments_are_absent_with_and_without_cost(self):
+        for show_cost in (False, True):
+            with self.subTest(show_cost=show_cost):
+                ws = workbook(index_workbook(fixture(), show_cost=show_cost)).active
+                self.assertTrue(all(c.comment is None for row in ws for c in row))
 
     def test_missing_prices_are_dashes_and_zero_denominator_safe(self):
         ws = workbook(index_workbook(fixture()), True).active

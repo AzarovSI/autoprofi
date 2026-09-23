@@ -198,8 +198,6 @@ def index_workbook(items, period=None, show_cost=False, search=""):
                 c = ws.cell(row, pos["cost"])
                 c.value = _number(item.get("cost")) if item.get("cost") is not None else DASH
                 c.number_format = "#,##0.00"
-                if item.get("cost_date"):
-                    c.comment = Comment("Себестоимость действует с " + item["cost_date"], "ТД АВТОПРОФИ")
             avto = "АВТОПРОФИ" in (item.get("l1") or "").upper()
             for prefix, base in (("wb", "price_wb"), ("oz", "price_ozon")):
                 for suffix in ("base", "upload_price", "spp_pct", "buyer_price"):
@@ -212,8 +210,6 @@ def index_workbook(items, period=None, show_cost=False, search=""):
                         c.number_format = '"≈"0.0%' if estimated else "0.0%"
                         if estimated:
                             c.comment = Comment("СПП оценочная: из ближайшего известного дня.", "ТД АВТОПРОФИ")
-                    elif suffix != "base" and item.get(prefix + "_last_date"):
-                        c.comment = Comment("Дата исходных цен: " + item[prefix + "_last_date"], "ТД АВТОПРОФИ")
                 ratio(row, prefix + "_pi", prefix + ("_buyer_price" if avto else "_upload_price"),
                       prefix + "_base", 1.15 if avto else 1, not avto)
             ratio(row, "buyer_pi", "oz_buyer_price", "wb_buyer_price", 1.03)
