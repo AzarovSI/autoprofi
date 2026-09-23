@@ -1,0 +1,2198 @@
+/* ТД АВТОПРОФИ — аналитика маркетплейсов.
+   Фирменный стиль: красный PANTONE 485C (#EB1414), чёрный, серый PANTONE 7543C (#96A5AF).
+   Только светлая тема. */
+:root {
+  /* СВЕТЛАЯ ТЕМА (по умолчанию) */
+  --bg:           #f4f6f8;
+  --bg-elev:      #ffffff;
+  --bg-elev2:     #f2f5f8;
+  --bg-hover:     #f0f3f6;
+  --border:       #e3e8ee;
+  --border-soft:  #eef1f5;
+  --text:         #16191d;   /* почти чёрный, фирменный */
+  --text-dim:     #5a6470;
+  --text-mute:    #96a5af;   /* фирменный серый 7543C */
+  --accent:       #eb1414;   /* фирменный красный 485C R235/G20/B20 */
+  --accent-soft:  #c40f0f;
+  --accent-bg:    rgba(235,20,20,.08);
+  --accent-line:  #eb1414;
+  --ozon:         #2f6bff;   /* синий — фирменный цвет OZON */
+  --ozon-soft:    #1d4fd6;   /* насыщенный синий для текста/обводок */
+  --ozon-bg:      rgba(47,107,255,.07);   /* лёгкий синий фон */
+  --ozon-line:    rgba(47,107,255,.32);   /* синяя обводка-акцент */
+  --wb:           #cb11ab;   /* фиолетово-пурпурный — фирменный цвет Wildberries */
+  --wb-soft:      #a30d8a;   /* насыщенный пурпур для текста */
+  --wb-bg:        rgba(203,17,171,.07);   /* лёгкий фиолетовый фон */
+  --wb-line:      rgba(203,17,171,.32);   /* фиолетовая обводка-акцент */
+  --ya:           #ffcc00;   /* жёлтый — фирменный цвет Яндекс.Маркета (пиллы, лёгкий фон) */
+  --ya-soft:      #8a6d00;   /* насыщенный янтарный для текста (жёлтый нечитаем на белом) */
+  --ya-bg:        rgba(255,204,0,.10);   /* лёгкий жёлтый фон */
+  --ya-line:      rgba(212,170,0,.42);   /* янтарная обводка-акцент (вкладка) */
+  /* Вариант A «Янтарь»: полоса-шапка и обводка карточки — янтарные, а НЕ чистый
+     жёлтый. Янтарь темнее кремовой середины теплового светофора заказов
+     (#faeebf), поэтому не сливается с ним и остаётся читаемым. */
+  --ya-amber:     #e8a200;   /* янтарь — полоса-шапка карточки Яндекс */
+  --ya-amber-line:rgba(200,134,11,.55);   /* насыщенная янтарная обводка карточки */
+  --plan-blue:    #2a5bd7;   /* корпоративный синий для плановых показателей */
+  --good:         #16a360;
+  --good-bg:      rgba(22,163,96,.12);
+  --bad:          #eb1414;
+  --bad-bg:       rgba(235,20,20,.10);
+  --warn:         #d98a00;
+  --flat:         #96a5af;
+  --shadow:       0 1px 3px rgba(20,30,48,.06), 0 6px 20px rgba(20,30,48,.05);
+  --shadow-sm:    0 1px 2px rgba(20,30,48,.06);
+  --radius:       14px;
+  --radius-sm:    9px;
+  --header-h:     72px;
+  /* Единый системный шрифтовой стек (Apple → Windows → общий фолбэк) — без внешних загрузок */
+  --mono:         ui-monospace,"SF Mono","Segoe UI Mono",Consolas,Menlo,monospace;
+  --sans:         -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; height:100%; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  transition: background .2s, color .2s;
+}
+a { color: var(--accent); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Фирменный логотип AUTOPROFI (официальный вектор) ---------- */
+.ap-logo { display:inline-flex; align-items:center; }
+/* горизонтальный знак+текст */
+.ap-logo .ap-logo-line { height:46px; width:auto; display:block; shape-rendering:geometricPrecision; }
+.ap-logo.lg .ap-logo-line { height:60px; }
+/* только знак (круг) */
+.ap-logo .ap-logo-mark { height:40px; width:auto; display:block; shape-rendering:geometricPrecision; }
+.ap-logo.lg .ap-logo-mark { height:64px; }
+/* перекраска под тему: кольцо всегда красное, текст/буква — по теме (выворотка) */
+.ap-logo .ap-ac { fill:#ed1c24; }
+.ap-logo .ap-fg { fill:#231f20; }
+
+/* ---------- Логин ---------- */
+.login-wrap {
+  min-height: 100vh; display:flex; align-items:center; justify-content:center;
+  background:
+    radial-gradient(1100px 520px at 50% -8%, rgba(235,20,20,.07), transparent 60%),
+    var(--bg);
+}
+.login-card {
+  width: 380px; background: var(--bg-elev); border:1px solid var(--border);
+  border-radius: var(--radius); padding: 36px 30px; box-shadow: var(--shadow);
+}
+.login-card .brand { display:flex; flex-direction:column; align-items:center; margin-bottom: 26px; }
+.login-card .brand .sub { color: var(--text-dim); font-size: 12px; margin-top: 12px; }
+.field { margin-bottom: 15px; }
+.field label { display:block; font-size:12px; color: var(--text-dim); margin-bottom: 6px; font-weight:500; }
+.field input {
+  width:100%; background: var(--bg); border:1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 11px 13px; font-size: 14px; outline:none;
+  transition: border-color .15s;
+}
+.field input:focus { border-color: var(--accent); }
+.btn {
+  width:100%; background: var(--accent); color:#fff; border:none; font-weight: 700;
+  padding: 12px; border-radius: var(--radius-sm); font-size: 14px; transition: background .15s;
+}
+.btn:hover { background: var(--accent-soft); }
+.btn:disabled { opacity:.6; cursor:not-allowed; }
+.login-err { color: var(--bad); font-size: 12px; min-height: 16px; margin-top: 8px; text-align:center; }
+
+/* ---------- Каркас: горизонтальная шапка (как в кабинете B2B) ---------- */
+.layout { display:flex; flex-direction:column; min-height: 100vh; }
+.appbar {
+  height: var(--header-h); flex-shrink:0; background: var(--bg-elev);
+  border-bottom:1px solid var(--border); display:flex; align-items:center;
+  padding: 0 26px; gap: 26px; position: sticky; top:0; z-index: 40; box-shadow: var(--shadow-sm);
+}
+.appbar .ap-logo { flex-shrink:0; }
+.nav { display:flex; align-items:stretch; gap: 2px; height:100%; flex:1; }
+.nav a {
+  display:flex; align-items:center; gap:9px; padding: 0 15px; height:100%;
+  color: var(--text-dim); font-size: 14px; font-weight: 600; position:relative;
+  border-bottom: 3px solid transparent; transition: color .15s, background .15s;
+  border-radius: 8px 8px 0 0;
+}
+.nav a .ico { font-size:16px; opacity:.9; flex-shrink:0; align-self:center; }
+.nav a:hover { color: var(--text); background: var(--bg-hover); }
+.nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* Пункт с подписью: настоящий двухстрочный блок в потоке.
+   Название + подпись центрируются как единый блок, иконка — по вертикальному центру.
+   Однострочные пункты (АВС, Справочник…) центрируются так же → единый ровный ряд. */
+.nav a .nav-lbl { display:flex; flex-direction:column; justify-content:center; line-height:1.15; }
+.nav a .nav-lbl .nav-sub { position:static; display:block; margin-top:2px; font-size:10.5px; font-weight:500; line-height:1; letter-spacing:.1px; color: var(--text-mute); white-space:nowrap; }
+.nav a.active .nav-lbl .nav-sub { color: var(--accent-soft); opacity:.85; }
+.appbar .right { display:flex; align-items:center; gap: 14px; flex-shrink:0; }
+.appbar .uname { font-size:13px; font-weight:600; color: var(--text); }
+.appbar .logout { font-size:12.5px; color: var(--text-mute); cursor:pointer; }
+.appbar .logout:hover { color: var(--accent); }
+
+/* мобильная / ноутбучная шапка */
+.appbar .nav-toggle { display:none; }
+/* На промежуточных ширинах (1180–1400) чуть ужимаем горизонтальное меню,
+   чтобы логотип + меню + имя пользователя гарантированно помещались в одну строку. */
+@media (max-width: 1400px){
+  .appbar { gap: 16px; padding: 0 18px; }
+  .nav { gap: 1px; }
+  .nav a { padding: 0 11px; font-size: 13.5px; gap: 7px; }
+  .nav a .ico { font-size: 15px; }
+  .nav a .nav-lbl .nav-sub { font-size: 10px; }
+}
+/* Гамбургер-меню: включаем раньше (≤1180px), чтобы на ноутбуках
+   имя/«Выйти» никогда не вылезали за край экрана. */
+@media (max-width: 1180px){
+  .appbar { gap: 14px; padding: 0 16px; }
+  .nav { position:absolute; top: var(--header-h); left:0; right:0; flex-direction:column;
+    align-items:stretch; background: var(--bg-elev); border-bottom:1px solid var(--border);
+    height:auto; padding: 6px 0; box-shadow: var(--shadow); display:none; z-index:50; }
+  .nav.open { display:flex; }
+  .nav a { height:auto; padding: 12px 20px; font-size:14px; border-bottom:none; border-left:3px solid transparent; }
+  .nav a.active { border-left-color: var(--accent); border-bottom:none; }
+  .appbar .nav-toggle { display:inline-flex; }
+  .appbar .right { margin-left:auto; }
+}
+
+.main { flex:1; min-width:0; display:flex; flex-direction:column; }
+/* Шапка страницы: компактная, в одну строку.
+   Хлебные крошки скрыты, высота уменьшена (меньше пустого места). */
+.pagehead {
+  display:flex; align-items:center; gap: 16px; padding: 10px 26px 4px; flex-wrap: wrap;
+}
+.pagehead .crumbs { display:none; }
+/* Заголовок страницы скрыт (дублирует пункт меню); элемент оставлен в DOM для скрипта. */
+.pagehead h1 { display: none; }
+.pagehead .spacer { flex:1; }
+/* РНП больше НЕ использует верхнюю панель страницы: вкладки и фильтры
+   переехали внутрь карточки (тулбар .rnp-toolbar, см. ниже), как в «Продажи, шт».
+   Поэтому шапка страницы на РНП — стандартная (как у других разделов). */
+.icon-btn {
+  background: var(--bg-elev2); border:1px solid var(--border); color: var(--text-dim);
+  width: 38px; height: 36px; border-radius: var(--radius-sm); font-size: 16px; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center; transition: background .15s;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.content { padding: 16px 26px 64px; }
+
+/* ---------- Контролы ---------- */
+.ctl { display:flex; align-items:center; gap:8px; }
+.ctl label { font-size:12px; color: var(--text-dim); }
+select, .select {
+  background: var(--bg-elev); border:1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 8px 11px; font-size: 13px; outline:none;
+}
+select:focus { border-color: var(--accent); }
+.seg { display:inline-flex; background: var(--bg-elev2); border:1px solid var(--border); border-radius: var(--radius-sm); overflow:hidden; }
+.seg button { background:transparent; border:none; color: var(--text-dim); padding: 8px 13px; font-size:12.5px; font-weight:600; }
+.seg button.active { background: var(--accent); color:#fff; }
+.seg button:not(.active):hover { background: var(--bg-hover); color: var(--text); }
+.input-sm {
+  background: var(--bg-elev); border:1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 8px 11px; font-size: 13px; outline:none; width: 220px;
+}
+.input-sm:focus { border-color: var(--accent); }
+
+/* ---------- KPI карточки ---------- */
+.kpi-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 14px; margin-bottom: 22px; }
+.kpi {
+  background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 20px; position:relative; overflow:hidden; box-shadow: var(--shadow);
+}
+.kpi .label { font-size:11.5px; color: var(--text-dim); text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
+.kpi .value { font-size: 27px; font-weight: 800; margin-top: 8px; font-variant-numeric: tabular-nums; letter-spacing:-.5px; }
+.kpi .wow { font-size: 12.5px; margin-top: 10px; display:flex; align-items:center; gap:6px; font-weight:600; }
+.kpi .wow .arrow { font-size: 13px; }
+.wow.up { color: var(--good); } .wow.down { color: var(--bad); } .wow.flat { color: var(--flat); }
+.kpi .wow .abs { color: var(--text-mute); font-weight:500; }
+.kpi.accent { border-color: rgba(235,20,20,.35); }
+.kpi.accent::after { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background: var(--accent); }
+
+/* ---------- Карточки / панели ---------- */
+.card {
+  background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; margin-bottom: 18px; box-shadow: var(--shadow);
+}
+.card h3 { margin:0 0 16px; font-size: 16px; font-weight: 700; display:flex; align-items:center; gap:8px; }
+.card h3 .hint { font-size:11.5px; color: var(--text-mute); font-weight:500; }
+.chart { width:100%; height: 320px; }
+.chart.tall { height: 400px; }
+.grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 1000px){ .grid-2 { grid-template-columns: 1fr; } }
+.grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+@media (max-width: 1300px){ .grid-3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px){ .grid-3 { grid-template-columns: 1fr; } }
+
+/* ---------- Таблицы ---------- */
+.tbl-wrap { overflow-x:auto; border-radius: var(--radius); border:1px solid var(--border); background: var(--bg-elev); box-shadow: var(--shadow); }
+table.tbl { width:100%; border-collapse: collapse; font-size: 13px; }
+table.tbl th, table.tbl td { padding: 11px 13px; text-align: right; white-space: nowrap; border-bottom:1px solid var(--border-soft); }
+table.tbl th { background: var(--bg-elev2); color: var(--text-dim); font-weight:600; position:sticky; top:0; cursor:default; }
+table.tbl th.sortable { cursor:pointer; }
+table.tbl th.sortable:hover { color: var(--accent); }
+table.tbl th.l, table.tbl td.l { text-align:left; }
+table.tbl tbody tr:hover { background: var(--bg-hover); }
+table.tbl td.num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.muted { color: var(--text-mute); }
+.pill { display:inline-block; padding:3px 9px; border-radius: 999px; font-size:11px; font-weight:600; }
+.pill.oz { background: rgba(47,107,255,.13); color: var(--ozon); }
+.pill.wb { background: rgba(22,25,29,.10); color: var(--text); }
+.pill.ya { background: rgba(255,204,0,.20); color: var(--ya-soft); }
+
+.pill.up { background: var(--good-bg); color: var(--good); }
+.pill.down { background: var(--bad-bg); color: var(--bad); }
+.pill.flat { background: rgba(150,165,175,.16); color: var(--flat); }
+/* статус-бейджи как в кабинете (точкой) */
+.badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; }
+.badge::before { content:""; width:7px; height:7px; border-radius:50%; background: currentColor; }
+.badge.ok { color: var(--good); }
+.badge.warn { color: var(--warn); }
+.badge.bad { color: var(--accent); }
+.badge.mute { color: var(--text-mute); }
+.m-good { color: var(--good); font-weight:700; }
+.m-warn { color: var(--warn); font-weight:700; }
+.m-bad  { color: var(--bad); font-weight:700; }
+
+/* раскрытие строки SKU (драйверы маржи) */
+.expander { cursor:pointer; user-select:none; color: var(--accent); font-weight:700; width:18px; display:inline-block; }
+tr.drv-row > td { background: var(--bg); padding: 0; }
+.drv-box { padding: 16px 20px 20px; }
+.drv-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px 26px; }
+@media (max-width: 900px){ .drv-grid { grid-template-columns: 1fr; } }
+.drv-bar-row { display:flex; align-items:center; gap:10px; font-size:12.5px; padding: 4px 0; }
+.drv-bar-row .nm { width: 150px; color: var(--text-dim); flex-shrink:0; }
+.drv-bar-row .bar { flex:1; height: 16px; background: var(--bg-elev2); border-radius: 4px; position:relative; overflow:hidden; }
+.drv-bar-row .bar > span { position:absolute; left:0; top:0; bottom:0; border-radius:4px; }
+.drv-bar-row .bar > span.plus { background: var(--good); }
+.drv-bar-row .bar > span.minus { background: var(--bad); }
+.drv-bar-row .val { width: 130px; text-align:right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.drv-bar-row .pct { width: 64px; text-align:right; color: var(--text-mute); font-size:11.5px; }
+
+/* состояние загрузки / пусто */
+.loader { text-align:center; padding: 44px; color: var(--text-mute); }
+.empty { text-align:center; padding: 40px; color: var(--text-mute); font-size: 13.5px; }
+.spinner { display:inline-block; width:24px; height:24px; border:3px solid var(--border); border-top-color: var(--accent); border-radius:50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* мини-спиннер внутри кнопки (на красном фоне — белый) */
+.btn-spin { display:inline-block; width:13px; height:13px; vertical-align:-2px; margin-right:6px; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; border-radius:50%; animation: spin .7s linear infinite; }
+.hidden { display:none !important; }
+
+/* загрузка/история */
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius); padding: 30px; text-align:center;
+  color: var(--text-dim); transition: border-color .15s, background .15s;
+}
+.upload-zone.drag { border-color: var(--accent); background: var(--accent-bg); }
+
+/* кнопки-вторичные */
+.btn-sm {
+  background: var(--bg-elev); border:1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 8px 14px; font-size: 13px; font-weight:600;
+  transition: background .15s, border-color .15s;
+}
+.btn-sm:hover { background: var(--bg-hover); border-color: var(--text-mute); }
+.btn-sm.primary { background: var(--accent); color:#fff; border-color: var(--accent); }
+.btn-sm.primary:hover { background: var(--accent-soft); border-color: var(--accent-soft); }
+
+.toast {
+  position: fixed; right: 22px; bottom: 22px; background: var(--bg-elev); border:1px solid var(--border);
+  border-left: 4px solid var(--accent); padding: 13px 17px; border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); font-size: 13px; max-width: 360px; z-index: 100;
+}
+.toast.ok { border-left-color: var(--good); }
+.toast.err { border-left-color: var(--bad); }
+.toast.warn { border-left-color: var(--warn); }
+.note { border-radius: var(--radius-sm); }
+.note.ok { background: var(--good-bg); border:1px solid rgba(22,163,96,.4); }
+.note.err { background: var(--bad-bg); border:1px solid rgba(235,20,20,.4); color: var(--accent); }
+.note.warn { background: rgba(217,138,0,.10); border:1px solid rgba(217,138,0,.40); color: var(--warn); }
+/* Плашка предупреждения в зоне загрузки */
+.up-warn { margin-top:10px; padding:9px 12px; border-radius: var(--radius-sm);
+  background: rgba(217,138,0,.10); border:1px solid rgba(217,138,0,.40);
+  color: var(--warn); font-size:12.5px; line-height:1.4; }
+
+/* ============================================================
+   РНП UNIT — юнит-экономика
+   ============================================================ */
+/* под-вкладки маркетплейсов в топбаре.
+   Активная вкладка окрашена в фирменный цвет маркетплейса:
+   синий — OZON, фиолетовый — Wildberries. Цвет кодирует выбранный канал. */
+.subtabs { display:flex; gap:6px; background:var(--bg-elev2); padding:4px; border-radius:10px; }
+.subtab {
+  border:1px solid transparent; background:transparent; color:var(--text-dim);
+  font:700 13px/1 inherit; padding:8px 16px; border-radius:7px; cursor:pointer;
+  transition:background .15s, color .15s, border-color .15s, box-shadow .15s;
+}
+.subtab:hover { color:var(--text); background:var(--bg-hover); }
+.subtab.active { color:var(--text); }
+/* OZON — синий акцент (JS присваивает класс .ozon) */
+.subtab.ozon.active {
+  background:var(--ozon-bg); color:var(--ozon-soft);
+  border-color:var(--ozon-line); box-shadow:0 1px 4px rgba(47,107,255,.18);
+}
+/* Wildberries — фиолетовый акцент */
+.subtab.wb.active {
+  background:var(--wb-bg); color:var(--wb-soft);
+  border-color:var(--wb-line); box-shadow:0 1px 4px rgba(203,17,171,.18);
+}
+/* Сводная — нейтральный серо-белый акцент (общая, вне конкретного МП) */
+.subtab.cross.active {
+  background:var(--bg-elev); color:var(--text);
+  border-color:var(--border); box-shadow:0 1px 3px rgba(20,30,48,.10);
+}
+/* Yandex.Маркет — пастельный жёлтый акцент (как Ozon/WB, но в гамме Яндекса) */
+.subtab.yandex.active {
+  background:var(--ya-bg); color:var(--ya-soft);
+  border-color:var(--ya-line); box-shadow:0 1px 4px rgba(255,204,0,.18);
+}
+/* Прижатие таба к правому краю строки (напр. «Загрузка данных»).
+   Контейнер с таким табом растягивается на всю ширину, чтобы margin-left:auto работал. */
+.subtabs:has(.subtab-right) { width:100%; }
+.subtab.subtab-right { margin-left:auto; }
+/* Вложенные вкладки «Загрузка данных»: активная — нейтральный чёткий фон */
+.up-subtabs { flex-wrap:wrap; }
+.up-subtab.active {
+  background:var(--bg-elev); color:var(--text);
+  border-color:var(--border); box-shadow:0 1px 3px rgba(20,30,48,.10);
+}
+
+/* ===================== РНП UNIT — матрица недели×метрики ===================== */
+
+/* служебное сообщение о нераспределённых товарах */
+.rnp-warn { background:var(--accent-bg); border:1px solid var(--accent); border-radius:var(--radius); padding:12px 14px; margin-bottom:14px; }
+.rnp-warn-h { font-weight:700; color:var(--accent); font-size:13.5px; margin-bottom:4px; }
+.rnp-warn-d { font-size:12.5px; color:var(--text-dim); line-height:1.45; }
+.rnp-warn-list { margin:8px 0 0; padding-left:18px; font-size:12.5px; color:var(--text); }
+.rnp-warn-list li { margin:2px 0; }
+.rnp-warn-count { color:var(--accent); text-decoration:underline; cursor:pointer; font-weight:700; }
+.rnp-warn-count:hover { opacity:.8; }
+
+/* плашка активного фильтра «нераспределённые из РНП» в справочнике */
+.cat-undist-bar { display:flex; align-items:center; gap:10px; margin:0 0 12px; padding:8px 12px;
+  background:rgba(192,57,43,.08); border:1px solid rgba(192,57,43,.3); border-radius:8px;
+  font-size:13px; color:var(--text); }
+.cat-undist-bar b { color:var(--accent); }
+.btn-link { background:none; border:none; color:var(--accent); text-decoration:underline;
+  cursor:pointer; font-size:13px; padding:0; font-weight:600; }
+.btn-link:hover { opacity:.8; }
+
+/* форма ручного добавления товара в справочник */
+.cat-add-card { margin:0 0 14px; padding:16px; border:1px solid var(--border-soft,#e3e6ea);
+  border-radius:10px; background:var(--bg-elev,#fafbfc); box-shadow:0 1px 2px rgba(16,24,40,.04); }
+.cat-add-title { font-size:14px; font-weight:700; color:var(--text); margin:0 0 12px; }
+.cat-add-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px 14px; }
+.cat-add-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.cat-add-field > span { font-size:12px; color:var(--muted,#667085); font-weight:600; }
+.cat-add-field .input-sm, .cat-add-field select { width:100%; box-sizing:border-box; }
+.cat-add-wide { grid-column:span 2; }
+.cat-add-actions { display:flex; align-items:center; gap:12px; margin-top:14px; flex-wrap:wrap; }
+.cat-add-hint { font-size:12px; color:var(--muted,#667085); flex:1 1 240px; line-height:1.4; }
+#cat-add-btn.is-active { box-shadow:inset 0 0 0 2px rgba(235,20,20,.35); }
+@media (max-width:1100px){ .cat-add-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .cat-add-wide { grid-column:span 2; } }
+
+/* Лёгкий фирменный акцент карточки РНП по выбранному маркетплейсу.
+   Цвет кодирует канал: синяя обводка/тень — OZON, фиолетовая — Wildberries.
+   Верхняя цветная полоса (::before) не перекрывается sticky-шапкой, т.к. лежит на рамке. */
+.rnp-card.mp-ozon {
+  border-color:var(--ozon-line);
+  box-shadow:0 1px 3px rgba(47,107,255,.08), 0 8px 26px rgba(47,107,255,.07);
+}
+.rnp-card.mp-wb {
+  border-color:var(--wb-line);
+  box-shadow:0 1px 3px rgba(203,17,171,.08), 0 8px 26px rgba(203,17,171,.07);
+}
+/* тонкая цветная полоса вдоль верхнего края карточки.
+   Без overflow:hidden на карточке — иначе сломается position:sticky у шапки недель.
+   Полоса повторяет радиус верхних углов карточки. */
+.rnp-card.mp-ozon, .rnp-card.mp-wb { position:relative; }
+.rnp-card.mp-ozon::before, .rnp-card.mp-wb::before {
+  content:""; position:absolute; top:0; left:0; right:0; height:3px; z-index:1;
+  border-radius:var(--radius) var(--radius) 0 0;
+}
+.rnp-card.mp-ozon::before { background:var(--ozon); }
+.rnp-card.mp-wb::before { background:var(--wb); }
+/* Yandex.Маркет — янтарная граница + мягкая цветная тень (Вариант A «Янтарь») */
+.rnp-card.mp-yandex {
+  position:relative;
+  border-color:var(--ya-amber-line);
+  box-shadow:0 1px 3px rgba(212,170,0,.10), 0 8px 26px rgba(212,170,0,.09);
+}
+/* тонкая янтарная полоса СВЕРХУ (как Ozon/WB, но янтарь — читаемо рядом со светофором) */
+.rnp-card.mp-yandex::before {
+  content:""; position:absolute; top:0; left:0; right:0; height:3px; z-index:1;
+  border-radius:var(--radius) var(--radius) 0 0; background:var(--ya-amber);
+}
+/* акцент номера недели — тёмно-янтарный (по образцу WB → --wb-soft) */
+.rnp-card.mp-yandex .rnp-wkh-n { color:var(--ya-soft); }
+
+/* Сводная (РНП): нейтральная серо-белая карточка, без бренд-акцента. */
+.rnp-card.mp-cross { position:relative; border-color:var(--border); }
+.rnp-card.mp-cross::before {
+  content:""; position:absolute; top:0; left:0; right:0; height:3px; z-index:1;
+  border-radius:var(--radius) var(--radius) 0 0; background:var(--flat);
+}
+.rnp-card.mp-cross,
+.rnp-card.mp-cross #rnp-matrix {
+  --lvl-bg-0:rgba(150,165,175,.16); --lvl-bg-1:rgba(150,165,175,.10);
+  --lvl-bg-2:rgba(150,165,175,.06); --lvl-bg-3:rgba(150,165,175,.03);
+}
+/* Сводная: ДВА столбца статуса (OZ + WB, только просмотр). Левая фикс-зона шире
+   на одну --rnp-status-w → пересчитываем --rnp-mname-w, чтобы нижний бегунок
+   недель (.rnp-hscroll-bar margin-left) и шов оставались выровнены. Ширину каждого
+   столбца задают базовые классы .rnp-node-status/.rnp-status-leg (var(--rnp-status-w));
+   правила ниже лишь явно фиксируют её для второго блока. */
+.rnp-card.mp-cross { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) * 2 + 32px); }
+/* #rnp-matrix сам переопределяет --rnp-mname-w под ОДИН статус, и таблицы метрик
+   (.rnp-mtbl .rnp-m-name) берут его именно отсюда (ближайший предок). Повторяем
+   cross-значение (под ДВА статуса) и на #rnp-matrix, иначе колонка имени метрики
+   уже фикс-зоны и недельные значения метрик съезжают на один столбец влево. */
+.rnp-card.mp-cross #rnp-matrix { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) * 2 + 32px); }
+.rnp-card.mp-cross .rnp-status-leg2,  .rnp-card.mp-cross .rnp-status-leg2b,
+.rnp-card.mp-cross .rnp-node-status2, .rnp-card.mp-cross .rnp-node-status2b {
+  width:var(--rnp-status-w);
+}
+
+/* панель фильтров РНП: поиск по артикулу + менеджер + статус */
+/* Панель фильтров РНП: компактная раскладка, чтобы все контролы
+   (поиск, менеджеры, статусы, метрика, светофор, период) помещались в ОДНУ строку.
+   nowrap гарантирует отсутствие переноса периода на вторую строку. */
+.rnp-filters { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; }
+/* Панель фильтров Ozon: flex, чтобы компонент периода (.rnp-period, margin-left:auto)
+   прижимался к правому краю строки фильтров. */
+.rnp-filters-host { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.rnp-filters .input-sm { width:150px; flex:0 0 auto; }
+.rnp-filters select { min-width:0; flex:0 1 auto; }
+#rnp-mgr-filter, #rnp-status-filter { max-width:128px; }
+/* РНП заказы: ширина полей поиск/менеджеры/статусы — как в РНП Юнит-экономике */
+.rnp-filters-host > #rnps-search { width:150px; flex:0 0 auto; }
+.rnp-filters-host > #rnps-mgr, .rnp-filters-host > #rnps-status { width:auto; max-width:128px; min-width:0; flex:0 1 auto; }
+#rnp-top-metric { max-width:150px; }
+
+/* Светофор маржинальности: галка «отрицательная» + поле «целевая %» */
+.rnp-sig-check { display:inline-flex; align-items:center; gap:5px; cursor:pointer; flex:0 0 auto;
+  font-size:12px; color:var(--text-dim); white-space:nowrap; user-select:none; }
+.rnp-sig-check input { width:15px; height:15px; accent-color:var(--accent); cursor:pointer; margin:0; }
+.rnp-sig-target { position:relative; display:inline-flex; align-items:center; flex:0 0 auto; }
+.rnp-sig-target .input-sm { width:96px; padding-right:22px; }
+.rnp-sig-target .rnp-sig-target-suf { position:absolute; right:11px; font-size:13px;
+  color:var(--text-dim); pointer-events:none; }
+/* Кнопка «Свернуть» — вторичная, нейтральная (без бренд-красного),
+   в тон остальным контролам панели фильтров. */
+.rnp-collapse-btn { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; flex:0 0 auto;
+  height:34px; padding:0 12px; font-size:13px; font-weight:600; color:var(--text-dim);
+  background:var(--bg-elev2); border:1px solid var(--border-soft); border-radius:8px;
+  cursor:pointer; transition:background .12s, color .12s, border-color .12s; }
+.rnp-collapse-btn:hover { background:#e7ebf1; color:var(--text); border-color:#dde3ea; }
+.rnp-collapse-btn:active { background:#dfe4ec; }
+
+/* ============ Поле периода + поповер-календарь (date-range) ============
+   Светлая тема, ФИРМЕННЫЙ красный акцент ТД АВТОПРОФИ (#eb1414):
+   концы диапазона — насыщенный бренд-красный, середина — мягкая светло-красная
+   заливка. Аккуратно: насыщенный цвет только на концах, фон деликатный. */
+:root { --cal-acc:#eb1414; --cal-acc-soft:#fde9e9; }
+/* Период — последний контрол; margin-left:auto прижимает его к правому краю,
+   но при nowrap он остаётся в той же строке (не переносится). */
+.rnp-period { position:relative; margin-left:auto; flex:0 0 auto; }
+.rnp-period-field { display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  height:34px; padding:0 11px; font-size:13px; font-weight:600; color:var(--text);
+  background:var(--bg-elev2); border:1px solid var(--border-soft); border-radius:8px;
+  cursor:pointer; transition:background .12s, border-color .12s, box-shadow .12s; }
+.rnp-period-field .rnp-period-ico { color:var(--cal-acc); flex:0 0 auto; }
+.rnp-period-field:hover { background:#fdf0f0; border-color:#f3b9b9; }
+.rnp-period-field.open { border-color:var(--cal-acc); box-shadow:0 0 0 3px var(--cal-acc-soft); }
+.rnp-period-text { line-height:1; }
+
+.rnp-cal { position:absolute; top:calc(100% + 8px); right:0; z-index:60;
+  background:#fff; border:1px solid var(--border-soft); border-radius:12px;
+  box-shadow:0 12px 34px rgba(20,22,48,.16); padding:14px 14px 10px; }
+.rnp-cal[hidden] { display:none; }
+.rnp-cal-nav { display:flex; justify-content:space-between; margin:0 2px 4px; }
+.rnp-cal-arrow { width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center;
+  font-size:18px; line-height:1; color:var(--text-dim); background:transparent;
+  border:1px solid var(--border-soft); border-radius:7px; cursor:pointer; transition:background .12s, color .12s; }
+.rnp-cal-arrow:hover { background:var(--cal-acc-soft); color:var(--cal-acc); border-color:#f3b9b9; }
+.rnp-cal-months { display:flex; gap:22px; }
+.rnp-cal-month { width:210px; }
+.rnp-cal-mtitle { text-align:center; font-size:13.5px; font-weight:700; color:var(--text); margin-bottom:8px; }
+.rnp-cal-dow { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); margin-bottom:4px; }
+.rnp-cal-dow span { text-align:center; font-size:11px; font-weight:600; color:var(--text-mute); }
+/* minmax(0,1fr) — строго равные 7 колонок. gap:0 — никаких зазоров между ячейками
+   (зазоры давали белые «дыры» в подсветке). */
+.rnp-cal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:0; }
+/* ВСЕ ячейки — одинаковые grid-элементы одной высоты/ширины. */
+/* Ячейка-день занимает ВСЮ клетку сетки. Светлая полоса диапазона рисуется
+   фоном самой ячейки на всю ширину → между соседними днями диапазона нет
+   зазоров (никаких белых ромбов). position:relative — для кружка концов. */
+.rnp-cal-cell.day { position:relative; display:flex; align-items:center; justify-content:center;
+  width:100%; height:34px; margin:0; font-size:12.5px; color:var(--text);
+  background:transparent; border:0; cursor:pointer; border-radius:0;
+  transition:background .1s, color .1s; padding:0; box-sizing:border-box; }
+/* Дни соседних месяцев — серые, приглушённые. */
+.rnp-cal-cell.day.adjacent { color:var(--text-mute); }
+/* Цифра дня — поверх любых подложек/кружков (::after). */
+.rnp-cal-cell.day .d { position:relative; z-index:1; line-height:1; }
+/* Ховер одиночного дня (вне диапазона) — мягкий кружок по центру. */
+.rnp-cal-cell.day:not(.in-range):not(.end):hover::after {
+  content:""; position:absolute; width:30px; height:30px; border-radius:50%;
+  background:var(--cal-acc-soft); z-index:0; }
+/* Середина диапазона — СПЛОШНАЯ светлая полоса на всю ячейку (без радиуса). */
+.rnp-cal-cell.day.in-range { background:var(--cal-acc-soft); color:var(--cal-acc); font-weight:600; }
+/* Концы диапазона: светлая полоса-подложка на всю ячейку + насыщенный кружок
+   поверх (::after). Так полоса остаётся непрерывной до соседнего дня. */
+.rnp-cal-cell.day.end { background:var(--cal-acc-soft); color:#fff; font-weight:600; }
+.rnp-cal-cell.day.end::after { content:""; position:absolute; inset:2px auto 2px auto;
+  width:30px; height:30px; border-radius:50%; background:var(--cal-acc); z-index:0; }
+.rnp-cal-cell.day.end:hover::after { background:#cf1111; }
+/* Скругление концов светлой полосы. band-l — левый край (начало диапазона или
+   начало недели), band-r — правый край (конец диапазона или конец недели). */
+.rnp-cal-cell.day.band-l { border-top-left-radius:9px; border-bottom-left-radius:9px; }
+.rnp-cal-cell.day.band-r { border-top-right-radius:9px; border-bottom-right-radius:9px; }
+/* Одиночный выбранный день (только from): кружок без полосы. */
+.rnp-cal-cell.day.end.band-l.band-r:not(.in-range) { background:transparent; }
+.rnp-cal-presets { display:flex; gap:8px; margin-top:12px; padding-top:11px; border-top:1px solid var(--border-soft); }
+.rnp-cal-preset { flex:1; height:32px; font-size:12.5px; font-weight:600; color:var(--cal-acc);
+  background:var(--cal-acc-soft); border:1px solid transparent; border-radius:8px;
+  cursor:pointer; transition:background .12s, border-color .12s; }
+.rnp-cal-preset:hover { background:#fadddd; border-color:#f3b9b9; }
+.rnp-cal-preset:active { background:#f6cccc; }
+
+/* Сигнальные цвета значения РНП % (только шрифт, без фона — аккуратно) */
+.rnp-hd-v.rnp-sig-neg { color:#d11414; font-weight:600; }
+.rnp-hd-v.rnp-sig-low { color:#e08a00; font-weight:600; }
+.loading { text-align:center; padding:40px; color:var(--text-mute); font-size:13.5px; }
+/* Компактный заголовок карточки (фильтры переехали наверх, поэтому воздуха меньше) */
+.rnp-card-title { font-size:15px; font-weight:700; margin:0 0 8px; }
+/* Карточка РНП: меньше верхнего паддинга — шапка стала компактнее */
+.rnp-card { padding-top:14px; }
+/* Тулбар РНП (вкладки + фильтры) — внутри карточки, как .sp-toolbar в «Продажи, шт».
+   Фиксируется при скролле под шапкой приложения. Высота панели может меняться
+   (фильтры переносятся на 2 строки) → реальная высота меряется в JS → --rnp-filters-h.
+   Непрозрачный фон, z-index ниже appbar (40), но выше шапки таблицы (20).
+   Отрицательные горизонтальные отступы компенсируют padding карточки (20px),
+   чтобы панель и линия-отбивка тянулись от края до края карточки. */
+.rnp-toolbar {
+  position:sticky; top:var(--header-h); z-index:30;
+  background:var(--bg-elev); margin:0 -20px 12px; padding:2px 20px 12px;
+  border-bottom:1px solid var(--border-soft);
+}
+.rnp-toolbar .subtabs { margin-bottom:12px; }
+.rnp-toolbar .rnp-filters { margin-left:0; width:100%; margin-bottom:0; }
+/* Шапка выше «Итоги» фиксируется при скролле (заголовок + легенда недель).
+   top = высота appbar + высота липкого тулбара (измеряется в JS → --rnp-filters-h),
+   чтобы шапка таблицы прилипала ровно под тулбаром, а не за ним. */
+.rnp-head-sticky { position:sticky; top: calc(var(--header-h) + var(--rnp-filters-h, 0px)); z-index:20; background:var(--bg-elev); padding-top:2px; margin-top:-2px; }
+
+/* Строка легенды повторяет раскладку строки-узла:
+   [имя фикс][статус фикс][место под кнопку метрик][скроллер колонок недель] */
+.rnp-legend-row { display:flex; align-items:flex-end; padding:0 12px 6px 0; }
+/* столбец имени — фиксированная ширина по самой длинной видимой надписи (не растягивается) */
+.rnp-legend-fill { flex:0 0 auto; width:var(--rnp-name-w); min-width:0; }
+/* заголовок столбца «Статус» в шапке РНП */
+.rnp-status-leg { flex:0 0 auto; width:var(--rnp-status-w); padding-right:10px; box-sizing:border-box;
+  text-align:center; font-size:11px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:.3px; }
+/* ширина = кнопка метрик (22px) + её margin-right (10px) */
+.rnp-legend-mspacer { flex:0 0 auto; width:32px; }
+.rnp-wk-legend { display:flex; gap:0; align-items:flex-end; flex:0 0 auto; }
+/* каждый заголовок недели — ровно над своей колонкой (та же ширина и правый отступ, что у .rnp-hd-wk) */
+.rnp-wk-leg { display:inline-flex; justify-content:center; width:var(--rnp-col); padding-right:10px; box-sizing:border-box; }
+.rnp-wk-leg .rnp-wkh { align-items:center; }
+
+/* ── ФИКСИРОВАННАЯ ЛЕВАЯ КОЛОНКА + ГОРИЗОНТАЛЬНЫЙ СКРОЛЛ НЕДЕЛЬ ──────────
+   Левые ячейки (.rnp-fixleft: имя + СТАТУС + кнопка метрик) НЕ скроллятся —
+   они обычные flex-элементы фиксированной ширины слева. Область недель
+   вынесена в .rnp-wk-scroll (overflow-x:auto), который и листается.
+   Скроллеры разных строк синхронизируются по scrollLeft из JS
+   (см. syncRnpHScroll в views.js). Так window-sticky строки «Итоги» и шапки
+   недель сверху сохраняется (вертикального scroll-контейнера не возникает). */
+.rnp-wk-scroll { flex:1 1 auto; min-width:0; overflow-x:auto; overflow-y:hidden; }
+/* Полосы прокрутки у КАЖДОЙ строки скрываем — иначе бегунок дублируется в
+   каждой строке (выглядит плохо). Прокрутка остаётся рабочей (жест/колесо/JS),
+   а видимый бегунок один — внизу таблицы (.rnp-hscroll-bar ниже). */
+.rnp-wk-scroll { scrollbar-width:none; -ms-overflow-style:none; }
+.rnp-wk-scroll::-webkit-scrollbar { width:0; height:0; display:none; }
+/* содержимое скроллера само по себе шире вьюпорта — недели уезжают вправо */
+.rnp-wk-scroll > .rnp-wk-legend,
+.rnp-wk-scroll > .rnp-node-rnp { width:max-content; }
+
+/* ── ЕДИНЫЙ ГОРИЗОНТАЛЬНЫЙ БЕГУНОК ВНИЗУ ТАБЛИЦЫ ──────────────────────────
+   Один общий скроллбар на всю таблицу: липнет к низу карточки, выровнен под
+   область недель (слева — отступ под фикс-часть). Прокрутка синхронизируется
+   со всеми .rnp-wk-scroll через syncRnpHScroll(). Внутри — «фантом» нулевой
+   высоты шириной с реальное содержимое недель, чтобы появился бегунок. */
+.rnp-hscroll-bar { position:sticky; bottom:0; z-index:6; overflow-x:scroll; overflow-y:hidden;
+  margin-left:var(--rnp-mname-w); background:var(--surface, #fff);
+  height:14px; scrollbar-width:thin; scrollbar-color:rgba(15,23,42,.28) transparent; }
+.rnp-hscroll-bar::-webkit-scrollbar { height:11px; -webkit-appearance:none; }
+.rnp-hscroll-bar::-webkit-scrollbar-thumb { background:rgba(15,23,42,.28); border-radius:6px;
+  border:2px solid transparent; background-clip:padding-box; }
+.rnp-hscroll-bar::-webkit-scrollbar-thumb:hover { background:rgba(15,23,42,.42); background-clip:padding-box; }
+.rnp-hscroll-bar::-webkit-scrollbar-track { background:rgba(15,23,42,.05); border-radius:6px; }
+/* фантом задаёт ШИРИНУ (= реальное содержимое недель) → появляется бегунок */
+.rnp-hscroll-phantom { height:1px; }
+/* деликатная вертикальная линия + тень на стыке фикс-части и скроллируемых недель
+   (по «красной линии» пользователя справа от СТАТУСА). Тень рисует сам стык,
+   фон под фикс-ячейками непрозрачный (см. .rnp-fixleft ниже). */
+.rnp-fixleft { position:relative; }
+.rnp-legend-mspacer.rnp-fixleft,
+.rnp-node-mbtn.rnp-fixleft { box-shadow:1px 0 0 var(--border-soft), 4px 0 6px -4px rgba(15,23,42,.12); z-index:2; }
+/* фон фикс-ячеек строк-узлов задаётся заливкой уровня на .rnp-node-head ниже —
+   она непрозрачна, поэтому уезжающие под фикс-часть недели не просвечивают */
+
+/* Обёртка матрицы: overflow:visible — НЕ создаём вертикальный scroll-контейнер,
+   иначе сломается window-sticky строки «Итоги» и шапки недель. Горизонтальный
+   скролл живёт во вложенных .rnp-wk-scroll, а не на этой обёртке. */
+.rnp-matrix-wrap { padding:0; overflow:visible; border:0; border-radius:0; box-shadow:none; background:transparent; }
+/* ширина колонки недели — общая для легенды и строк-узлов.
+   Шире, чем раньше: в каждой колонке теперь значение + дельта (как в «Недели API v2») */
+.rnp-card { --rnp-col:128px; --rnps-day-col:72px; --rnps-sum-col:96px; --rnp-status-w:96px; --rnp-name-w:340px; --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 32px);
+  /* синие оттенки заливки уровней (Озон): тёмный→светлый */
+  --lvl-bg-0:rgba(47,107,255,.15); --lvl-bg-1:rgba(47,107,255,.105); --lvl-bg-2:rgba(47,107,255,.065); --lvl-bg-3:rgba(47,107,255,.03); }
+#rnp-matrix { --rnp-col:128px; --rnps-day-col:72px; --rnps-sum-col:96px; --rnp-status-w:96px; --rnp-name-w:340px; --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 32px);
+  --lvl-bg-0:rgba(47,107,255,.15); --lvl-bg-1:rgba(47,107,255,.105); --lvl-bg-2:rgba(47,107,255,.065); --lvl-bg-3:rgba(47,107,255,.03); }
+/* Wildberries: те же уровни прозрачности, но фирменный фиолетово-пурпурный
+   (--wb #cb11ab → rgba(203,17,171,…)) вместо синего Озон. Переопределяем
+   и на карточке, и на вложенном #rnp-matrix (он задаёт переменные напрямую). */
+.rnp-card.mp-wb,
+.rnp-card.mp-wb #rnp-matrix {
+  --lvl-bg-0:rgba(203,17,171,.15); --lvl-bg-1:rgba(203,17,171,.105);
+  --lvl-bg-2:rgba(203,17,171,.065); --lvl-bg-3:rgba(203,17,171,.03);
+}
+/* номер недели в шапке у WB — фирменный фиолетовый акцент (у Озон остаётся тёмным) */
+.rnp-card.mp-wb .rnp-wkh-n { color:var(--wb-soft); }
+/* Yandex: те же уровни прозрачности, но янтарные (--ya-amber #e8a200) вместо
+   синего Озон. Переопределяем и на карточке, и на вложенном #rnp-matrix
+   (он задаёт --lvl-bg-* напрямую, иначе синий Озон протечёт в заливку групп). */
+.rnp-card.mp-yandex,
+.rnp-card.mp-yandex #rnp-matrix {
+  --lvl-bg-0:rgba(232,162,0,.16); --lvl-bg-1:rgba(232,162,0,.11);
+  --lvl-bg-2:rgba(232,162,0,.065); --lvl-bg-3:rgba(232,162,0,.03);
+}
+/* столбец «Статус» в строках РНП */
+.rnp-node-status { flex:0 0 auto; width:var(--rnp-status-w); padding-right:10px; box-sizing:border-box;
+  display:flex; justify-content:center; align-items:center; min-width:0; }
+/* плашка статуса: менее броская — чёрный текст на светло-сером фоне
+   (раньше был красный текст на бледно-красном фоне, перебивал бренд-акцент) */
+.rnp-status-pill { display:inline-block; max-width:100%; padding:1px 8px; border-radius:10px;
+  font-size:11px; font-weight:600; line-height:1.5; background:var(--bg-elev2); color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── Селектор статуса товара (предустановленные значения) ──────────────
+   Выбор статуса прямо в РНП-отчёте и в справочнике. Аккуратная фирменная
+   раскраска: мягкие светлые фоны с цветным текстом, не кричащие.
+   Цвета по смыслу: CORE — графитовый (ядро ассортимента), NEW — зелёный
+   (новинка), Closeout — янтарный (вывод из ассортимента), Sale — мягкий
+   бренд-красный, «-» — приглушённый серый (без статуса). */
+.rnp-status-sel, .cat-status-sel, .abc-status-sel {
+  font-size:11px; font-weight:600; line-height:1.4; padding:2px 20px 2px 8px;
+  border-radius:10px; border:1px solid transparent; cursor:pointer;
+  -webkit-appearance:none; appearance:none; outline:none; text-align:center;
+  background-repeat:no-repeat; background-position:right 6px center; background-size:8px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M1 2.5L4 5.5L7 2.5' stroke='%23888' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  transition:background-color .12s, border-color .12s, box-shadow .12s;
+}
+.rnp-status-sel { max-width:100%; }
+.abc-status-sel { max-width:100%; }
+.cat-status-sel { width:120px !important; }
+.rnp-status-sel:hover, .cat-status-sel:hover, .abc-status-sel:hover { box-shadow:0 0 0 2px rgba(0,0,0,.04) inset; }
+.rnp-status-sel:focus, .cat-status-sel:focus, .abc-status-sel:focus { box-shadow:0 0 0 2px rgba(235,20,20,.18); }
+/* раскрытый список опций — всегда нейтральный (читаемый), цвет несёт только закрытый селектор */
+.rnp-status-sel option, .cat-status-sel option, .abc-status-sel option { color:var(--text); background:#fff; font-weight:500; }
+
+/* CORE — графитовый: ключевой ассортимент, спокойный «важный» вид */
+.rnp-status-sel.st-core, .cat-status-sel.st-core, .abc-status-sel.st-core, .status-badge.st-core { background-color:#eef0f3; color:#384150; border-color:#dfe3ea; }
+/* NEW — зелёный: новинка */
+.rnp-status-sel.st-new, .cat-status-sel.st-new, .abc-status-sel.st-new, .status-badge.st-new { background-color:#e8f6ed; color:#1f7a44; border-color:#c9ebd6; }
+/* Closeout — янтарный: вывод из ассортимента */
+.rnp-status-sel.st-closeout, .cat-status-sel.st-closeout, .abc-status-sel.st-closeout, .status-badge.st-closeout { background-color:#fdf3e3; color:#9a6512; border-color:#f3e0bd; }
+/* Sale — мягкий бренд-красный */
+.rnp-status-sel.st-sale, .cat-status-sel.st-sale, .abc-status-sel.st-sale, .status-badge.st-sale { background-color:#fdecec; color:#c01616; border-color:#f6cccc; }
+/* «?» — требует внимания/обсуждения: тёплый янтарный акцент */
+.rnp-status-sel.st-question, .cat-status-sel.st-question, .abc-status-sel.st-question, .status-badge.st-question { background-color:#fff6df; color:#b8860b; border-color:#f0e0a8; }
+/* «-» — без статуса: приглушённый серый */
+.rnp-status-sel.st-none, .cat-status-sel.st-none, .abc-status-sel.st-none, .status-badge.st-none { background-color:#f4f5f7; color:#9aa0a8; border-color:#e7e9ee; }
+.rnp-status-sel.st-none:hover, .cat-status-sel.st-none:hover, .abc-status-sel.st-none:hover { background-color:#f4f5f7; }
+
+/* Плашка статуса в легенде справочника (статичная, не селектор) */
+.status-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:64px; padding:2px 10px; border-radius:10px;
+  font-size:11px; font-weight:600; line-height:1.4;
+  border:1px solid transparent; text-align:center;
+}
+/* Легенда статусов над таблицей справочника */
+.cat-legend {
+  margin-bottom:14px; padding:12px 14px;
+  background:var(--bg-elev, #fff); border:1px solid var(--border, #e7e9ee);
+  border-radius:10px;
+}
+.cat-legend-title {
+  font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--text-muted, #8a909a); font-weight:700; margin-bottom:10px;
+}
+.cat-legend-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:8px 18px; }
+.cat-legend-item { display:flex; align-items:flex-start; gap:10px; }
+.cat-legend-item .status-badge { flex:0 0 auto; margin-top:1px; }
+.cat-legend-text { font-size:12px; color:var(--text, #2a2f37); line-height:1.45; }
+.cat-legend-note {
+  margin-top:12px; padding-top:10px; border-top:1px dashed var(--border, #e7e9ee);
+  font-size:12px; color:var(--text-muted, #6b717b); line-height:1.5;
+}
+/* Колонки недель — СТРОГО --rnp-col (min=max), чтобы table-layout:auto не раздувал
+   их при малом числе недель. Так значения метрик стоят ровно под шапкой недель. */
+.rnp-mtbl td.num, .rnp-mtbl th.num { width:var(--rnp-col); min-width:var(--rnp-col); max-width:var(--rnp-col); box-sizing:border-box; }
+
+/* узел иерархии */
+.rnp-node { border-top:1px solid var(--border-soft); }
+.rnp-node.lvl-0 { border-top:0; }
+/* gap:0 — раскладка строки-узла раскладывается шириной/паддингами колонок,
+   ровно как у легенды (.rnp-legend-row gap:0). Это держит колонки недель
+   строго под их заголовками в шапке. */
+.rnp-node-head { display:flex; align-items:center; gap:0; padding:4px 12px 4px 0; transition:background .12s; }
+/* колонка кнопки метрик — фикс. 32px (22px кнопка + 10px справа), как .rnp-legend-mspacer */
+.rnp-node-mbtn { flex:0 0 auto; width:32px; display:inline-flex; align-items:center; }
+/* заливка строк-группировок синими оттенками Озон от тёмного (Итоги, lvl-0)
+   к светлому (группа перед артикулом, lvl-3); артикул (lvl-4) и его метрики — белые.
+   Заливка деликатная: чёрный текст остаётся читаемым, таблица не перегружена цветом.
+   Фон вешаем на .rnp-node-head (только строку-заголовок), чтобы он НЕ протекал
+   на вложенных детей внутри .rnp-node. */
+/* Строка «Итоги» (корневой узел lvl-0) фиксируется при скролле — прилипает
+   под шапкой таблицы (заголовок + легенда недель). Всё выше неё неподвижно,
+   вниз уезжают только дочерние строки (Продукция ECOM, ТД АВТОПРОФИ и т.д.).
+   top = appbar + панель фильтров (--rnp-filters-h) + шапка таблицы (--rnp-headsticky-h).
+   Заливка lvl-0 полупрозрачная (синий поверх белого) — под липкой строкой это
+   давало бы просвечивание уезжающих строк, поэтому подкладываем непрозрачный
+   --bg-elev: сначала рисуем оттенок уровня, под ним сплошной белый. */
+.rnp-node.lvl-0 > .rnp-node-head {
+  position:sticky;
+  top: calc(var(--header-h) + var(--rnp-filters-h, 0px) + var(--rnp-headsticky-h, 0px));
+  z-index:15;
+  background: linear-gradient(var(--lvl-bg-0), var(--lvl-bg-0)), var(--bg-elev);
+}
+/* Уровни 1–3: под полупрозрачный оттенок уровня подкладываем сплошной белый,
+   чтобы заголовки групп НЕ просвечивали данные, уезжающие под них при скролле. */
+.rnp-node.lvl-1 > .rnp-node-head { background: linear-gradient(var(--lvl-bg-1), var(--lvl-bg-1)), var(--bg-elev); }
+.rnp-node.lvl-2 > .rnp-node-head { background: linear-gradient(var(--lvl-bg-2), var(--lvl-bg-2)), var(--bg-elev); }
+.rnp-node.lvl-3 > .rnp-node-head { background: linear-gradient(var(--lvl-bg-3), var(--lvl-bg-3)), var(--bg-elev); }
+/* липкая колонка имени в строках-группировках наследует тот же оттенок,
+   иначе её фон (var(--bg-elev)) перекрыл бы заливку уровня в таблице метрик —
+   но у строк-узлов имя прозрачно, поэтому заливка .rnp-node-head видна целиком */
+/* столбец имени — фиксированная ширина (по самой длинной надписи), не растягивается */
+.rnp-node-name { display:flex; align-items:center; gap:6px; min-width:0; flex:0 0 auto; width:var(--rnp-name-w); border-radius:4px; padding:1px 3px; box-sizing:border-box; }
+/* распорка в конце строки забирает всё свободное место справа */
+.rnp-node-tail { flex:1 1 auto; min-width:0; }
+.rnp-node-name.is-clickable { cursor:pointer; }
+/* подсветка всей строки целиком при наведении (по всей горизонтали),
+   а не только столбца имени — удобно читать данные по всей ширине */
+/* Подсветка строки при наведении.
+   ВАЖНО (баг горизонтального скролла): у строк-ЛИСТОВ (товаров) справа стоят
+   дневные СВЕТОФОРНЫЕ ячейки с НЕПРОЗРАЧНЫМ цветным фоном. Если красить только
+   фон .rnp-node-head, цветные ячейки перекрывают подсветку → при горизонтальном
+   скролле строка «рвётся» и кажется смещённой относительно других.
+   Решение: фон для групп (где ячеек-светофора нет) + inset-линии сверху/снизу
+   ПОВЕРХ любого фона (рисуются и над цветными ячейками, layout не смещают). */
+.rnp-node-head:has(.rnp-node-name.is-clickable):hover {
+  background:#fdeaea;
+  box-shadow: inset 0 1px 0 rgba(235,20,20,.30), inset 0 -1px 0 rgba(235,20,20,.30);
+}
+/* Дневные светофорные ячейки в строке под курсором: лёгкая красная накладка
+   поверх heat-заливки, чтобы вся строка читалась как единая полоса при скролле.
+   Накладка полупрозрачная (не смещает layout, не меняет геометрию). */
+.rnp-node-head:has(.rnp-node-name.is-clickable):hover .rnps-col.rnps-cell-cmt {
+  background-image: linear-gradient(rgba(235,20,20,.10), rgba(235,20,20,.10));
+}
+.rnp-nm { font-weight:600; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.rnp-node.lvl-0 .rnp-nm { font-size:13.5px; font-weight:700; }
+.rnp-art-main { font-family:var(--mono); font-weight:400; font-size:11.5px; color:var(--text); cursor:help; }
+/* Артикул как ссылка на товар: курсор-рука + подчёркивание при наведении */
+.rnp-art-link { cursor:pointer; }
+.rnp-art-link:hover { text-decoration:underline; text-underline-offset:2px; }
+/* имя артикула — нежирное (перебиваем наследуемую жирность от .lvl-0 .rnp-nm) */
+.rnp-node.lvl-4 .rnp-art-main { font-weight:400; }
+.rnp-art { font-size:11px; color:var(--text-mute); font-weight:600; background:var(--bg-elev2); padding:1px 5px; border-radius:4px; white-space:nowrap; }
+.exp-spacer { display:inline-block; width:18px; }
+/* красная кликабельная стрелка раскрытия уровней */
+.rnp-exp-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:none; background:none; color:var(--accent); font-size:11px; font-weight:700; line-height:1; cursor:pointer; border-radius:4px; flex:0 0 auto; transition:background .12s; }
+.rnp-exp-btn:hover { background:var(--accent-bg); }
+
+/* РНП по неделям в строке-заголовке узла: значение + дельта (как в эталоне) */
+.rnp-node-rnp { display:flex; align-items:center; gap:0; white-space:nowrap; flex:0 0 auto; }
+.rnp-hd-wk { display:inline-flex; align-items:baseline; justify-content:flex-end; gap:5px; width:var(--rnp-col); padding-right:10px; box-sizing:border-box; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+/* значение РНП в строке узла повторяет форматирование наименования этой строки
+   (построчное соответствие столбца значений столбцу наименований):
+   Итоги/группы — 13.5px/700, товар — 13.5px/400 */
+.rnp-hd-v { font-weight:600; font-size:12px; color:var(--text); }
+.rnp-node.lvl-0 .rnp-hd-v { font-size:13.5px; font-weight:700; }
+.rnp-node.lvl-4 .rnp-hd-v { font-size:13.5px; font-weight:400; }
+.rnp-hd-v.good { color:var(--good); }
+.rnp-hd-v.warn { color:var(--text); }
+.rnp-hd-v.bad  { color:var(--bad); }
+/* дельта к прошлой неделе — мелко, приглушённо, нейтральная подсветка рост/падения */
+.rnp-hd-d { font-size:9.5px; font-weight:600; min-width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+.rnp-hd-d.up   { color:var(--good); }
+.rnp-hd-d.down { color:var(--bad); }
+.rnp-hd-d.flat { color:var(--text-mute); }
+/* маленькая иконка показа показателей (в конце строки, перед колонками РНП) */
+.rnp-mbtn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; padding:0; color:var(--text-mute); background:transparent; border:1px solid transparent; border-radius:5px; cursor:pointer; transition:all .12s; flex:0 0 auto; margin-right:10px; }
+.rnp-mbtn svg { display:block; }
+.rnp-mbtn:hover { color:var(--accent); background:var(--accent-bg); border-color:var(--accent); }
+.rnp-mbtn.on { color:var(--accent); background:var(--accent-bg); border-color:var(--accent); }
+/* заглушка на месте иконки-графика у артикулов — сохраняет выравнивание колонок (22px + margin-right 10px) */
+.rnp-mbtn-spacer { display:inline-block; width:22px; height:22px; margin-right:10px; flex:0 0 auto; }
+/* Иконка-стопка монет у товара (открыть popup юнит-экономики). Габариты как у .rnp-mbtn. */
+.rnp-uebtn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; padding:0; color:var(--text-mute); background:transparent; border:1px solid transparent; border-radius:5px; cursor:pointer; transition:all .12s; flex:0 0 auto; margin-right:10px; }
+.rnp-uebtn svg { display:block; }
+.rnp-uebtn:hover { color:var(--accent); background:var(--accent-bg); border-color:var(--accent); }
+/* Отрицательная маржинальность (%) по последней подгруженной неделе — монетки красные.
+   Красный сохраняется и на hover (перекрывает базовый :hover цвет). */
+.rnp-uebtn--neg { color:var(--bad); }
+.rnp-uebtn--neg:hover { color:var(--bad); background:var(--bad-bg,rgba(235,20,20,.10)); border-color:var(--bad); }
+
+/* тело узла: таблица метрики×недели. Паддинг слева — 0 (скроллер сам тянется
+   до правого края, недели листаются), правый отступ снимаем — у скроллера свой край. */
+.rnp-node-body { padding:0 12px 6px 0; }
+/* таблица метрик: внутри горизонтального скроллера ширина — по содержимому
+   (max-content), чтобы колонки недель держали фикс. ширину --rnp-col и уезжали
+   вправо под скролл, а не сжимались. Колонка имени остаётся sticky слева. */
+table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-collapse:collapse; margin:1px 0 0; }
+/* Распорка справа ПОГЛОЩАЕТ весь избыток ширины (width:100% при table-layout:auto
+   = «съесть остаток»). Без неё, когда недель мало (узкий период — напр. 2 недели),
+   min-width:100% растягивал бы таблицу и размазывал лишнее по колонкам недель —
+   значения метрик уезжали вправо и не совпадали с шапкой недель. */
+.rnp-mtbl td.rnp-m-tail { width:100%; padding:0; }
+.rnp-mtbl th, .rnp-mtbl td { padding:2px 8px; font-size:11px; line-height:1.3; }
+.rnp-mtbl thead th { font-size:9.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em; font-weight:700; background:var(--bg-elev2); border-bottom:1px solid var(--border-soft); }
+/* трёхстрочный заголовок столбца недели (как в «Недели API v2»):
+   дата начала / дата конца (мелко, серо) / номер недели (крупно) */
+.rnp-mtbl thead th.rnp-wkcol { text-align:center; vertical-align:bottom; }
+.rnp-wkh { display:flex; flex-direction:column; align-items:center; line-height:1.12; }
+.rnp-wkh-d1 { font-size:9px; color:var(--text-mute); font-weight:600; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.rnp-wkh-d2 { font-size:9px; color:var(--text-mute); font-weight:600; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.rnp-wkh-n { font-size:14px; color:var(--text); font-weight:800; letter-spacing:0; text-transform:none; margin-top:1px; font-family:var(--mono); }
+/* Наименование показателя отодвинуто вправо — выровнено по артикулу/имени узла */
+/* названия показателей — тот же цвет/размер/начертание, что и у групп/товаров */
+.rnp-mtbl th.rnp-m-name, .rnp-mtbl td.rnp-m-name { width:var(--rnp-mname-w); min-width:var(--rnp-mname-w); max-width:var(--rnp-mname-w); box-sizing:border-box; text-align:left; color:var(--text-dim); font-size:11px; white-space:nowrap; position:sticky; left:0; z-index:1; background:var(--bg-elev); padding-left:var(--rnp-mname-pad, 28px);
+  box-shadow:1px 0 0 var(--border-soft), 4px 0 6px -4px rgba(15,23,42,.12); }
+.rnp-mtbl thead th.rnp-m-name { background:var(--bg-elev2); }
+.rnp-mtbl td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--text); }
+/* ячейка «значение + дельта»: значение доминирует, дельта мелкая справа */
+.rnp-vc { display:inline-flex; align-items:baseline; justify-content:flex-end; gap:5px; width:100%; }
+/* значение метрики повторяет форматирование своей метки (нежирно, 11px, тот же цвет):
+   обычные строки — приглушённый цвет метки, ключевые (strong) — тёмный */
+.rnp-vc-v { font-weight:400; font-size:11px; color:var(--text-dim); }
+.rnp-vc-d { font-size:9px; font-weight:600; min-width:32px; text-align:right; font-variant-numeric:tabular-nums; }
+.rnp-vc-d.up   { color:var(--good); }
+.rnp-vc-d.down { color:var(--bad); }
+.rnp-vc-d.flat { color:var(--text-mute); }
+/* «Δ выручки н/н»: крупное значение само подсвечивается направлением */
+.rnp-vc-v.up   { color:var(--good); font-weight:600; }
+.rnp-vc-v.down { color:var(--bad);  font-weight:600; }
+.rnp-vc-v.rnp-vc-muted { color:var(--text-mute); font-weight:400; }
+/* убыточные SKU: основное значение красным, если есть убыточные */
+.rnp-vc-v.rnp-sig-neg { color:var(--bad); font-weight:600; }
+/* разделитель смыслового блока групповых метрик (тонкая верхняя граница) */
+.rnp-mtbl tr.rnp-m-sep td { border-top:1px solid var(--border-soft); }
+.rnp-mtbl tr.rnp-m-sep td.rnp-m-name { border-top:1px solid var(--border-soft); }
+/* ключевые строки (Заказы / Выручка / Прибыль / Ср.цена) — жирное название, как в эталоне */
+.rnp-mtbl tr.rnp-m-strong td.rnp-m-name { color:var(--text); font-weight:700; }
+/* ключевые строки (Выручка/Маржа/СПП) — значения построчно как их метка: тёмный цвет, без усиления жирности */
+.rnp-mtbl tr.rnp-m-strong .rnp-vc-v { font-weight:400; color:var(--text); }
+/* сворачиваемая группа «Все удержания, %»: заголовок кликабелен, дети с лёгким отступом */
+.rnp-mtbl td.rnp-m-holds-head.is-clickable,
+.rnp-mtbl td.rnp-m-promo-head.is-clickable { cursor:pointer; }
+.rnp-mtbl td.rnp-m-name.rnp-m-holds-child { padding-left:calc(var(--rnp-mname-pad, 28px) + 16px); }
+.rnp-mtbl tbody tr:hover td { background:var(--accent-bg); }
+/* Фикс-колонка имени метрики (sticky, перекрывает зону «Статус»): при наведении
+   подсветка должна быть НЕПРОЗРАЧНОЙ, иначе уехавшие под неё колонки недель
+   (например неделя 17) просвечивают сквозь зону «Статус». Кладём полупрозрачный
+   акцент ПОВЕРХ сплошного белого (--bg-elev). */
+.rnp-mtbl tbody tr:hover td.rnp-m-name {
+  background: linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-elev); }
+
+/* отступ детей */
+.rnp-children { }
+
+/* заглушка Wildberries */
+.rnp-soon { text-align:center; padding:80px 20px; color:var(--text-dim); }
+.rnp-soon-ic { font-size:48px; margin-bottom:12px; }
+.rnp-soon-t { color:var(--text); margin:0 0 8px; font-size:20px; font-weight:700; }
+.rnp-soon-d { max-width:480px; margin:0 auto; line-height:1.5; font-size:13.5px; }
+
+@media (max-width:720px) {
+  .rnp-node-head { flex-direction:column; align-items:flex-start; gap:5px; }
+  .rnp-nm { max-width:240px; }
+}
+
+/* заглушка раздела «Товары, шт.» */
+.stub-card { text-align:center; padding:72px 24px; }
+.stub-card .stub-ico { font-size:48px; line-height:1; margin-bottom:14px; opacity:.85; }
+.stub-card .stub-title { margin:0 0 10px; font-size:20px; font-weight:700; color:var(--text); }
+.stub-card .stub-text { max-width:460px; margin:0 auto; font-size:14px; line-height:1.55; color:var(--text-dim); }
+.stub-card .stub-badge { display:inline-block; margin-top:20px; padding:5px 14px; border-radius:999px;
+  font-size:12px; font-weight:600; color:var(--text-mute); background:var(--bg-elev2); border:1px solid var(--border); }
+
+/* ============================================================
+   РАЗДЕЛ «ПОЛЬЗОВАТЕЛИ» (только админ)
+   Аккуратная стилизация под светлую тему; роли — сдержанные pill.
+   ============================================================ */
+.users-toolbar { margin-bottom: 14px; }
+
+/* Форма добавления: лёгкая карточка-вставка */
+.usr-form {
+  border:1px solid var(--border); background:var(--bg-elev2);
+  border-radius: var(--radius-sm); padding:16px 18px; margin-bottom:18px;
+}
+.usr-form-grid {
+  display:grid; grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 6px 22px;
+}
+@media (max-width: 700px){ .usr-form-grid { grid-template-columns: 1fr; } }
+.usr-form .field { margin-bottom: 6px; }
+.usr-form .input-sm, .usr-form .select { width:100%; }
+.usr-form-actions { display:flex; gap:10px; margin-top:12px; }
+/* Кнопки действий в строке пользователя (Изменить / Удалить) */
+.usr-actions { display:inline-flex; gap:6px; }
+/* Строка-вставка с формой редактирования: без лишних отступов формы внутри ячейки */
+.usr-edit-row .usr-form { margin-bottom:0; }
+
+/* Поле пароля с кнопкой-«глазиком» */
+.pass-wrap { position:relative; }
+.pass-wrap .input-sm { padding-right: 38px; }
+.pass-eye {
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+  background:none; border:none; cursor:pointer; font-size:15px; line-height:1;
+  color:var(--text-mute); border-radius:6px; opacity:.7; transition:opacity .15s, background .15s, color .15s;
+}
+.pass-eye:hover { opacity:1; background:var(--bg-hover); }
+.pass-eye.on { color:var(--accent); opacity:1; }
+
+/* Ролевые pill: Администратор — фирменный красный, Пользователь — серый */
+.pill.pill-admin { background:var(--accent-bg); color:var(--accent); }
+.pill.pill-user  { background:rgba(150,165,175,.16); color:var(--text-dim); }
+
+/* Последний визит: аккуратная дата+время, графитовый текст, моноширинные цифры */
+.usr-seen { color:var(--text-dim); font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+/* Заглушка раздела ABC (раздел в разработке) */
+.abc-stub { display:flex; align-items:center; justify-content:center; min-height:340px; }
+.abc-stub-inner { text-align:center; max-width:420px; padding:24px; }
+.abc-stub-ico { font-size:46px; line-height:1; margin-bottom:14px; opacity:.85; }
+.abc-stub-title { font-size:20px; font-weight:700; color:var(--text); margin-bottom:8px; }
+.abc-stub-text { font-size:14px; color:var(--text-mute); line-height:1.5; }
+
+/* Загрузка отчётов: подсказка о автоопределении типа */
+.up-hint {
+  background:var(--bg-elev); border:1px solid var(--border);
+  border-left:3px solid var(--accent-line);
+  border-radius:var(--radius); padding:11px 16px; margin-bottom:14px;
+  font-size:13px; color:var(--text-dim); line-height:1.45;
+}
+
+/* Шапка журнала: заголовок слева + фильтр справа */
+.up-hist-head {
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; flex-wrap:wrap; margin-bottom:12px;
+}
+
+/* Сегментный переключатель фильтра (Все / Неделя / Месяц) */
+.seg {
+  display:inline-flex; background:var(--bg-elev2); border:1px solid var(--border);
+  border-radius:10px; padding:3px; gap:2px;
+}
+.seg-btn {
+  appearance:none; border:0; background:transparent; cursor:pointer;
+  font:inherit; font-size:13px; color:var(--text-dim);
+  padding:6px 14px; border-radius:8px; transition:background .15s, color .15s;
+}
+.seg-btn:hover { color:var(--text); }
+.seg-btn.active {
+  background:var(--bg-elev); color:var(--accent); font-weight:600;
+  box-shadow:var(--shadow-sm);
+}
+
+/* Плашка типа отчёта в журнале */
+.kind-pill {
+  display:inline-block; font-size:12px; font-weight:600; line-height:1;
+  padding:4px 10px; border-radius:999px; white-space:nowrap;
+}
+/* Неделя — нейтральная (обычный формат) */
+.kind-pill.kind-week  { background:rgba(150,165,175,.16); color:var(--text-dim); }
+/* Месяц — акцент (выделяем новый тип фирменным красным) */
+.kind-pill.kind-month { background:var(--accent-bg); color:var(--accent); }
+
+/* ---------- Продажи, шт. (план/факт) ---------- */
+/* «Факт по дату» в форме загрузки месячного отчёта */
+.fact-date-row { display:block; font-size:12px; color:var(--text-dim); margin-top:12px; }
+.fact-date-row input { margin-top:6px; }
+.fact-date-hint { font-size:11.5px; margin-top:5px; line-height:1.45; }
+
+/* Компактные поля фильтров Продаж — чтобы фильтры + кнопки помещались в один ряд. */
+.sp-ctl .input-sm { padding:6px 9px; font-size:12.5px; width:auto; min-width:0; }
+.sp-ctl select#sp-year   { width:84px; }
+.sp-ctl select#sp-status { width:140px; }
+.sp-ctl select#sp-mgr    { width:150px; }
+.sp-filters { gap:10px; }
+.sp-fc-check { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text-dim); }
+.sp-fc-check input { accent-color:var(--accent); }
+
+/* Оформление карточки продаж — единый стиль с РНП: цветная полоса сверху,
+   обводка и тень по выбранному маркетплейсу. Сводная — нейтральная. */
+.sp-card.mp-ozon, .sp-card.mp-wb, .sp-card.mp-cross, .sp-card.mp-yandex { position:relative; }
+.sp-card.mp-ozon::before, .sp-card.mp-wb::before, .sp-card.mp-cross::before, .sp-card.mp-yandex::before {
+  content:""; position:absolute; top:0; left:0; right:0; height:3px; z-index:1;
+  border-radius:var(--radius) var(--radius) 0 0;
+}
+.sp-card.mp-ozon { border-color:var(--ozon-line); box-shadow:0 1px 3px rgba(47,107,255,.08), 0 8px 26px rgba(47,107,255,.07); }
+.sp-card.mp-ozon::before { background:var(--ozon); }
+.sp-card.mp-wb { border-color:var(--wb-line); box-shadow:0 1px 3px rgba(203,17,171,.08), 0 8px 26px rgba(203,17,171,.07); }
+.sp-card.mp-wb::before { background:var(--wb); }
+/* Сводная — серо-белая: нейтральная полоса и обычная обводка. */
+.sp-card.mp-cross { border-color:var(--border); }
+.sp-card.mp-cross::before { background:var(--flat); }
+.sp-card.mp-yandex { border-color:var(--ya-amber-line); box-shadow:0 1px 3px rgba(212,170,0,.10), 0 8px 26px rgba(212,170,0,.09); }
+.sp-card.mp-yandex::before { background:var(--ya-amber); }
+
+/* Заливка уровней строк-групп — по маркетплейсу, как в РНП.
+   Переменные --lvl-bg-* задаются на mp-классе карточки. */
+.sp-card.mp-ozon { --lvl-bg-0:rgba(47,107,255,.15); --lvl-bg-1:rgba(47,107,255,.105); --lvl-bg-2:rgba(47,107,255,.065); --lvl-bg-3:rgba(47,107,255,.03); }
+.sp-card.mp-wb { --lvl-bg-0:rgba(203,17,171,.15); --lvl-bg-1:rgba(203,17,171,.105); --lvl-bg-2:rgba(203,17,171,.065); --lvl-bg-3:rgba(203,17,171,.03); }
+.sp-card.mp-cross { --lvl-bg-0:rgba(150,165,175,.16); --lvl-bg-1:rgba(150,165,175,.10); --lvl-bg-2:rgba(150,165,175,.06); --lvl-bg-3:rgba(150,165,175,.03); }
+.sp-card.mp-yandex { --lvl-bg-0:rgba(232,162,0,.16); --lvl-bg-1:rgba(232,162,0,.11); --lvl-bg-2:rgba(232,162,0,.065); --lvl-bg-3:rgba(232,162,0,.03); }
+
+/* Панель управления (вкладки + фильтры) фиксируется при скролле под шапкой
+   приложения. Высота панели может меняться (фильтры переносятся на 2 строки),
+   поэтому реальная высота измеряется в JS → --sp-toolbar-h. Непрозрачный фон,
+   чтобы строки таблицы не просвечивали; z-index ниже appbar (40), но выше
+   шапки таблицы (20). Отрицательные отступы компенсируют padding карточки,
+   чтобы панель тянулась от края до края. */
+.sp-toolbar {
+  position:sticky; top:var(--header-h); z-index:30;
+  background:var(--bg-elev); margin:0 -20px 12px; padding:2px 20px 12px;
+  border-bottom:1px solid var(--border-soft);
+}
+.sp-toolbar .subtabs { margin-bottom:12px; }
+.sp-toolbar .sp-ctl { margin-bottom:0; }
+
+/* Широкая таблица 12 месяцев. Обёртка — собственный scroll-контейнер
+   (горизонталь по месяцам + вертикаль по строкам). Ограничиваем высоту
+   высотой экрана минус appbar и липкая панель — тогда вертикальный скролл
+   идёт ВНУТРИ обёртки, а шапка thead липнет к верху обёртки (top:0).
+   8px — небольшой нижний зазор для легенды. */
+.sp-wrap {
+  overflow:auto;
+  /* --sp-wrap-top — реальное смещение верха обёртки от верха окна
+     при нескролленной странице (appbar + заголовок + липкая панель),
+     измеряется в JS. Так скроллится ТОЛЬКО внутренняя обёртка, а окно нет —
+     поэтому шапка и фильтры всегда видны. */
+  max-height: calc(100vh - var(--sp-wrap-top, 240px) - 14px);
+}
+table.sp-tbl { font-size:12.5px; }
+/* Высота строк — компактная, как в РНП (вертикальный паддинг ~4px → строка ~30px). */
+table.sp-tbl th, table.sp-tbl td { padding:4px 10px; }
+
+/* Тулбар Продаж: фильтры слева, кнопки экспорт/импорт — всегда парой.
+   Фильтры и кнопки — две независимые группы; кнопки прижаты вправо (margin-left:auto)
+   и при нехватке места переносятся вниз ЦЕЛЬНЫМ блоком — никогда не по одной. */
+.sp-ctl { width:100%; }
+.sp-filters { display:flex; flex-wrap:wrap; align-items:center; gap:12px; flex:1 1 auto; min-width:0; }
+.sp-actions { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; margin-left:auto; flex:0 0 auto; }
+.sp-actions { gap:8px; }
+.sp-actions .btn { width:auto; min-width:0; padding:6px 12px; font-size:12.5px; white-space:nowrap; }
+/* На узких экранах кнопки растягиваются на всю ширину парой. */
+@media (max-width: 720px){
+  .sp-actions { width:100%; margin-left:0; }
+  .sp-actions .btn { flex:1 1 0; min-width:0; }
+}
+
+/* Шапка таблицы липнет к верху собственного scroll-контейнера (.sp-wrap).
+   Переопределяем общее правило table.tbl th { top:0 } явно (тот же top:0,
+   но с нужным z-index и непрозрачным фоном). */
+table.sp-tbl thead th { position:sticky; top:0; z-index:4; background:var(--bg-elev2); }
+
+/* Ширины липких левых колонок (артикул + статусы). Фиксированы,
+   чтобы left-офсеты статусов были предсказуемы и ничего не сдвигалось. */
+table.sp-tbl { --sp-name-w:240px; --sp-st-w:96px; }
+
+/* Левая колонка иерархии — закреплена, текст слева */
+table.sp-tbl th.sp-name, table.sp-tbl td.sp-name {
+  text-align:left; position:sticky; left:0; z-index:2;
+  background:var(--bg-elev);
+  width:var(--sp-name-w); min-width:var(--sp-name-w); max-width:var(--sp-name-w);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  border-right:1px solid var(--border);
+}
+table.sp-tbl th.sp-name { z-index:5; background:var(--bg-elev2); }
+
+/* Колонки статусов — тоже липкие, сразу за артикулом. Статус 1 —
+   смещён на ширину артикула; статус 2 («Сводная») — на артикул + статус 1. */
+table.sp-tbl th.sp-st, table.sp-tbl td.sp-st {
+  position:sticky; z-index:2; background:var(--bg-elev);
+  width:var(--sp-st-w); min-width:var(--sp-st-w); max-width:var(--sp-st-w);
+  white-space:nowrap; overflow:hidden;
+}
+table.sp-tbl th.sp-st { z-index:5; background:var(--bg-elev2); }
+table.sp-tbl th.sp-st1, table.sp-tbl td.sp-st1 { left:var(--sp-name-w); }
+table.sp-tbl th.sp-st2, table.sp-tbl td.sp-st2 { left:calc(var(--sp-name-w) + var(--sp-st-w)); }
+table.sp-tbl th.sp-st3, table.sp-tbl td.sp-st3 { left:calc(var(--sp-name-w) + var(--sp-st-w) * 2); }
+/* Правая граница последнего липкого статуса — отделяет от месяцев. */
+table.sp-tbl.sp-has-st3 th.sp-st3, table.sp-tbl.sp-has-st3 td.sp-st3,
+table.sp-tbl.sp-has-st2 th.sp-st2, table.sp-tbl.sp-has-st2 td.sp-st2,
+table.sp-tbl.sp-has-st1only th.sp-st1, table.sp-tbl.sp-has-st1only td.sp-st1 {
+  border-right:1px solid var(--border);
+}
+/* Липкие статусы в строках-группах наследуют оттенок уровня (как sp-name). */
+.sp-row.sp-group.lvl0 td.sp-st { background:linear-gradient(var(--lvl-bg-0), var(--lvl-bg-0)), var(--bg-elev); }
+.sp-row.sp-group.lvl1 td.sp-st { background:linear-gradient(var(--lvl-bg-1), var(--lvl-bg-1)), var(--bg-elev); }
+.sp-row.sp-group.lvl2 td.sp-st { background:linear-gradient(var(--lvl-bg-2), var(--lvl-bg-2)), var(--bg-elev); }
+.sp-row.sp-group.lvl3 td.sp-st { background:linear-gradient(var(--lvl-bg-3), var(--lvl-bg-3)), var(--bg-elev); }
+/* Подсветка строки при наведении — см. блок ниже (.sp-tbl tbody tr:hover td). */
+
+.sp-exp { display:inline-block; width:14px; color:var(--text-mute); font-size:11px; }
+.sp-grp.lvl1 { font-weight:700; color:var(--text); }
+.sp-grp.lvl2 { font-weight:600; }
+.sp-grp.lvl3 { font-weight:500; color:var(--text-dim); }
+.sp-art { font-family:var(--mono); font-size:11.5px; font-weight:400; }
+/* Шрифты имён узлов — как в РНП: lvl1 (верхний) 13.5px/700, глубже 12px. */
+.sp-grp.lvl1 { font-size:13.5px; }
+.sp-grp.lvl2, .sp-grp.lvl3 { font-size:12px; }
+/* Заливка строк-групп по уровням — оттенок маркетплейса (--lvl-bg-*), как в РНП. */
+.sp-row.sp-group.lvl0 td { background:linear-gradient(var(--lvl-bg-0), var(--lvl-bg-0)), var(--bg-elev); }
+.sp-row.sp-group.lvl1 td { background:linear-gradient(var(--lvl-bg-1), var(--lvl-bg-1)), var(--bg-elev); }
+.sp-row.sp-group.lvl2 td { background:linear-gradient(var(--lvl-bg-2), var(--lvl-bg-2)), var(--bg-elev); }
+.sp-row.sp-group.lvl3 td { background:linear-gradient(var(--lvl-bg-3), var(--lvl-bg-3)), var(--bg-elev); }
+/* Липкая колонка имени в строках-группах наследует тот же оттенок. */
+.sp-row.sp-group.lvl0 td.sp-name { background:linear-gradient(var(--lvl-bg-0), var(--lvl-bg-0)), var(--bg-elev); }
+.sp-row.sp-group.lvl1 td.sp-name { background:linear-gradient(var(--lvl-bg-1), var(--lvl-bg-1)), var(--bg-elev); }
+.sp-row.sp-group.lvl2 td.sp-name { background:linear-gradient(var(--lvl-bg-2), var(--lvl-bg-2)), var(--bg-elev); }
+.sp-row.sp-group.lvl3 td.sp-name { background:linear-gradient(var(--lvl-bg-3), var(--lvl-bg-3)), var(--bg-elev); }
+
+/* Колонки статусов слева */
+table.sp-tbl th.sp-st, table.sp-tbl td.sp-st { text-align:left; }
+
+/* Заголовки месяцев / подсветка текущего месяца */
+table.sp-tbl th.sp-mth { text-align:center; }
+.sp-cur { background:var(--accent-bg) !important; }
+/* Текущий месяц в ЛИПКОЙ шапке: непрозрачная подложка (--bg-elev2) под
+   полупрозрачным акцентом, иначе сквозь него просвечивают строки при скролле. */
+table.sp-tbl thead th.sp-cur {
+  background:linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-elev2) !important;
+}
+table.sp-tbl th.sp-cur { color:var(--accent); }
+table.sp-tbl td.sp-mth { text-align:center; padding:6px 9px; }
+/* Лёгкие вертикальные разделители между месяцами (без визуального перегруза). */
+table.sp-tbl th.sp-mth, table.sp-tbl td.sp-mth { border-left:1px solid var(--border-soft); }
+
+/* Ячейка месяца: план (синий, слева) и факт (чёрный, справа)
+   стоят компактной парой у правого края ячейки. Дорожки фиксированной
+   ширины (--sp-num-w), поэтому план всегда под планом, факт под фактом,
+   а на широком экране между ними не раздувается пустой зазор. */
+table.sp-tbl { --sp-num-w:46px; }
+.sp-cell {
+  display:grid; grid-template-columns:var(--sp-num-w) var(--sp-num-w);
+  justify-content:end; align-items:baseline;
+  column-gap:8px; line-height:1.25; font-variant-numeric:tabular-nums;
+}
+/* В текущем месяце — третья узкая дорожка под процент прогноза. */
+.sp-cell.sp-cell-fc { grid-template-columns:var(--sp-num-w) var(--sp-num-w) minmax(34px,auto); }
+/* Ячейка с одним значением (только план ИЛИ только факт). Число стоит
+   в правой (фактовой) дорожке, чтобы одиночные числа выравнивались
+   по правому краю пары (без «лесенки»). */
+.sp-cell.sp-cell-single { grid-template-columns:var(--sp-num-w) var(--sp-num-w); column-gap:8px; }
+.sp-cell.sp-cell-single .sp-plan { grid-column:1; }
+.sp-cell.sp-cell-single .sp-fact { grid-column:2; }
+.sp-cell .sp-plan { color:var(--plan-blue); font-weight:600; text-align:right; }
+.sp-cell .sp-fact { color:var(--text); font-weight:700; text-align:right; }
+/* Маркер ценки fallback СПП — АБСОЛЮТНО СЛЕВА, не сдвигает число.
+   Число в столбце СПП выровнено строго по правому краю; «≈» висит в левом padding'е. */
+.sp-cell .sp-plan.sp-plan-est { position:relative; padding-left:12px; }
+.sp-cell .sp-plan.sp-plan-est .sp-spp-est {
+  position:absolute; left:0; top:50%; transform:translateY(-50%);
+  color:#c53030; font-weight:700; font-size:0.92em; line-height:1;
+  pointer-events:none;
+}
+/* ---- YoY: дорожка факта ПРОШЛОГО года ----
+   Появляется МЕЖДУ планом и фактом при включённой галочке «факт YoY» и развёрнутой дорожке.
+   Светло-серая, тем же размером шрифта что план/факт, но неброская — чтобы не отвлекать от текущих чисел.
+   При развороте ячейка получает класс .sp-cell-yoy: сетка из трёх дорожек (план | YoY | факт),
+   а в текущем месяце с прогнозом — из четырёх (план | YoY | факт | %). */
+.sp-cell.sp-cell-yoy { grid-template-columns:var(--sp-num-w) var(--sp-num-w) var(--sp-num-w); }
+.sp-cell.sp-cell-yoy.sp-cell-fc { grid-template-columns:var(--sp-num-w) var(--sp-num-w) var(--sp-num-w) minmax(34px,auto); }
+.sp-cell .sp-fact-prev { color:#b8c0c7; font-weight:600; text-align:right; }
+/* ---- Рублёвый план ----
+   Дорожка «план_руб» (галочка «продажи в руб.») — сразу ПОСЛЕ плана_шт.
+   Цвет — БЛЕДНО-СИНИЙ (тот же корпоративный оттенок --plan-blue, но светлее):
+   план_руб визуально подчинён плану_шт (яркому). Начертание — как у плана_шт.
+   Рублёвые суммы длинные (до 11 знаков на группах/Сводной), поэтому дорожке
+   даётся своя увеличенная ширина + больший межколоночный зазор, чтобы числа
+   НЕ наползали на соседние (план_шт слева, факт/YoY справа). nowrap — чтобы
+   разряды с неразрывными пробелами не переносились. Независима от YoY. */
+table.sp-tbl { --sp-rub-w:96px; }
+.sp-cell.sp-cell-rub { grid-template-columns:var(--sp-num-w) var(--sp-rub-w) var(--sp-num-w); column-gap:12px; }
+.sp-cell.sp-cell-rub.sp-cell-fc { grid-template-columns:var(--sp-num-w) var(--sp-rub-w) var(--sp-num-w) minmax(34px,auto); }
+.sp-cell.sp-cell-rub.sp-cell-yoy { grid-template-columns:var(--sp-num-w) var(--sp-rub-w) var(--sp-num-w) var(--sp-num-w); }
+.sp-cell.sp-cell-rub.sp-cell-yoy.sp-cell-fc { grid-template-columns:var(--sp-num-w) var(--sp-rub-w) var(--sp-num-w) var(--sp-num-w) minmax(34px,auto); }
+.sp-cell .sp-plan-rub { color:#93a9e6; font-weight:600; text-align:right; white-space:nowrap; }
+/* В легенде «план руб.» — тем же бледно-синим. */
+.sp-legend .sp-lg-rub { color:#93a9e6; }
+/* Прогноз — процент выполнения в своёй дорожке, мелкий, по системе светофор. */
+.sp-cell .sp-fc { font-size:10px; font-weight:600; white-space:nowrap; text-align:left; }
+.sp-cell .sp-fc-good { color:var(--good); }
+.sp-cell .sp-fc-warn { color:var(--warn); }
+.sp-cell .sp-fc-bad { color:var(--bad); }
+/* На уровне товаров (листья) цифры план/факт — обычным начертанием, как артикулы. */
+table.sp-tbl tbody tr.sp-leaf .sp-plan,
+table.sp-tbl tbody tr.sp-leaf .sp-plan-rub,
+table.sp-tbl tbody tr.sp-leaf .sp-fact,
+table.sp-tbl tbody tr.sp-leaf .sp-fact-prev,
+table.sp-tbl tbody tr.sp-leaf td.sp-sum { font-weight:400; }
+/* В легенде «факт <год>» — тем же светло-серым, что и дорожка YoY. */
+.sp-legend .sp-lg-prev { color:#b8c0c7; }
+/* Ручной план (is_manual) — зелёный шрифт (фирменный --good #16a360). */
+.sp-cell .sp-plan.sales-plan-manual { color:var(--good); }
+/* Редактируемая ячейка плана (ozon/wb, лист) — курсор-подсказка на двойной клик. */
+.sp-cell .sp-plan.sp-plan-edit { cursor:cell; }
+/* Пустой редактируемый план — бледный прочерк-плейсхолдер (кликабелен, приглашает завести план). */
+.sp-cell .sp-plan.sp-plan-empty { color:#c2c9d0; font-weight:400; }
+/* Компактный инпут инлайн-правки плана в ячейке месяца (светлая тема). */
+.sp-cell .sp-plan-input {
+  width:100%; max-width:var(--sp-num-w); box-sizing:border-box;
+  padding:0 2px; margin:0; text-align:right;
+  font:inherit; font-weight:600; color:var(--plan-blue);
+  border:1px solid var(--good); border-radius:3px;
+  background:#fff; outline:none;
+}
+.sp-cell .sp-plan-input::-webkit-outer-spin-button,
+.sp-cell .sp-plan-input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+
+/* Σ план/факт ₽ */
+table.sp-tbl th.sp-sum, table.sp-tbl td.sp-sum {
+  background:var(--bg-elev2); font-weight:600; border-left:1px solid var(--border-soft);
+}
+/* Итог плана за год — синий, как все плановые показатели. */
+table.sp-tbl td.sp-sum-plan { color:var(--plan-blue); }
+
+/* ---- Подсветка ВСЕЙ строки при наведении ----
+   Подсвечиваем все ячейки строки целиком (включая месяцы, имя и суммы).
+   Используем linear-gradient(--bg-hover) поверх собственного фона ячейки —
+   так подсветка работает и для обычных строк, и для строк-групп с заливкой
+   уровней, и для липких колонок (имя/суммы) единообразно.
+   --sp-hover задаём непрозрачным, чтобы перекрывать градиенты групп и липкие фоны. */
+table.sp-tbl tbody tr:hover td {
+  background:linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-elev) !important;
+}
+/* Липкие колонки (имя слева, суммы справа) при наведении — тот же ровный тон,
+   на непрозрачной подложке, чтобы сквозь них не просвечивали соседние строки. */
+table.sp-tbl tbody tr:hover td.sp-name,
+table.sp-tbl tbody tr:hover td.sp-sum {
+  background:linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-elev2) !important;
+}
+/* Текущий месяц при наведении сохраняет акцентный оттенок поверх подсветки. */
+table.sp-tbl tbody tr:hover td.sp-cur {
+  background:linear-gradient(var(--accent-bg), var(--accent-bg)), var(--bg-hover), var(--bg-elev) !important;
+}
+
+.sp-legend { margin-top:10px; font-size:11.5px; line-height:1.5; }
+.sp-legend .sp-lg-plan { color:var(--plan-blue); }
+.kind-pill.kind-na    { background:rgba(150,165,175,.12); color:var(--text-mute); }
+
+/* ============================================================
+   РНП ПРОДАЖИ → Ozon (дерево дневных продаж по месяцам).
+   Колонки значений повторяют ширины РНП (--rnp-col), фикс-левая
+   часть (имя/статус/кнопка) — те же классы .rnp-fixleft.
+   ============================================================ */
+/* полосы значений в строке-узле и в таблице метрик (max-content, чтобы
+   колонки держали фикс. ширину и уезжали в горизонтальный скролл) */
+.rnp-wk-scroll > .rnps-legend,
+.rnp-wk-scroll > .rnps-node-vals,
+.rnp-wk-scroll > .rnps-m-vals { width:max-content; }
+.rnps-node-vals, .rnps-m-vals { display:flex; align-items:center; gap:0; white-space:nowrap; flex:0 0 auto; }
+/* одна колонка значения — та же ширина, что у недель РНП */
+.rnps-col { display:inline-flex; align-items:center; justify-content:flex-end;
+  width:var(--rnps-day-col); padding-right:6px; box-sizing:border-box;
+  font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:12.5px;
+  word-spacing:-0.14em; }
+.rnps-col.rnps-plan { color:var(--plan-blue, #0000ff); }
+.rnps-col.rnps-forecast { color:#38761D; }
+/* Светофор прогноза выполнения плана (шт): >=100 зелёный, 70-99 жёлтый, <70 красный */
+.rnps-col.rnps-forecast.rnps-fc-good { color:var(--good); }
+.rnps-col.rnps-forecast.rnps-fc-warn { color:var(--warn); }
+.rnps-col.rnps-forecast.rnps-fc-bad  { color:var(--bad); }
+.rnps-col.rnps-empty { color:var(--border); justify-content:center; }
+/* светофор на «Заказы, шт» — фон задаётся инлайном, текст держим читаемым */
+.rnps-node-vals .rnps-col { border-radius:3px; }
+/* Оборачиваемость (дни запаса) — бейдж-пилюля в ЛЕВОЙ части ячейки итога.
+   Фон = бледный в цвет светофора, текст = насыщенный того же цвета.
+   Красный = недостаток / зелёный = норма / синий = излишек. */
+.rnps-turn { display:inline-flex; align-items:center; justify-content:center;
+  min-width:20px; height:15px; padding:0 5px; border-radius:8px;
+  font-size:10px; font-weight:700; font-variant-numeric:tabular-nums;
+  line-height:1; flex:0 0 auto; }
+.rnps-turn-red   { color:#b02a1e; background:rgba(192,57,43,0.13); }
+.rnps-turn-green { color:#256b29; background:rgba(46,125,50,0.13); }
+.rnps-turn-blue  { color:#12539e; background:rgba(21,101,192,0.13); }
+/* Ячейка итога с днями запаса: пилюля слева, сумма справа,
+   между ними разрыв — чтобы числа не сливались. */
+.rnps-col.rnps-has-turn { justify-content:space-between; padding-left:4px; gap:4px; }
+
+/* шапка колонок: дни + Итог/План/Прогноз */
+.rnps-legend { display:flex; align-items:flex-end; gap:0; white-space:nowrap; flex:0 0 auto; }
+.rnps-leg { display:inline-flex; align-items:center; justify-content:flex-end;
+  width:var(--rnps-day-col); padding-right:6px; box-sizing:border-box;
+  font-size:11.5px; color:var(--text-dim); word-spacing:-0.14em; }
+.rnps-leg-total { font-weight:700; color:var(--text); gap:3px; }
+.rnps-leg-total .rnps-leg-mlabel { overflow:hidden; text-overflow:ellipsis; }
+.rnps-leg-day { color:var(--text-mute); }
+.rnps-leg-plan { color:var(--plan-blue, #0000ff); }
+.rnps-leg-forecast { color:#38761D; }
+.rnps-month-toggle { flex:0 0 auto; }
+
+/* таблица показателей узла */
+.rnps-m-row { display:flex; align-items:center; min-height:22px; }
+.rnps-m-row:hover { background:#f6f8fb; }
+.rnps-m-name { flex:0 0 auto; width:var(--rnp-name-w); box-sizing:border-box;
+  padding:1px 10px 1px 30px; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  text-align:right; }
+.rnps-m-name.is-clickable { cursor:pointer; }
+.rnps-m-status { flex:0 0 auto; width:var(--rnp-status-w); box-sizing:border-box; }
+.rnps-m-mbtn { flex:0 0 auto; width:32px; }
+.rnps-m-vals .rnps-col { font-size:12px; }
+
+/* Блок итоговых столбцов (Итог/План/Прогноз): уплотнить, отделить от дней.
+   Классы rnps-total/plan/forecast ставятся и в строке «Заказы, шт», и в строках
+   метрик, и в легенде — поэтому подложка и разделитель идут по всей высоте. */
+.rnps-col.rnps-total, .rnps-col.rnps-plan, .rnps-col.rnps-forecast,
+.rnps-leg.rnps-leg-total, .rnps-leg.rnps-leg-plan, .rnps-leg.rnps-leg-forecast {
+  width:var(--rnps-sum-col); background:rgba(213,219,230,.30); }
+/* вертикальный разделитель слева от блока итогов (перед «Итог») */
+.rnps-col.rnps-total, .rnps-leg.rnps-leg-total { border-left:2px solid #d5dbe6; }
+
+/* ================================================================
+   КОММЕНТАРИИ К ДНЕВНЫМ ЯЧЕЙКАМ (как в Google Sheets)
+   Маркер-уголок слева-вверху ячейки + popover в светлой теме.
+   ================================================================ */
+/* Дневная ячейка товара кликабельна для комментариев. */
+.rnps-col.rnps-cell-cmt { position:relative; cursor:pointer; }
+/* Подсказка «ячейка кликабельна для комментария» при наведении на конкретную ячейку.
+   Раньше был outline — он «прыгал» между ячейками при горизонтальном скролле и
+   усиливал ощущение дёрганья. Заменён на inset box-shadow — рисуется поверх
+   без смещения layout и без влияния на геометрию соседних. */
+.rnps-col.rnps-cell-cmt:hover { box-shadow: inset 0 0 0 1.5px rgba(235,20,20,.55); }
+/* Маркер-уголок: тёмный треугольник слева-вверху с тонкой светлой обводкой,
+   чтобы читался поверх любой тепловой заливки (красной/жёлтой/зелёной). */
+.rnps-cmt-mark {
+  position:absolute; top:0; left:0; width:0; height:0;
+  border-style:solid; border-width:8px 8px 0 0;
+  border-color:#c40f0f transparent transparent transparent;
+  filter:drop-shadow(0.5px 0.5px 0 rgba(255,255,255,.9));
+  pointer-events:none; z-index:1;
+}
+
+/* Popover комментариев. */
+.rnps-cmt-pop {
+  position:fixed; z-index:2000; width:320px; max-width:calc(100vw - 16px);
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 8px 28px rgba(20,30,45,.18), 0 2px 8px rgba(20,30,45,.10);
+  font-family:var(--sans, inherit); color:var(--text);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.rnps-cmt-head {
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:9px 12px; border-bottom:1px solid var(--border-soft); background:var(--bg-elev2);
+}
+.rnps-cmt-title { font-size:12.5px; font-weight:700; color:var(--text); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.rnps-cmt-close {
+  flex:0 0 auto; width:22px; height:22px; line-height:1; border:none; background:transparent;
+  color:var(--text-mute); font-size:18px; cursor:pointer; border-radius:5px;
+}
+.rnps-cmt-close:hover { background:var(--bg-hover); color:var(--text); }
+
+.rnps-cmt-list { max-height:280px; overflow-y:auto; padding:6px 12px; }
+.rnps-cmt-empty { color:var(--text-mute); font-size:12.5px; padding:12px 2px; text-align:center; }
+.rnps-cmt-item { padding:8px 0; border-bottom:1px solid var(--border-soft); }
+.rnps-cmt-item:last-child { border-bottom:none; }
+.rnps-cmt-meta { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:3px; }
+.rnps-cmt-author { font-size:12px; font-weight:700; color:var(--text); }
+.rnps-cmt-date { font-size:11px; color:var(--text-mute); white-space:nowrap; }
+.rnps-cmt-body { font-size:12.5px; line-height:1.45; color:var(--text); white-space:pre-wrap; word-break:break-word; }
+.rnps-cmt-actions { display:flex; gap:12px; margin-top:5px; }
+.rnps-cmt-actions button {
+  border:none; background:transparent; padding:0; cursor:pointer;
+  font-size:11.5px; color:var(--text-dim);
+}
+.rnps-cmt-actions .rnps-cmt-edit:hover { color:var(--accent); }
+.rnps-cmt-actions .rnps-cmt-del:hover { color:var(--bad); }
+
+.rnps-cmt-editbox { display:flex; flex-direction:column; gap:6px; }
+.rnps-cmt-edit-ta, .rnps-cmt-new-ta {
+  width:100%; box-sizing:border-box; resize:vertical; min-height:52px;
+  border:1px solid var(--border); border-radius:7px; padding:7px 9px;
+  font-family:var(--sans, inherit); font-size:12.5px; line-height:1.45; color:var(--text);
+  background:var(--bg);
+}
+.rnps-cmt-edit-ta:focus, .rnps-cmt-new-ta:focus { outline:none; border-color:var(--accent); }
+.rnps-cmt-editrow { display:flex; gap:8px; }
+
+.rnps-cmt-add {
+  display:flex; flex-direction:column; gap:7px;
+  padding:9px 12px; border-top:1px solid var(--border-soft); background:var(--bg-elev2);
+}
+.rnps-cmt-add .rnps-cmt-addbtn { align-self:flex-end; }
+
+/* ======================================================================
+   ФИЛЬТР АНОМАЛИЙ (РНП заказы Ozon) — светлая тема
+   ---------------------------------------------------------------------- */
+.rnp-anom { position:relative; display:inline-flex; }
+
+/* Кнопка-переключатель «Аномалии» */
+.rnp-anom-toggle { display:inline-flex; align-items:center; gap:6px; }
+.rnp-anom-toggle svg { flex:0 0 auto; }
+/* Режим открыт (панель видна), но фильтр ещё не применён — мягкая Ozon-обводка */
+.rnp-anom-toggle.on {
+  background: var(--ozon-bg); border-color: var(--ozon); color: var(--ozon-soft);
+}
+.rnp-anom-toggle.on:hover { background: var(--ozon-bg); border-color: var(--ozon-soft); }
+/* Фильтр ПРИМЕНЁН — насыщенный Ozon-синий */
+.rnp-anom-toggle.applied {
+  background: var(--ozon); border-color: var(--ozon); color:#fff;
+}
+.rnp-anom-toggle.applied:hover { background: var(--ozon-soft); border-color: var(--ozon-soft); }
+.rnp-anom-toggle.is-loading { opacity:.75; cursor:progress; }
+.rnp-anom-count {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px; border-radius:9px;
+  background:#fff; color:var(--ozon-soft); font-size:11px; font-weight:700; line-height:1;
+}
+
+/* Выпадающая панель выбора правил */
+.rnp-anom-panel {
+  position:absolute; top:calc(100% + 8px); left:0; z-index:60;
+  width:340px; max-height:70vh; overflow:auto;
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius-sm);
+  box-shadow:var(--shadow); padding:12px;
+}
+.rnp-anom-phead {
+  display:flex; align-items:center; justify-content:space-between;
+  font-weight:700; font-size:13px; color:var(--text); margin-bottom:10px;
+}
+.rnp-anom-gear {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border:1px solid var(--border); border-radius:7px;
+  background:var(--bg-elev); color:var(--text-dim); cursor:pointer;
+}
+.rnp-anom-gear:hover { background:var(--bg-hover); color:var(--text); border-color:var(--text-mute); }
+
+.rnp-anom-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.rnp-anom-lbl { font-size:12px; color:var(--text-dim); flex:0 0 auto; }
+.rnp-anom-row .input-sm { flex:1 1 auto; }
+.rnp-anom-dash { color:var(--text-mute); }
+.rnp-anom-info { font-size:11px; color:var(--text-mute); margin:2px 0 8px; }
+.rnp-anom-note {
+  font-size:11px; color:var(--warn); background:rgba(217,138,0,.10);
+  border-radius:7px; padding:6px 8px; margin-bottom:8px;
+}
+
+.rnp-anom-groups { border-top:1px solid var(--border-soft); padding-top:8px; }
+.rnp-anom-group { margin-bottom:10px; }
+.rnp-anom-gtitle {
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.02em;
+  color:var(--text-mute); margin-bottom:5px;
+}
+.rnp-anom-gwarn { font-weight:500; text-transform:none; letter-spacing:0; color:var(--warn); }
+.rnp-anom-item {
+  display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px;
+  cursor:pointer; font-size:13px; color:var(--text);
+}
+.rnp-anom-item:hover { background:var(--bg-hover); }
+.rnp-anom-item.is-disabled { opacity:.45; cursor:not-allowed; }
+.rnp-anom-item input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; accent-color:var(--ozon); }
+.rnp-anom-item-lbl { flex:1 1 auto; }
+/* Порог правила — виден прямо в списке, без открытия шестерёнки */
+.rnp-anom-th {
+  flex:0 0 auto; font-size:11px; font-weight:600; color:var(--ozon-soft);
+  background:var(--ozon-bg); border:1px solid var(--ozon-line); border-radius:6px;
+  padding:0 6px; line-height:16px; white-space:nowrap;
+}
+.rnp-anom-rc {
+  flex:0 0 auto; font-size:11px; font-weight:700; color:var(--text-dim);
+  background:var(--bg-elev2); border-radius:8px; padding:1px 7px; min-width:16px; text-align:center;
+}
+.rnp-anom-empty { font-size:12px; color:var(--text-mute); padding:8px 0; }
+
+.rnp-anom-actions {
+  display:flex; align-items:center; gap:8px; margin-top:10px;
+  border-top:1px solid var(--border-soft); padding-top:10px;
+}
+.rnp-anom-actions-sp { flex:1 1 auto; }
+
+/* Подсветка строки товара с отклонениями (вместо бейджей, которые перекрывали артикул) */
+.rnp-node-head.rnp-anom-hit {
+  background: var(--ozon-bg);
+  box-shadow: inset 3px 0 0 var(--ozon);
+}
+/* Компактный индикатор числа отклонений (не переносится, не скрывает артикул) */
+.rnp-anom-mark {
+  display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+  min-width:16px; height:16px; padding:0 5px; margin-left:6px; vertical-align:middle;
+  border-radius:8px; font-size:10px; font-weight:700; line-height:1; white-space:nowrap;
+  background: var(--ozon); color:#fff; cursor:default;
+}
+
+/* Модальное окно настройки порогов */
+.rnp-th-overlay {
+  position:fixed; inset:0; z-index:200; background:rgba(20,30,48,.34);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.rnp-th-modal {
+  width:520px; max-width:100%; max-height:82vh; display:flex; flex-direction:column;
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden;
+}
+.rnp-th-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 18px; border-bottom:1px solid var(--border); font-weight:700; font-size:15px;
+}
+.rnp-th-x {
+  border:none; background:none; color:var(--text-mute); font-size:16px; cursor:pointer;
+  width:28px; height:28px; border-radius:6px;
+}
+.rnp-th-x:hover { background:var(--bg-hover); color:var(--text); }
+.rnp-th-note { padding:10px 18px 0; font-size:12px; color:var(--text-dim); }
+.rnp-th-body { padding:12px 18px; overflow:auto; }
+.rnp-th-gtitle {
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.02em;
+  color:var(--text-mute); margin:12px 0 6px;
+}
+.rnp-th-gtitle:first-child { margin-top:0; }
+.rnp-th-row { display:flex; align-items:center; gap:10px; padding:5px 0; }
+.rnp-th-enable { flex:0 0 auto; display:inline-flex; }
+.rnp-th-enable input { width:15px; height:15px; accent-color:var(--warn); cursor:pointer; }
+.rnp-th-lbl { flex:1 1 auto; font-size:13px; color:var(--text); }
+.rnp-th-inp2 { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; }
+.rnp-th-inp { width:78px; text-align:right; }
+.rnp-th-sub { font-size:11px; color:var(--text-mute); }
+.rnp-th-hint { font-size:11px; color:var(--text-mute); min-width:24px; }
+
+/* === Popup юнит-экономики товара (из РНП заказы) === */
+.rnp-ue-overlay {
+  position:fixed; inset:0; z-index:210; background:rgba(20,30,48,.34);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.rnp-ue-modal {
+  width:560px; max-width:100%; max-height:82vh; display:flex; flex-direction:column;
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:var(--shadow); overflow:hidden;
+}
+.rnp-ue-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:13px 18px; border-bottom:1px solid var(--border);
+}
+.rnp-ue-title { font-weight:600; font-size:14px; color:var(--text); }
+.rnp-ue-title b { font-weight:700; }
+.rnp-ue-body { padding:14px 18px 16px; overflow:auto; }
+.rnp-ue-tbl { width:100%; border-collapse:collapse; }
+.rnp-ue-tbl th, .rnp-ue-tbl td { padding:7px 10px; border-bottom:1px solid var(--border); }
+.rnp-ue-tbl thead th { font-size:11px; font-weight:700; color:var(--text-mute); text-align:right; }
+.rnp-ue-tbl thead th.rnp-ue-wcol { text-align:center; }
+.rnp-ue-mcol { text-align:left !important; }
+.rnp-ue-wcol { text-align:right; }
+.rnp-ue-wlbl { display:block; font-size:12px; color:var(--text); }
+.rnp-ue-wper { display:block; font-size:10px; font-weight:400; color:var(--text-mute); margin-top:1px; }
+.rnp-ue-mname { font-size:12px; color:var(--text); text-align:left; white-space:nowrap; }
+.rnp-ue-cell { text-align:right; white-space:nowrap; }
+.rnp-ue-v { font-size:12px; color:var(--text); font-variant-numeric:tabular-nums; }
+.rnp-ue-d { display:inline-block; font-size:9px; font-weight:600; min-width:36px; margin-left:8px; text-align:right; font-variant-numeric:tabular-nums; }
+.rnp-ue-d.up   { color:var(--good); }
+.rnp-ue-d.down { color:var(--bad); }
+.rnp-ue-d.flat { color:var(--text-mute); }
+.rnp-ue-tbl tbody tr:last-child td { border-bottom:none; }
+/* Окраска и выделение отдельных метрик (название + значение) */
+.rnp-ue-r-profit .rnp-ue-mname, .rnp-ue-r-profit .rnp-ue-v { font-weight:700; }
+.rnp-ue-r-cogs  .rnp-ue-mname, .rnp-ue-r-cogs  .rnp-ue-v { color:#0000ff; }
+.rnp-ue-r-promo .rnp-ue-mname, .rnp-ue-r-promo .rnp-ue-v { color:#9900ff; }
+.rnp-ue-r-holds .rnp-ue-mname, .rnp-ue-r-holds .rnp-ue-v { color:var(--bad); }
+.rnp-ue-foot { margin-top:10px; font-size:11px; color:var(--text-mute); }
+.rnp-th-foot {
+  display:flex; align-items:center; justify-content:flex-end; gap:10px;
+  padding:12px 18px; border-top:1px solid var(--border);
+}
+
+/* ============================================================
+   Склады · Wildberries · подтаб «По складам» (V5)
+   KPI-плашки, тепловая карта склад×день, тренд/Δ, период как в РНП.
+   Акцент WB — фиолетовый (#7A39BB). Портировано из макета V5.
+   ============================================================ */
+
+/* Тулбар подтаба: заголовок слева, поле периода прижато вправо */
+.wh-byrow-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+.wh-byrow-toolbar .rnp-card-title { flex:0 0 auto; }
+.wh-byrow-toolbar .wh-toolbar-right { margin-left:auto; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+
+/* Галочка «в ценах продажи» */
+.wh-price-toggle { display:inline-flex; align-items:center; gap:7px; font-size:12.5px;
+  color:var(--text); cursor:pointer; user-select:none; white-space:nowrap;
+  padding:6px 11px; border:1px solid var(--border); border-radius:8px; background:#fff;
+  transition:background .12s, border-color .12s; }
+.wh-price-toggle:hover { background:#f6f2fa; border-color:#c9a6e6; }
+.wh-price-toggle input { width:15px; height:15px; accent-color:#7A39BB; cursor:pointer; margin:0; }
+.wh-price-toggle.on { background:#f3ecfa; border-color:#c9a6e6; }
+
+/* KPI-плашки */
+.wh-kpi-row { display:flex; gap:14px; margin-bottom:20px; flex-wrap:wrap; }
+.wh-kpi { background:#fff; border:1px solid var(--border); border-radius:10px;
+  padding:14px 18px; min-width:170px; flex:1; }
+.wh-kpi.alert { border-color:#e9a6cd; background:#fdf3f9; }
+.wh-kpi-lbl { font-size:11px; color:var(--text-mute); text-transform:uppercase; letter-spacing:.4px; }
+.wh-kpi-val { font-size:24px; font-weight:700; margin-top:4px; line-height:1.1; color:var(--text); }
+.wh-kpi-sub { font-size:11.5px; margin-top:3px; }
+.wh-kpi-val.neg, .wh-kpi-sub.neg { color:#A12C7B; }
+.wh-kpi-val.pos, .wh-kpi-sub.pos { color:#437A22; }
+.wh-kpi-sub.pos { color:#437A22; }
+.wh-kpi-sub.muted { color:var(--text-mute); }
+.wh-kpi-inc { font-size:11.5px; margin-top:5px; padding-top:5px; border-top:1px dashed var(--border); color:var(--text-mute); }
+.wh-kpi-inc b { color:#A12C7B; font-weight:700; }
+
+/* Строка-заголовок группы «федеральный округ» в «По складам» */
+.wh-hm-group > td { background:#f3f0f9; font-weight:700; color:#28251d;
+  border-top:2px solid #ddd6ec; border-bottom:1px solid #e6e1f0; }
+.wh-hm-group .wh-hm-name { font-size:12.5px; letter-spacing:.2px; color:#28251d; font-weight:700; }
+.wh-hm-group-cnt { display:inline-block; margin-left:6px; font-size:10.5px; font-weight:600;
+  color:#7A39BB; background:#ece4fb; border-radius:9px; padding:0 7px; vertical-align:middle; }
+.wh-hm-gcell { text-align:right; font-size:11px; font-weight:700; color:#28251d; white-space:nowrap; }
+.wh-hm-group-und > td { background:#f4f3f0; border-top:2px solid var(--border); }
+.wh-hm-group-und .wh-hm-name { color:var(--text-mute); font-weight:600; }
+.wh-hm-group-und .wh-hm-group-cnt { color:var(--text-mute); background:#e7e5e0; }
+/* Треугольник сворачивания группы (как в «РНП заказы») — красный треугольник слева от названия округа */
+.wh-hm-tw { display:inline-block; width:14px; margin-right:4px; color:#A12C7B; font-size:10px;
+  cursor:pointer; user-select:none; vertical-align:middle; text-align:center; transition:transform .12s; }
+.wh-hm-group .wh-hm-name { cursor:pointer; }
+.wh-hm-group.is-collapsed > td { border-bottom:1px solid #e6e1f0; }
+/* Скрытые строки-склады свёрнутой группы */
+table.wh-hm tr.wh-hm-hidden { display:none; }
+
+/* ============================================================
+   OZON: синяя фирменная гамма (перекрывает фиолетовую от WB)
+   + чёткая иерархия уровней дерева: ФО (ярче/жирнее) > кластер (светлее/тоньше)
+   Действует ТОЛЬКО внутри карточки .mp-ozon — WB (.mp-wb) не затрагивается.
+   ============================================================ */
+/* Уровень 1 — федеральный округ: насыщенный синий фон, жирный тёмный текст */
+.rnp-card.mp-ozon .wh-hm-group > td {
+  background:#e8f0ff; font-weight:700; color:#132a55;
+  border-top:2px solid var(--ozon-line); border-bottom:1px solid rgba(47,107,255,.18); }
+.rnp-card.mp-ozon .wh-hm-group .wh-hm-name { font-size:13px; color:#132a55; font-weight:700; }
+.rnp-card.mp-ozon .wh-hm-group-cnt {
+  color:#fff; background:var(--ozon); font-weight:700; }
+.rnp-card.mp-ozon .wh-hm-tw { color:var(--ozon-soft); }
+.rnp-card.mp-ozon .wh-hm-group.is-collapsed > td { border-bottom:1px solid rgba(47,107,255,.18); }
+
+/* Уровень 2 — кластер: заметно светлее, шрифт не жирный, приглушённый текст */
+.rnp-card.mp-ozon .wh-hm-group-lvl2 > td {
+  background:#f4f8ff; font-weight:500; color:#3a4a68;
+  border-top:1px solid rgba(47,107,255,.10); border-bottom:1px solid rgba(47,107,255,.08); }
+.rnp-card.mp-ozon .wh-hm-group-lvl2 .wh-hm-name {
+  font-size:12px; font-weight:500; color:#4a5a78; letter-spacing:0; }
+.rnp-card.mp-ozon .wh-hm-group-lvl2 .wh-hm-gcell { font-weight:600; color:#3a4a68; }
+.rnp-card.mp-ozon .wh-hm-group-lvl2 .wh-hm-group-cnt {
+  color:var(--ozon-soft); background:rgba(47,107,255,.13); font-weight:600; }
+.rnp-card.mp-ozon .wh-hm-group-lvl2 .wh-hm-tw { color:rgba(47,107,255,.55); }
+
+/* Δ-рост (положительная динамика) — синий, чтобы читалось как «фирменный» рост;
+   снижение остаётся акцентным #A12C7B (тревога, единый принцип по проекту) */
+.rnp-card.mp-ozon .wh-hm-delta.pos { color:var(--ozon-soft); }
+
+/* Селектор федерального округа в справочнике */
+.wh-fd-sel { font-size:12px; padding:3px 6px; border:1px solid var(--border); border-radius:7px;
+  background:#fff; color:var(--text); max-width:190px; cursor:pointer; }
+.wh-fd-sel.none { color:var(--text-mute); border-style:dashed; }
+.wh-fd-sel:hover { border-color:#b9a8e6; }
+
+/* Полоса-тревога о пропавших складах */
+.wh-alert-bar { background:#fdf3f9; border:1px solid #e9a6cd; color:#7a1f5a;
+  border-radius:8px; padding:10px 14px; font-size:12.5px; margin-bottom:16px; line-height:1.5; }
+.wh-alert-bar b { color:#A12C7B; }
+
+/* Тепловая карта */
+.wh-hm-wrap { overflow:auto; max-height:calc(100vh - 230px); border:1px solid var(--border); border-radius:10px; background:#fff; }
+table.wh-hm { border-collapse:separate; border-spacing:0; width:100%; font-size:12.5px; }
+table.wh-hm th { background:#f0eef0; border-bottom:1px solid var(--border);
+  font-weight:600; color:var(--text); padding:5px 7px; text-align:right; white-space:nowrap;
+  position:sticky; top:0; z-index:7; }  /* z-index ВЫШЕ тела (.wh-hm-name z5), иначе имена строк наезжают на шапку при вертик. скролле */
+table.wh-hm th.wh-hm-name, table.wh-hm th.l { text-align:left; }
+table.wh-hm td { padding:3px 7px; text-align:right; white-space:nowrap;
+  border-bottom:1px solid #efeef0; }
+table.wh-hm tbody tr:last-child td { border-bottom:none; }
+/* Столбец «Склад» — ФОН КАК У ЯЧЕЕК-ЗНАЧЕНИЙ (белый); залипает при горизонт. прокрутке.
+   z-index:5 — ВЫШЕ sticky-заголовков-дат (z3), иначе при горизонт. скролле даты
+   заголовка наезжают на залипший столбец «Склад» (баг). Тело-ячейки дат (z auto)
+   уходят ПОД этот столбец корректно. */
+.wh-hm-name { text-align:left !important; font-weight:400; color:var(--text);
+  background:#ffffff; position:sticky; left:0; z-index:5; max-width:190px;
+  overflow:hidden; text-overflow:ellipsis; border-right:1px solid var(--border);
+  padding-left:26px; }  /* отступ названий складов вправо (отделяем от округов) */
+th.wh-hm-name { background:#f0eef0 !important; z-index:9; padding-left:26px; }  /* угловая ячейка «Склад» — выше всех sticky-слоёв */
+
+/* Тотальные колонки «Тренд» и «Δ день» — ЗАЛИПАЮТ СПРАВА, чтобы всегда быть
+   видны без прокрутки вправо (баг: на узком экране уезжали за край). Δ день —
+   крайняя правая (right:0), Тренд — левее неё (right = ширина Δ день ≈ 84px).
+   Непрозрачный фон, чтобы тело-ячейки дат не просвечивали под ними. */
+.wh-hm-spark, .wh-hm-delta { position:sticky; background:#ffffff; z-index:5;
+  box-shadow:-1px 0 0 var(--border); }
+.wh-hm-delta { right:0; width:84px; min-width:84px; max-width:84px; box-sizing:border-box; padding-right:10px; }
+.wh-hm-spark { right:84px; width:112px; min-width:112px; max-width:112px; box-sizing:border-box; box-shadow:none; }
+/* Заголовки/итоги тех же колонок — тот же фон шапки и z-index выше строк */
+th.wh-hm-spark, th.wh-hm-delta { background:#f0eef0 !important; z-index:8; }
+table.wh-hm thead tr.wh-hm-total-head th.wh-hm-spark,
+table.wh-hm thead tr.wh-hm-total-head th.wh-hm-delta { background:#f7f5f8 !important; z-index:8; }
+/* Строки-округа и «Итого» в теле — свой фон под залипшими тотал-колонками */
+.wh-hm-group .wh-hm-spark, .wh-hm-group .wh-hm-delta { background:#f0eef0; }
+.wh-hm-total-head .wh-hm-spark, .wh-hm-total-head .wh-hm-delta { background:#f7f5f8; }
+/* Строки-округа и «Итого» — имя без лишнего отступа (треугольник занимает место слева) */
+.wh-hm-group > .wh-hm-name, .wh-hm-total-head > .wh-hm-name { padding-left:8px; }
+/* Столбцы-дни — уже */
+.wh-hm-d { min-width:52px; }
+table.wh-hm td.wh-hm-cell { padding:3px 6px; }
+.wh-hm-cell { font-variant-numeric:tabular-nums; }
+/* Вес значения = загруженность склада относительно ОСТАЛЬНЫХ складов в этот день (по столбцу). */
+.wh-hm-cell.wh-w-hi  { font-weight:700; color:#28251d; }
+.wh-hm-cell.wh-w-mid { font-weight:500; color:#3d3a31; }
+.wh-hm-cell.wh-w-lo  { font-weight:400; color:#8a887f; }
+.wh-hm-zero { background:#fbeef5; color:#A12C7B; font-style:italic; }
+.wh-hm-spark { text-align:center !important; }
+.wh-hm-spark svg { vertical-align:middle; }
+.wh-hm-delta { font-variant-numeric:tabular-nums; font-weight:600; }
+.wh-hm-delta.pos { color:#437A22; }
+.wh-hm-delta.neg { color:#A12C7B; }
+.wh-hm-delta.muted { color:var(--text-mute); font-weight:400; }
+/* Столбец Статус в таблице «По складам» — узкий, по содержимому */
+.wh-hm-st { text-align:center !important; white-space:nowrap; width:1%; padding-left:4px !important; padding-right:4px !important; }
+table.wh-hm .wh-hm-st .wh-st-cell { justify-content:center; gap:3px; }
+/* Период статуса: тепловой фон СОХРАНЯЕТСЯ, период выделен цветной рамкой цвета статуса.
+   Текст остаётся контрастным к фону (чёрный/белый) — читаемо. */
+table.wh-hm td.wh-hm-instatus { box-shadow: inset 0 1px 0 var(--wh-st-col), inset 0 -1px 0 var(--wh-st-col); position:relative; }
+/* Первый день периода — жирная левая граница «с этого дня» (торец 4px), верх/низ тонкие 1px. */
+table.wh-hm td.wh-hm-instatus.wh-hm-ststart { box-shadow: inset 4px 0 0 var(--wh-st-col), inset 0 1px 0 var(--wh-st-col), inset 0 -1px 0 var(--wh-st-col); }
+table.wh-hm td.wh-hm-instatus.wh-hm-ststart::after { content:""; position:absolute; left:0; top:0; border-width:5px 5px 0 0; border-style:solid; border-color:var(--wh-st-col) transparent transparent transparent; }
+/* Последний день периода инцидента — жирная ПРАВАЯ граница «по этот день» (торец 4px). */
+table.wh-hm td.wh-hm-instatus.wh-hm-stend { box-shadow: inset -4px 0 0 var(--wh-st-col), inset 0 1px 0 var(--wh-st-col), inset 0 -1px 0 var(--wh-st-col); }
+table.wh-hm td.wh-hm-instatus.wh-hm-ststart.wh-hm-stend { box-shadow: inset 4px 0 0 var(--wh-st-col), inset -4px 0 0 var(--wh-st-col), inset 0 1px 0 var(--wh-st-col), inset 0 -1px 0 var(--wh-st-col); }
+/* «Замороженная» ячейка Ozon: реальный остаток скрыт, показано последнее известное значение. */
+table.wh-hm td.wh-hm-frozen .wh-hm-frz { color:#A12C7B; font-style:italic; opacity:.85; }
+/* Ячейки-даты кликабельны (двойной клик — управление инцидентом). */
+table.wh-hm td.wh-hm-clk { cursor:pointer; user-select:none; }
+/* Мини-меню инцидента у ячейки. */
+.wh-incpop { position:absolute; z-index:1000; width:240px; background:#fff; border:1px solid var(--border);
+  border-radius:11px; box-shadow:0 8px 28px rgba(0,0,0,.16); padding:11px 12px; display:flex; flex-direction:column; gap:9px; }
+.wh-incpop-title { font-size:11.5px; font-weight:700; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wh-incpop-hint { font-size:10.5px; color:var(--text-mute); line-height:1.4; }
+.wh-incpop-hint b { color:var(--text); }
+.wh-incpop-row { display:flex; flex-direction:column; gap:7px; }
+.wh-incpop-btn { font-size:12px; font-weight:600; padding:8px 10px; border-radius:8px; cursor:pointer; border:1px solid var(--border); background:#faf9f6; color:var(--text); text-align:left; transition:background .12s,border-color .12s; }
+.wh-incpop-btn.open { border-color:#A12C7B; color:#A12C7B; }
+.wh-incpop-btn.open:hover { background:#faeef5; }
+.wh-incpop-btn.close { border-color:#437A22; color:#437A22; }
+.wh-incpop-btn.close:hover { background:#eef5e9; }
+/* Шапка таблицы: ОБЕ строки (даты + итого) залипают при скролле.
+   1-я (даты) — top:0; 2-я (итого) — top = высота 1-й строки.
+   Специфичность выше, чем у `table.wh-hm th`, чтобы top перекрыл общее правило. */
+table.wh-hm thead tr.wh-hm-total-head th { position:sticky; top:29px; z-index:7;
+  background:#f7f5f8; font-weight:700; color:var(--text);
+  border-top:2px solid var(--border); border-bottom:2px solid var(--border); }
+table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !important; z-index:9; }
+
+.wh-legend { font-size:11.5px; color:var(--text-mute); margin-top:12px; line-height:1.6; }
+
+/* ===== Статусы складов — единый фирменный стиль (как пилюли-статусы РНП) ===== */
+/* Цвета: инцидент=красный, не грузим=серый, закрыт=чёрный, внимание=оранжевый, работаем=зелёный */
+
+/* Обёртка «селектор-пилюля + иконка-календарь» */
+.wh-st-cell { display:inline-flex; align-items:center; gap:4px; }
+
+/* Селектор статуса — пилюля в стиле .rnp-status-sel (11px, radius 10, SVG-шеврон) */
+.wh-st-sel {
+  font-size:11px; font-weight:600; line-height:1.4; padding:2px 16px 2px 7px;
+  border-radius:10px; border:1px solid transparent; cursor:pointer;
+  -webkit-appearance:none; appearance:none; outline:none; text-align:center;
+  background-repeat:no-repeat; background-position:right 6px center; background-size:8px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M1 2.5L4 5.5L7 2.5' stroke='%23888' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  transition:background-color .12s, border-color .12s, box-shadow .12s;
+}
+.wh-st-sel:hover  { box-shadow:0 0 0 2px rgba(0,0,0,.04) inset; }
+.wh-st-sel:focus  { box-shadow:0 0 0 2px rgba(235,20,20,.18); }
+.wh-st-sel option { color:var(--text); background:#fff; font-weight:500; }
+/* мягкие фирменные фоны/бордеры по значению статуса */
+.wh-st-sel.wh-st-none      { background-color:#f4f5f7; color:#9aa0a8; border-color:#e7e9ee; }
+.wh-st-sel.wh-st-none:hover { background-color:#f4f5f7; }
+.wh-st-sel.wh-st-incident  { background-color:#fdecf5; color:#A12C7B; border-color:#efc4de; }
+.wh-st-sel.wh-st-no_ship   { background-color:#f2f2f0; color:#5f5e5a; border-color:#dcdbd6; }
+.wh-st-sel.wh-st-closed    { background-color:#eceae7; color:#28251d; border-color:#c9c6bf; }
+.wh-st-sel.wh-st-attention { background-color:#fdf0e6; color:#964219; border-color:#f0cfb2; }
+.wh-st-sel.wh-st-working   { background-color:#eaf5e4; color:#437A22; border-color:#c3e2b2; }
+
+/* Статичная плашка статуса (легенда/справочник, не селектор) */
+.wh-st-badge { display:inline-flex; align-items:center; justify-content:center;
+  min-width:64px; padding:2px 10px; border-radius:10px;
+  font-size:11px; font-weight:600; line-height:1.4; border:1px solid transparent; }
+.wh-st-badge.wh-st-none { background:#f4f5f7; color:#9aa0a8; border-color:#e7e9ee; }
+.wh-st-badge.wh-st-incident  { background:#fdecf5; color:#A12C7B; border-color:#efc4de; }
+.wh-st-badge.wh-st-no_ship   { background:#f2f2f0; color:#5f5e5a; border-color:#dcdbd6; }
+.wh-st-badge.wh-st-closed    { background:#eceae7; color:#28251d; border-color:#c9c6bf; }
+.wh-st-badge.wh-st-attention { background:#fdf0e6; color:#964219; border-color:#f0cfb2; }
+.wh-st-badge.wh-st-working   { background:#eaf5e4; color:#437A22; border-color:#c3e2b2; }
+
+/* Иконка-календарь у статуса: серая если дата не задана, цвет статуса — если задана */
+.wh-st-datebtn {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:22px; height:22px; padding:0; border-radius:7px; cursor:pointer;
+  border:1px solid #e0ded8; background:#fff; color:#b7b6b1;
+  transition:color .12s, border-color .12s, background-color .12s, box-shadow .12s;
+}
+.wh-st-datebtn:hover { box-shadow:0 0 0 2px rgba(0,0,0,.05) inset; }
+.wh-st-datebtn svg { display:block; }
+.wh-st-datebtn.has-date { color:var(--wh-st-col, #7A39BB); border-color:currentColor; background:#fff; }
+.wh-st-datebtn.disabled { opacity:.4; cursor:default; pointer-events:none; }
+
+/* Всплывающее окно выбора даты статуса */
+.wh-datepop {
+  position:absolute; z-index:50; background:#fff; border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 8px 28px rgba(0,0,0,.14); padding:10px 12px;
+  display:flex; flex-direction:column; gap:8px; min-width:210px;
+}
+.wh-datepop-title { font-size:11px; font-weight:700; color:var(--text-mute); text-transform:uppercase; letter-spacing:.03em; }
+.wh-datepop-hint { font-size:10.5px; color:var(--text-mute); line-height:1.4; }
+.wh-datepop-list { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; max-height:180px; overflow-y:auto; }
+.wh-datepop-day { font-size:11.5px; font-weight:600; padding:5px 4px; border-radius:7px; cursor:pointer;
+  border:1px solid var(--border); background:#fbfbf9; color:var(--text); text-align:center; transition:background .12s,border-color .12s; }
+.wh-datepop-day:hover { background:#f0eef7; border-color:#c9bfe2; }
+.wh-datepop-day.sel { background:#7A39BB; border-color:#7A39BB; color:#fff; }
+.wh-datepop-empty { font-size:11px; color:var(--text-mute); padding:6px 2px; }
+.wh-datepop-row { display:flex; gap:8px; justify-content:flex-end; align-items:center; border-top:1px solid var(--border); padding-top:7px; }
+.wh-datepop-clear { font-size:11px; color:#A12C7B; background:none; border:none; cursor:pointer; padding:2px 4px; }
+.wh-datepop-clear:hover { text-decoration:underline; }
+
+/* Справочник: статус + иконка-календарь в одну строку */
+.wh-cat-st { white-space:nowrap; }
+
+/* ============================================================
+   Раздел «Цены» → «Прайс-лист».
+   Наследует .sp-card.mp-cross и все sp-* стили таблицы. Здесь —
+   только локальные поправки под три колонки (Иерархия / Артикул,
+   Базовая OZON, Базовая WB): аккуратные ширины, таблица не тянется
+   на всю ширину карточки (справа резерв под будущие колонки), и
+   немного более насыщенный серый оттенок групп по уровням — только
+   в этом подразделе, чтобы не задеть «Продажи, шт → Сводная».
+   ============================================================ */
+/* Насыщенность серого чуть выше стандартной .mp-cross — LOCAL ONLY. */
+.mp-cross #pl-body {
+  --lvl-bg-1: rgba(120,135,150,.22);
+  --lvl-bg-2: rgba(120,135,150,.14);
+  --lvl-bg-3: rgba(120,135,150,.08);
+}
+/* Таблица не растягивается на всю ширину карточки: фиксированный layout,
+   ширина по сумме колонок; справа остаётся резерв под будущие поля. */
+/* Высота — по содержимому, как в «РНП заказы»: карточка растёт и сжимается
+   вместе с числом развёрнутых уровней, вертикально скроллится САМА СТРАНИЦА
+   (никакого внутреннего окна фиксированной высоты, как в «Продажи, шт.»).
+   overflow:visible обязателен, иначе шапка таблицы липнет к верху обёртки,
+   а не к верху окна под липким тулбаром. */
+.mp-cross #pl-body .sp-wrap { overflow: visible; max-height: none; }
+/* Шапка таблицы липнет к окну ровно под липким тулбаром раздела
+   (appbar + подтабы + фильтры; реальная высота тулбара меряется в JS). */
+.mp-cross #pl-body table.sp-tbl thead tr:first-child th {
+  top: calc(var(--header-h) + var(--pl-toolbar-h, 0px));
+}
+/* Второй уровень шапки липнет под первым. Высота верхней строки меряется в JS
+   (--pl-hrow1-h): фиксированные 24px оставляли на стыке щель ~1px, и при
+   скролле в ней просвечивали верхушки цифр. Минус 1px — гарантированное
+   перекрытие на субпиксельных масштабах. */
+.mp-cross #pl-body table.sp-tbl thead tr.sp-hrow2 th {
+  top: calc(var(--header-h) + var(--pl-toolbar-h, 0px) + var(--pl-hrow1-h, 24px) - 1px);
+}
+/* Вся шапка — на одном повышенном уровне и с гарантированно непрозрачным
+   фоном: раньше группы колонок имели z-index 4, а липкая левая колонка — 5. */
+.mp-cross #pl-body table.sp-tbl thead th {
+  z-index: 6;
+  background-color: var(--bg-elev2);
+}
+.mp-cross #pl-body table.sp-tbl thead th.sp-name,
+.mp-cross #pl-body table.sp-tbl thead th.sp-st { z-index: 7; }
+/* Объединяющий заголовок «Базовая цена» — по центру над WB/Ozon/Pi/Yandex/Pi. */
+.mp-cross #pl-body table.sp-tbl thead th.sp-hgrp {
+  width: auto; min-width: 0;
+  text-align: center;
+  height: 24px; line-height: 24px; padding-top: 0; padding-bottom: 0;
+  color: var(--text-dim);
+}
+.mp-cross #pl-body table.sp-tbl {
+  --sp-name-w: 340px;   /* левая липкая колонка «Иерархия / Артикул» (=РНП юнит-экономика) */
+  width: auto;          /* НЕ 100% — не тянемся во всю ширину */
+  table-layout: fixed;
+  min-width: 740px;   /* Артикул + 3 колонки цен + 2 колонки Pi */
+}
+/* Колонки цен — компактные, правое выравнивание, числа моно-цифрами. */
+.mp-cross #pl-body table.sp-tbl th.sp-mth,
+.mp-cross #pl-body table.sp-tbl td.sp-mth {
+  width: 92px;
+  min-width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Заголовок «Иерархия / Артикул» — выровнять левый отступ. */
+.mp-cross #pl-body table.sp-tbl thead th.sp-name { padding-left: 12px; }
+/* Артикул в листе — моно, тот же размер, что и в РНП. */
+.mp-cross #pl-body table.sp-tbl td.sp-name.sp-art {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+/* === «Прайс-лист»: единообразие с РНП заказы (шапка) === */
+/* Поиск в фильтрах прайс-листа — шире стандартного (длинный плейсхолдер). */
+.rnp-filters-host > #pl-search { width: 260px; flex: 0 0 auto; }
+/* Заголовок отчёта в прайс-листе — со счётчиком справа. */
+.mp-cross .rnp-card-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+
+/* === «Прайс-лист»: типографика узлов строго как в РНП заказы ===
+   В РНП имена категорий на ВСЕХ уровнях одинаковы (.rnp-nm — 12px/600),
+   различаются только отступом и заливкой; крупный жирный шрифт (13.5px/700)
+   зарезервирован под строку «Итоги» (lvl-0), которой в прайс-листе нет.
+   Область ограничена #pl-body, чтобы не задеть «Продажи, шт.» (те же .sp-*). */
+.mp-cross #pl-body table.sp-tbl td.sp-grp.lvl1,
+.mp-cross #pl-body table.sp-tbl td.sp-grp.lvl2,
+.mp-cross #pl-body table.sp-tbl td.sp-grp.lvl3 {
+  /* Фактический эталон из «РНП заказы» (.rnp-nm): 13.5px / 700 на ВСЕХ
+     уровнях групп, без ослабления цвета на глубоких уровнях. */
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── Раздел «Продажи, шт.»: выпадающий список «Настройки» ─────────────────────
+   Пять чекбоксов отображения (прогноз, скрыть статус, факт YoY, продажи в руб.,
+   исправлено вручную) убраны с панели фильтров в поповер: на экране ноутбука
+   шапка не влезала в одну строку. Кнопка оформлена как соседние селекты. */
+.sp-settings { position:relative; display:inline-flex; flex:0 0 auto; }
+/* Специфичность .sp-ctl .input-sm (padding:6px 9px) выше одиночного класса,
+   поэтому правый отступ под шеврон задаём тем же весом — иначе стрелка
+   налезает на текст «Настройки». */
+.sp-ctl .sp-settings-btn {
+  position:relative; cursor:pointer; white-space:nowrap; text-align:left;
+  padding:6px 28px 6px 9px; background:var(--bg-elev); color:var(--text);
+}
+/* Шеврон повторяет нативный у соседних селектов («Статус», «Менеджер»). */
+.sp-ctl .sp-settings-btn::after {
+  content:''; position:absolute; right:10px; top:50%;
+  width:6px; height:6px; margin-top:-5px;
+  border-right:1.6px solid var(--text-dim); border-bottom:1.6px solid var(--text-dim);
+  transform:rotate(45deg); pointer-events:none;
+}
+.sp-ctl .sp-settings-btn[aria-expanded="true"]::after {
+  margin-top:-2px; transform:rotate(225deg);
+}
+.sp-settings-pop {
+  position:absolute; top:calc(100% + 4px); left:0; z-index:60;
+  min-width:210px; padding:8px 10px;
+  display:flex; flex-direction:column; gap:8px;
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(16,24,40,.14);
+}
+.sp-settings-pop[hidden] { display:none; }
+.sp-settings-pop .sp-fc-check { white-space:nowrap; }
+
+/* === «Прайс-лист»: колонка себестоимости (галочка «показать себестоимость») ===
+   Значение и под ним — дата, с которой действует срез с/с (item_cost_hist.start_date).
+   Только чтение: с/с загружается в разделе «Склады» → «Отчёты общие». */
+.mp-cross #pl-body table.sp-tbl th.sp-cost,
+.mp-cross #pl-body table.sp-tbl td.sp-cost,
+.mp-cross #pl-body table.sp-tbl th.sp-cost-dt,
+.mp-cross #pl-body table.sp-tbl td.sp-cost-dt {
+  width: 110px;
+  min-width: 110px;
+}
+.mp-cross #pl-body .sp-cost-val { color: var(--text); font-weight: 600; }
+.mp-cross #pl-body .sp-cost-val.sp-plan-empty { color: #c2c9d0; font-weight: 400; }
+.mp-cross #pl-body .sp-cost-date { color: var(--text-dim); font-weight: 400; }
+
+/* Прайс-лист: базовые цены — обычным чёрным текстом (в «Продажах» .sp-plan синий). */
+.mp-cross #pl-body .sp-cell .sp-plan { color: var(--text); }
+
+/* Прайс-лист: числа — моноширинным, как числа в «РНП заказы» (var(--mono)). */
+.mp-cross #pl-body .sp-cell .sp-plan,
+.mp-cross #pl-body .sp-cost-val,
+.mp-cross #pl-body .sp-cost-date {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Прайс-лист: базовые цены и заголовки колонок — в фирменных цветах МП.
+   Используются существующие «soft»-варианты (насыщенные, читаемые на белом):
+   Ozon --ozon-soft, Wildberries --wb-soft, Yandex --ya-soft. */
+.mp-cross #pl-body table.sp-tbl th.sp-th-ozon { color: var(--ozon-soft); }
+.mp-cross #pl-body table.sp-tbl th.sp-th-wb   { color: var(--wb-soft); }
+.mp-cross #pl-body table.sp-tbl th.sp-th-ya   { color: var(--ya-soft); }
+.mp-cross #pl-body .sp-cell .sp-plan[data-mp="ozon"] { color: var(--ozon-soft); }
+.mp-cross #pl-body .sp-cell .sp-plan[data-mp="wb"]   { color: var(--wb-soft); }
+.mp-cross #pl-body .sp-cell .sp-plan[data-mp="ya"]   { color: var(--ya-soft); }
+/* Пустые значения остаются приглушёнными. */
+.mp-cross #pl-body .sp-cell .sp-plan.sp-plan-empty { color: #c2c9d0; }
+
+/* Прайс-лист: узкая колонка Pi (прайс-индекс к базовой цене WB) —
+   темно-серый, на шаг мельче базовых цен. */
+.mp-cross #pl-body table.sp-tbl th.sp-pi,
+.mp-cross #pl-body table.sp-tbl td.sp-pi {
+  width:42px; min-width:42px; max-width:42px; padding-left:2px; padding-right:2px;   /* тонкие колонки Pi */
+}
+.mp-cross #pl-body .sp-pi-val {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 11px; color: var(--text-dim);
+}
+.mp-cross #pl-body .sp-pi-val.sp-plan-empty { color:#c2c9d0; }
+
+/* Прайс-лист: значения и заголовки блока «Базовая цена» (WB/Ozon/Yandex + Pi)
+   выравниваются по центру. Колонки себестоимости не затрагиваются. */
+.mp-cross #pl-body table.sp-tbl th.sp-th-wb,
+.mp-cross #pl-body table.sp-tbl th.sp-th-ozon,
+.mp-cross #pl-body table.sp-tbl th.sp-th-ya,
+.mp-cross #pl-body table.sp-tbl th.sp-pi,
+.mp-cross #pl-body table.sp-tbl td.sp-pi,
+.mp-cross #pl-body table.sp-tbl td.sp-mth:not(.sp-cost):not(.sp-cost-dt) { text-align: center; }
+/* Ячейка цены в прайс-листе содержит только одно число — сводим сетку
+   к одной дорожке и центрируем (в «Продажах, шт.» сетка пар не меняется). */
+.mp-cross #pl-body table.sp-tbl td.sp-mth .sp-cell.sp-cell-single {
+  grid-template-columns: 1fr; column-gap: 0;
+}
+.mp-cross #pl-body table.sp-tbl td.sp-mth .sp-cell.sp-cell-single .sp-plan {
+  grid-column: 1; text-align: center;
+}
+
+/* ── «Индекс цен»: 5 колонок под шапкой Wildberries ─────────────────────
+   Индивидуальные ширины по колонкам, чтобы длинные подписи «Загружаемая» и
+   «Для покупателя» помещались, а «СПП» была уже (значения ~«27,9%»).
+   Порядок колонок в tbody (после td.sp-name):
+     1 Базовая · 2 Pi · 3 Загружаемая · 4 СПП · 5 Для покупателя. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl { min-width: 760px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-name,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl td.sp-name { width: 340px; min-width: 340px; }
+
+/* Nth считается от td: перед .sp-mth идёт td.sp-name (nth-of-type=1),
+   поэтому «Базовая» = nth-of-type(2), «Pi»(sp-pi) = 3, «Загружаемая» = 4,
+   «СПП» = 5, «Для покупателя» = 6. Для шапки берём tr.sp-hrow2 th:nth-child(N),
+   где N=1..5 (в этой строке нет sp-name). */
+
+/* 1 «Базовая» */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) {
+  width: 82px; min-width: 82px; max-width: 82px;
+}
+/* 3 «Загружаемая» */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(3),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) {
+  width: 108px; min-width: 108px; max-width: 108px;
+}
+/* 4 «СПП» — узкая */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(4),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) {
+  width: 62px; min-width: 62px; max-width: 62px;
+}
+/* 5 «Для покупателя» — самая длинная подпись */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(5),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(6) {
+  width: 118px; min-width: 118px; max-width: 118px;
+}
+
+/* Цвет «Wildberries» и «Базовая» в шапке — пурпур. Значения Базовой — тоже.
+   `.mp-cross #pl-body .sp-cell .sp-plan` уже задаёт color; повышаем удельный
+   вес селектора, привязываясь к [data-sub="index"] и td.sp-mth. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-wb { color: var(--wb-soft); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1) { color: var(--wb-soft); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) .sp-cell .sp-plan { color: var(--wb-soft); }
+
+/* Значения «Загружаемая» — жирные. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) .sp-cell .sp-plan { font-weight: 700; }
+
+/* Значения «СПП» — зелёный, как в РНП заказы (#38761D). */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) .sp-cell .sp-plan { color: #38761D; }
+
+/* «Индекс цен» — Pi WB: цветовые пороги (bad — красный, primary — синий).
+   Правило общее для любого td.sp-pi — автоматически работает и для Ozon.
+   Парное правило для td.sp-pibuy («Pi покупатель»): красный при <1,03,
+   порога сверху нет (см. _idxPiPlain в views.js). */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-lo { color: var(--bad); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-hi { color: #0000ff; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
+
+/* ─── Блок Ozon (справа) ───
+   После 5 колонок WB (nth-of-type 2..6) идёт столбец «Pi покупатель»
+   (nth-of-type 7, класс sp-pibuy), и только затем блок Ozon:
+     nth-of-type(8)  — Базовая Ozon (82px, синий)
+     nth-of-type(9)  — Pi Ozon
+     nth-of-type(10) — Загружаемая Ozon (108px, жирный)
+     nth-of-type(11) — СПП Ozon (62px, зелёный)
+     nth-of-type(12) — Для покупателя Ozon (118px).
+   В шапке tr.sp-hrow2 th:nth-child(6..10). */
+
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) {
+  width: 82px; min-width: 82px; max-width: 82px;
+}
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(8),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) {
+  width: 108px; min-width: 108px; max-width: 108px;
+}
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(9),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) {
+  width: 62px; min-width: 62px; max-width: 62px;
+}
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(10),
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(12) {
+  width: 118px; min-width: 118px; max-width: 118px;
+}
+
+/* Цвет «Ozon» и «Базовая Ozon» в шапке — синий (--ozon-soft). Значения Базовой — тоже. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-oz { color: var(--ozon-soft); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6) { color: var(--ozon-soft); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) .sp-cell .sp-plan { color: var(--ozon-soft); }
+
+/* Значения «Загружаемая Ozon» — жирные. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) .sp-cell .sp-plan { font-weight: 700; }
+
+/* Значения «СПП Ozon» — зелёный, как в РНП заказы (#38761D). */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) .sp-cell .sp-plan { color: #38761D; }
+
+/* ─── Отдельный блок «Pi покупатель» между WB и Ozon ───
+   Отделяется от соседних блоков визуальным зазором с двух сторон.
+   Зазор реализован через background-clip: content-box и боковые padding
+   (а не внешние border): для th c rowspan=2 это единственный способ
+   получить ровный вертикальный канал, включая границу с шапкой.
+   Фон колонки равен фону таблицы, что даёт впечатление «пустого промежутка».
+   Раскраска значений не применяется. */
+/* Отделяется от блоков WB и Ozon как секция: собственный тонированный фон
+   (тот же --bg-elev2, что у шапки) + тонкие боковые линии через inset box-shadow
+   (border не подходит: border-collapse схлопывает его с border-left соседа).
+   Заливка читается как самостоятельный блок, линии его обводят — вместе дают
+   лаконичный сегмент без внешних зазоров. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy {
+  width: 96px; min-width: 96px; max-width: 96px;
+  text-align: center;
+  background-color: var(--bg-elev2);
+  box-shadow: inset 1px 0 0 0 var(--border), inset -1px 0 0 0 var(--border);
+}
+/* Строки-группы: колонка слегка темнее группового фона, чтобы секция
+   оставалась цельной, а не сливалась с групповой заливкой. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr.sp-group td.sp-pibuy {
+  background: linear-gradient(#e7ecf2, #e7ecf2), var(--bg-elev);
+}
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy.sp-pibuy-h {
+  vertical-align: middle;
+  white-space: normal;
+  line-height: 1.25;
+  padding-left: 4px; padding-right: 4px;
+}
