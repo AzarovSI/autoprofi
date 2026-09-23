@@ -8,7 +8,7 @@ const App = (() => {
   };
 
   const titles = {
-    rnp_sales: 'РНП Продажи', rnp: 'РНП Юнит-экономика', skus: 'Продажи, шт. (план/факт)', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Справочник', users: 'Пользователи',
+    rnp_sales: 'РНП', rnp: 'Юнит-экономика', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
   };
 
   // Разделы, доступные только администратору.
@@ -98,7 +98,7 @@ const App = (() => {
 
   // ---------- навигация ----------
   function setView(view, force) {
-    if (view === state.view && !force) return;
+    if (view === state.view && !force) { closeNav(); return; }
     // Защита: недоступный раздел (админский или owner-only) нельзя открыть напрямую.
     if (!canSeeView(view)) view = 'rnp_sales';
     // Перед уходом с РНП-отчёта запоминаем позицию прокрутки окна, чтобы при
@@ -106,14 +106,17 @@ const App = (() => {
     // хранится в самих отчётах по маркетплейсам).
     if (Views.saveRnpScroll) Views.saveRnpScroll(state.view);
     state.view = view;
-    document.querySelectorAll('#nav a').forEach(a =>
-      a.classList.toggle('active', a.dataset.view === view));
+    document.querySelectorAll('#nav a').forEach(a => {
+      const active = a.dataset.view === view;
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
     const t = titles[view] || '';
     document.getElementById('view-title').textContent = t;
     const crumb = document.getElementById('crumb-cur');
     if (crumb) crumb.textContent = t;
-    const nav = document.getElementById('nav');
-    if (nav) nav.classList.remove('open');
+    closeNav();
     renderView();
   }
 
@@ -182,6 +185,11 @@ const App = (() => {
     toastTimer = setTimeout(() => { el.remove(); }, 4000);
   }
 
+  function closeNav() {
+    document.getElementById('nav').classList.remove('open');
+    document.getElementById('nav-toggle').setAttribute('aria-expanded', 'false');
+  }
+
   // ---------- события ----------
   function bind() {
     document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -209,7 +217,17 @@ const App = (() => {
 
     const navToggle = document.getElementById('nav-toggle');
     if (navToggle) navToggle.addEventListener('click', () => {
-      document.getElementById('nav').classList.toggle('open');
+      const open = document.getElementById('nav').classList.toggle('open');
+      navToggle.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('nav').classList.contains('open')) {
+        closeNav();
+        navToggle.focus();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.appbar')) closeNav();
     });
 
     document.getElementById('logout-btn').addEventListener('click', () => {

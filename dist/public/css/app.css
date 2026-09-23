@@ -44,7 +44,7 @@
   --shadow-sm:    0 1px 2px rgba(20,30,48,.06);
   --radius:       14px;
   --radius-sm:    9px;
-  --header-h:     72px;
+  --header-h:     96px;
   /* Единый системный шрифтовой стек (Apple → Windows → общий фолбэк) — без внешних загрузок */
   --mono:         ui-monospace,"SF Mono","Segoe UI Mono",Consolas,Menlo,monospace;
   --sans:         -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -107,58 +107,76 @@ button { font-family: inherit; cursor: pointer; }
 .btn:disabled { opacity:.6; cursor:not-allowed; }
 .login-err { color: var(--bad); font-size: 12px; min-height: 16px; margin-top: 8px; text-align:center; }
 
-/* ---------- Каркас: горизонтальная шапка (как в кабинете B2B) ---------- */
+/* ---------- Каркас: компактная шапка-карточка ---------- */
 .layout { display:flex; flex-direction:column; min-height: 100vh; }
 .appbar {
-  height: var(--header-h); flex-shrink:0; background: var(--bg-elev);
-  border-bottom:1px solid var(--border); display:flex; align-items:center;
-  padding: 0 26px; gap: 26px; position: sticky; top:0; z-index: 40; box-shadow: var(--shadow-sm);
+  height:var(--header-h); flex-shrink:0; background:var(--bg);
+  display:flex; align-items:center; padding:0 44px; gap:20px;
+  position:sticky; top:0; z-index:40; isolation:isolate;
 }
-.appbar .ap-logo { flex-shrink:0; }
-.nav { display:flex; align-items:stretch; gap: 2px; height:100%; flex:1; }
+.appbar::before {
+  content:""; position:absolute; inset:12px 26px; z-index:-1;
+  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius);
+}
+.appbar .ap-logo {
+  flex-shrink:0; display:flex; align-items:center; padding-right:20px;
+  border-right:1px solid var(--border); height:44px;
+}
+.appbar .ap-logo .ap-logo-line { width:170px; height:auto; }
+.nav { display:flex; align-items:center; gap:2px; flex:1; min-width:0; }
 .nav a {
-  display:flex; align-items:center; gap:9px; padding: 0 15px; height:100%;
-  color: var(--text-dim); font-size: 14px; font-weight: 600; position:relative;
-  border-bottom: 3px solid transparent; transition: color .15s, background .15s;
-  border-radius: 8px 8px 0 0;
+  display:flex; align-items:center; gap:8px; padding:0 12px; height:48px;
+  color:var(--text-dim); font-size:14px; font-weight:600; white-space:nowrap;
+  transition:color .15s,background .15s; border-radius:var(--radius-sm);
 }
-.nav a .ico { font-size:16px; opacity:.9; flex-shrink:0; align-self:center; }
+.nav a .ico {
+  width:19px; height:19px; flex-shrink:0; fill:none; stroke:currentColor;
+  stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
+}
 .nav a:hover { color: var(--text); background: var(--bg-hover); }
-.nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
-/* Пункт с подписью: настоящий двухстрочный блок в потоке.
-   Название + подпись центрируются как единый блок, иконка — по вертикальному центру.
-   Однострочные пункты (АВС, Справочник…) центрируются так же → единый ровный ряд. */
-.nav a .nav-lbl { display:flex; flex-direction:column; justify-content:center; line-height:1.15; }
-.nav a .nav-lbl .nav-sub { position:static; display:block; margin-top:2px; font-size:10.5px; font-weight:500; line-height:1; letter-spacing:.1px; color: var(--text-mute); white-space:nowrap; }
-.nav a.active .nav-lbl .nav-sub { color: var(--accent-soft); opacity:.85; }
-.appbar .right { display:flex; align-items:center; gap: 14px; flex-shrink:0; }
-.appbar .uname { font-size:13px; font-weight:600; color: var(--text); }
-.appbar .logout { font-size:12.5px; color: var(--text-mute); cursor:pointer; }
+.nav a.active { color:var(--accent-soft); background:var(--accent-bg); }
+.nav a:focus-visible, .appbar button:focus-visible { outline:2px solid var(--accent-soft); outline-offset:3px; }
+.nav a .nav-lbl { line-height:1.2; }
+.appbar .right { display:flex; align-items:center; gap:14px; flex-shrink:0; margin-left:auto; }
+.appbar .uname { font-size:13px; font-weight:600; color:var(--text); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.appbar .logout { font:inherit; font-size:12.5px; color:var(--text-dim); cursor:pointer; border:0; background:none; padding:8px 0; }
 .appbar .logout:hover { color: var(--accent); }
 
-/* мобильная / ноутбучная шапка */
 .appbar .nav-toggle { display:none; }
-/* На промежуточных ширинах (1180–1400) чуть ужимаем горизонтальное меню,
-   чтобы логотип + меню + имя пользователя гарантированно помещались в одну строку. */
-@media (max-width: 1400px){
-  .appbar { gap: 16px; padding: 0 18px; }
-  .nav { gap: 1px; }
-  .nav a { padding: 0 11px; font-size: 13.5px; gap: 7px; }
-  .nav a .ico { font-size: 15px; }
-  .nav a .nav-lbl .nav-sub { font-size: 10px; }
+@media (max-width:1500px){
+  .appbar { gap:12px; padding:0 40px; }
+  .appbar .ap-logo { padding-right:12px; }
+  .appbar .ap-logo .ap-logo-line { width:150px; }
+  .nav a { padding:0 9px; gap:6px; }
+  .appbar .right { gap:10px; }
+  .appbar .uname { max-width:120px; }
 }
-/* Гамбургер-меню: включаем раньше (≤1180px), чтобы на ноутбуках
-   имя/«Выйти» никогда не вылезали за край экрана. */
-@media (max-width: 1180px){
-  .appbar { gap: 14px; padding: 0 16px; }
-  .nav { position:absolute; top: var(--header-h); left:0; right:0; flex-direction:column;
-    align-items:stretch; background: var(--bg-elev); border-bottom:1px solid var(--border);
-    height:auto; padding: 6px 0; box-shadow: var(--shadow); display:none; z-index:50; }
+@media (max-width:1320px){
+  .nav { position:absolute; top:calc(var(--header-h) - 12px); left:26px; right:26px;
+    flex-direction:column; align-items:stretch; background:var(--bg-elev);
+    border:1px solid var(--border); border-radius:var(--radius); padding:8px;
+    box-shadow:var(--shadow); display:none; z-index:50;
+    max-height:calc(100dvh - var(--header-h)); overflow-y:auto; }
   .nav.open { display:flex; }
-  .nav a { height:auto; padding: 12px 20px; font-size:14px; border-bottom:none; border-left:3px solid transparent; }
-  .nav a.active { border-left-color: var(--accent); border-bottom:none; }
+  .nav a { height:44px; flex-shrink:0; padding:0 12px; }
   .appbar .nav-toggle { display:inline-flex; }
-  .appbar .right { margin-left:auto; }
+}
+@media (max-width:600px){
+  :root { --header-h:80px; }
+  .appbar { padding:0 24px; gap:10px; }
+  .appbar::before { inset:10px 12px; }
+  .appbar .ap-logo { border:0; padding:0; height:auto; }
+  .appbar .ap-logo .ap-logo-line { width:125px; }
+  .appbar .right { gap:8px; min-width:0; flex-shrink:1; }
+  .appbar .uname { max-width:72px; font-size:12px; }
+  .appbar .nav-toggle { flex-shrink:0; width:34px; }
+  .nav { top:calc(var(--header-h) - 10px); left:12px; right:12px; }
+}
+@media (max-width:370px){
+  .appbar .uname { display:none; }
+}
+@media (prefers-reduced-motion:reduce){
+  .nav a { transition:none; }
 }
 
 .main { flex:1; min-width:0; display:flex; flex-direction:column; }
