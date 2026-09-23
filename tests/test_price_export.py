@@ -58,6 +58,25 @@ class PriceExportTests(unittest.TestCase):
         self.assertEqual(ws["A1"].fill.fgColor.rgb, "001F3B57")
         self.assertNotIn("Себестоимость", str([c.value for row in ws for c in row]))
 
+    def test_font_sizes_follow_hierarchy_with_and_without_cost(self):
+        for show_cost in (False, True):
+            with self.subTest(show_cost=show_cost):
+                ws = workbook(index_workbook(fixture(), show_cost=show_cost)).active
+                self.assertEqual(ws["A1"].font.sz, 13)
+                row_by_name = rows(ws)
+                for name, size in (
+                    ("Продукция ECOM", 13),
+                    ("Компрессоры", 12),
+                    ("Автомобильные", 11),
+                    ("AGR-35", 10),
+                    ("Не распределены по группам", 13),
+                    ("OUT", 10),
+                ):
+                    for cell in ws[row_by_name[name]]:
+                        self.assertEqual(cell.font.sz, size)
+                self.assertEqual(ws["A4"].font.sz, 10)
+                self.assertEqual(ws["A2"].font.sz, 10)
+
     def test_pi_formulas_and_cached_values_match_screen(self):
         buf = index_workbook(fixture())
         formulas, values = workbook(buf).active, workbook(buf, True).active

@@ -105,7 +105,7 @@ def index_workbook(items, period=None, show_cost=False, search="", generated_at=
         c.alignment = Alignment(vertical="center", wrap_text=True)
 
     generated_at = generated_at or export_time()
-    band(1, f"{REPORT_TITLE} {generated_at:%d.%m.%Y}", "1F3B57", "FFFFFF", 15)
+    band(1, f"{REPORT_TITLE} {generated_at:%d.%m.%Y}", "1F3B57", "FFFFFF", 13)
     period_label = (f"{period['date_from']} — {period['date_to']}" if period else "Весь период")
     formed = generated_at.strftime("%d.%m.%Y %H:%M МСК")
     band(2, f"Период: {period_label}. Срез на конец периода. Товаров: {len(items)}. Сформировано: {formed}.",
@@ -181,7 +181,7 @@ def index_workbook(items, period=None, show_cost=False, search="", generated_at=
             for col in range(1, last + 1):
                 cell = ws.cell(row, col)
                 cell.fill = PatternFill("solid", fgColor=("BDD7EE", "DDEBF7", "F2F7FC")[depth])
-                cell.font = Font(name="Calibri", size=10, bold=True, color="1F3B57")
+                cell.font = Font(name="Calibri", size=13 - depth, bold=True, color="1F3B57")
                 cell.border = border
             text_cell(ws.cell(row, 1), name)
             ws.cell(row, 1).alignment = Alignment(indent=depth, vertical="center")
