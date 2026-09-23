@@ -440,13 +440,17 @@ COL_WB = "Базовая WB"
 COL_YA = "Базовая Yandex"
 
 
-def _export_rows(date_from: Optional[str], date_to: Optional[str], user):
+def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=""):
     """Строки для шаблона = ответ /pricelist, отсортированный по правилам
     порядка групп проекта (L1 фиксированно: ECOM → ТД «АВТОПРОФИ» → прочие
     по алфавиту; L2/L3 — алфавит; внутри L3 — по артикулу)."""
     from .. import util
     data = pricelist(date_from=date_from, date_to=date_to, user=user)
     items = list(data.get("items") or [])
+    q = (search or "").strip().lower()
+    if q:
+        items = [r for r in items if q in (r.get("seller_article") or "").lower()
+                 or q in (r.get("sample_name") or "").lower()]
     items.sort(key=lambda r: (
         # Товары без L1 («Не распределены по группам») — в конец, как во фронте.
         1 if not r.get("l1") else 0,
@@ -458,10 +462,34 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user):
     return items, data.get("period")
 
 
+@router.get("/index_export")
+def prices_index_export(
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    show_cost: bool = Query(False),
+    search: str = Query("", max_length=500),
+    user=Depends(auth.get_current_user),
+):
+    """Read-only Excel report; same dates, article search and source as the UI."""
+    from fastapi.responses import StreamingResponse
+    from ..price_export import index_workbook
+    items, period = _export_rows(date_from, date_to, user, search)
+    buf = index_workbook(items, period, show_cost, search.strip())
+    suffix = f"_{period['date_from']}_{period['date_to']}" if period else ""
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=price_index{suffix}.xlsx",
+                 "Cache-Control": "no-cache, no-store, must-revalidate, private",
+                 "Pragma": "no-cache", "Expires": "0"},
+    )
+
+
 @router.get("/export")
 def prices_export(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    show_cost: bool = Query(False),
+    search: str = Query("", max_length=500),
     user=Depends(auth.get_current_user),
 ):
     """Excel-шаблон базовых цен по товарам прайс-листа за период."""
@@ -470,13 +498,16 @@ def prices_export(
     from openpyxl.styles import Font, Alignment
     from fastapi.responses import StreamingResponse
 
-    items, period = _export_rows(date_from, date_to, user)
+    from ..price_export import text_cell
+    items, period = _export_rows(date_from, date_to, user, search)
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Базовые цены"
     # Только артикул и три цены: справочные столбцы в файле не нужны.
     header = ["Артикул", COL_OZON, COL_WB, COL_YA]
+    if show_cost:
+        header.append("Себестоимость")
     ws.append(header)
     for c in range(1, len(header) + 1):
         ws.cell(row=1, column=c).font = Font(bold=True)
@@ -485,13 +516,18 @@ def prices_export(
         ws.append([
             r.get("seller_article"),
             r.get("price_ozon"), r.get("price_wb"), r.get("price_ya"),
-        ])
+        ] + ([r.get("cost")] if show_cost else []))
+        text_cell(ws.cell(ws.max_row, 1), r.get("seller_article"))
+        if show_cost:
+            ws.cell(ws.max_row, 5).number_format = "#,##0.00"
     # Цены — целые рубли, выравнивание по правому краю (как в остальных отчётах).
     for row in ws.iter_rows(min_row=2, min_col=2, max_col=4):
         for cell in row:
             cell.number_format = "#,##0"
     for col, w in zip("ABCD", (24, 16, 16, 16)):
         ws.column_dimensions[col].width = w
+    if show_cost:
+        ws.column_dimensions["E"].width = 18
     ws.freeze_panes = "A2"
 
     buf = io.BytesIO()

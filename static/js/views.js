@@ -9485,11 +9485,10 @@ const Views = (() => {
     const plIsAdmin = !!(App && App.state && App.state.user &&
                          (App.state.user.role || '').toLowerCase() === 'admin');
     // Галочка «показать себестоимость» живёт рядом с кнопками отчёта
-    // «Прайс-лист» (а не в общем тулбаре раздела) — она относится только
-    // к этому отчёту.
+    // «Прайс-лист»; также управляет столбцом себестоимости в Excel-выгрузках.
     const plActionsHtml =
       '<div class="sp-actions">' +
-        '<label class="sp-fc-check" style="cursor:pointer;" title="Показать колонку себестоимости и дату, с которой она действует">' +
+        '<label class="sp-fc-check" style="cursor:pointer;" title="Показать себестоимость в прайс-листе и включить её в Excel-выгрузки прайс-листа и индекса цен">' +
           '<input type="checkbox" id="pl-show-cost"' + (pricesState.showCost ? ' checked' : '') + '> показать себестоимость' +
         '</label>' +
         '<button class="btn" id="pl-export" type="button" title="Выгрузить базовые цены в Excel: артикул и три колонки цен (OZON, WB, Yandex)">⬇️ Выгрузить</button>' +
@@ -9518,14 +9517,15 @@ const Views = (() => {
            '</span>' +
          '</div>')
       : (sub === 'index')
-      ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
+      ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
            '<span>Индекс цен</span>' +
-           '<span style="display:flex;align-items:center;gap:16px;">' +
+           '<span style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">' +
              // Актуальность данных: последний день с заказами (макс. по всем
              // товарам). Берётся из wb_last_date / oz_last_date, приходящих
              // из prices_router. Форматируется в refreshCnt().
              '<span class="muted" id="pl-idx-freshness" style="font-size:12px;font-weight:400;" title="Последний загруженный день заказов из РНП по каждой площадке"></span>' +
              '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
+             '<span class="sp-actions"><button class="btn" id="pl-index-export" type="button" title="Выгрузить индекс цен в Excel за выбранный период с учётом поиска. Себестоимость включается галочкой в прайс-листе.">Выгрузить отчёт</button></span>' +
            '</span>' +
          '</div>')
       : '';
@@ -9685,21 +9685,24 @@ const Views = (() => {
       });
     }
 
-    // --- Выгрузка шаблона базовых цен (артикул + 3 колонки цен) ---
-    const plExp = root.querySelector('#pl-export');
+    // --- Excel: шаблон базовых цен или оформленный индекс цен ---
+    const plExp = root.querySelector('#pl-export, #pl-index-export');
     if (plExp) {
       plExp.addEventListener('click', async () => {
         const prev = plExp.innerHTML;
         plExp.disabled = true; plExp.innerHTML = '<span class="btn-spin"></span>Выгружаю…';
         try {
           // Состав строк = ровно то, что видно в таблице за выбранный период.
-          const url = API.pricesExportUrl({
+          const isIndex = plExp.id === 'pl-index-export';
+          const url = (isIndex ? API.pricesIndexExportUrl : API.pricesExportUrl)({
             date_from: pricesState.from || '', date_to: pricesState.to || '',
+            show_cost: pricesState.showCost ? 'true' : 'false',
+            search: searchEl.value || '',
           });
           const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + API.getToken() } });
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           const cd = resp.headers.get('Content-Disposition') || '';
-          let fname = 'base_prices.xlsx';
+          let fname = isIndex ? 'price_index.xlsx' : 'base_prices.xlsx';
           const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
           if (m) { try { fname = decodeURIComponent(m[1]); } catch (e) { fname = m[1]; } }
           const blob = await resp.blob();
@@ -9708,7 +9711,7 @@ const Views = (() => {
           a.href = dlUrl; a.download = fname;
           document.body.appendChild(a); a.click();
           setTimeout(() => { URL.revokeObjectURL(dlUrl); a.remove(); }, 1500);
-          App.toast('Базовые цены выгружены', 'ok');
+          App.toast(isIndex ? 'Индекс цен выгружен' : 'Базовые цены выгружены', 'ok');
         } catch (e) { App.toast('Ошибка выгрузки: ' + e.message, 'err'); }
         finally { plExp.disabled = false; plExp.innerHTML = prev; }
       });

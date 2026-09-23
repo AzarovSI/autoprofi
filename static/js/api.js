@@ -339,6 +339,7 @@ const API = (() => {
     // Массовая работа с базовыми ценами: шаблон Excel за период и загрузка
     // заполненного файла (только администратор).
     pricesExportUrl: (p) => API_BASE + '/api/prices/export' + qs(p || {}),
+    pricesIndexExportUrl: (p) => API_BASE + '/api/prices/index_export' + qs(p || {}),
     pricesImport: (file) => {
       const fd = new FormData();
       fd.append('file', file);
