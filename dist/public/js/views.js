@@ -3038,6 +3038,17 @@ const Views = (() => {
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
 
+  // Move the existing, already-bound period control; preserve its state/listeners.
+  function alignRnpToolbarPeriod(root, tabsId, periodId) {
+    const tabs = root.querySelector('#' + tabsId);
+    const period = root.querySelector('#' + periodId);
+    if (!tabs || !period) return;
+    const row = document.createElement('div');
+    row.className = 'rnp-toolbar-top';
+    tabs.before(row);
+    row.append(tabs, period);
+  }
+
   function rnpSubtabs(host) {
     if (!host) return;
     const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
@@ -3275,6 +3286,7 @@ const Views = (() => {
     // Общая панель фильтров (поиск + менеджер + статус + показатель + светофор + период).
     const filtersHost = root.querySelector('#rnp-filters-host');
     if (filtersHost) buildRnpFilters(filtersHost);
+    alignRnpToolbarPeriod(root, 'rnp-subtabs', 'rnp-period');
     // Опции фильтров и подпись периода — по текущим данным (панель только что собрана).
     refreshRnpFilterOptions();
     refreshRnpPeriodLabel();
@@ -6547,6 +6559,7 @@ const Views = (() => {
     };
     // Единый компонент выбора периода (справа): даты уходят на бэкенд → reload.
     bindRnpsPeriod(root.querySelector('.rnp-filters-host'), reload);
+    alignRnpToolbarPeriod(root, 'rnps-subtabs', 'rnps-period');
     const expEl = root.querySelector('#rnps-expand');
     if (expEl) expEl.addEventListener('click', () => { if (rnpSalesState.data && rnpSalesState.data.tree) rnpsExpandAll(rnpSalesState.data.tree); rnpsRenderMatrix(); });
     const colEl = root.querySelector('#rnps-collapse');
