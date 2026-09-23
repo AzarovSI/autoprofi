@@ -862,7 +862,7 @@ const Views = (() => {
           <div class="ctl sp-ctl" style="gap:12px; flex-wrap:wrap; align-items:center;">
             <div class="sp-filters">
               <input class="input-sm" id="sp-search-art" placeholder="Поиск по артикулу…" value="${U.esc(salesState.search || '')}">
-              <label class="ctl">Год: <select id="sp-year" class="input-sm">${yearOpts}</select></label>
+              <label class="ctl rnp-period sp-year-period" id="sp-period">Год: <select id="sp-year" class="input-sm">${yearOpts}</select></label>
               <label class="ctl">Статус: <select id="sp-status" class="input-sm">${statusOpts}</select></label>
               <label class="ctl">Менеджер: <select id="sp-mgr" class="input-sm">${mgrOpts}</select></label>
               <div class="sp-settings" id="sp-settings">
@@ -893,6 +893,7 @@ const Views = (() => {
       </div>`;
 
     salesPaintTable(root.querySelector('#sp-tbl'), data);
+    alignRnpToolbarPeriod(root, 'sp-subtabs', 'sp-period');
     syncSalesToolbarHeight();
 
     // --- Вкладки маркетплейса (общий биндер с заглушкой Yandex) ---
@@ -3039,13 +3040,19 @@ const Views = (() => {
   }
 
   // Move the existing, already-bound period control; preserve its state/listeners.
-  function alignRnpToolbarPeriod(root, tabsId, periodId) {
+  function alignRnpToolbarPeriod(root, tabsId, periodId, periodRoot = root) {
+    if (!root) return;
     const tabs = root.querySelector('#' + tabsId);
-    const period = root.querySelector('#' + periodId);
+    const period = periodRoot.querySelector('#' + periodId);
     if (!tabs || !period) return;
-    const row = document.createElement('div');
-    row.className = 'rnp-toolbar-top';
-    tabs.before(row);
+    let row = tabs.closest('.rnp-toolbar-top');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'rnp-toolbar-top';
+      tabs.before(row);
+    }
+    const previous = row.querySelector('#' + periodId);
+    if (previous && previous !== period) previous.remove();
     row.append(tabs, period);
   }
 
@@ -7013,6 +7020,7 @@ const Views = (() => {
   // Период — компонент как в «РНП заказы» (поле + календарь + пресеты, по дням).
   // Показатель: себестоимость (по умолчанию) ↔ цены продажи (галочка).
   async function whRenderByWh(body) {
+    body.closest('.rnp-card')?.querySelector('.rnp-toolbar-top > #wh-period')?.remove();
     body.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
     let d;
     try { d = await API.whByWh({ date_from: whState.whFrom, date_to: whState.whTo, days: 400 }); }
@@ -7360,6 +7368,7 @@ const Views = (() => {
     const periodFieldEl = wrap.querySelector('#wh-period-field');
     const calEl = wrap.querySelector('#wh-cal');
     if (!periodFieldEl || !calEl) return;
+    alignRnpToolbarPeriod(wrap.closest('.rnp-card'), 'wh-subtabs', 'wh-period', wrap);
     const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const DOW_RU = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
     const cal = { from: '', to: '', view: null, open: false };
@@ -7819,6 +7828,7 @@ const Views = (() => {
     const periodFieldEl = wrap.querySelector('#oz-period-field');
     const calEl = wrap.querySelector('#oz-cal');
     if (!periodFieldEl || !calEl) return;
+    alignRnpToolbarPeriod(wrap.closest('.rnp-card'), 'wh-subtabs', 'oz-period', wrap);
     const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
     const DOW_RU = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
     const cal = { from: '', to: '', view: null, open: false };
@@ -7928,6 +7938,7 @@ const Views = (() => {
 
   // ============ Подтаб «По складам» — Ozon: ТРЁХУРОВНЕВОЕ дерево ФО → Кластер → Склад ============
   async function ozRenderByWh(body) {
+    body.closest('.rnp-card')?.querySelector('.rnp-toolbar-top > #oz-period')?.remove();
     body.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
     let d;
     try { d = await API.ozByWh({ date_from: whState.ozFrom, date_to: whState.ozTo, days: 400 }); }
@@ -9553,6 +9564,8 @@ const Views = (() => {
         '<div id="pl-imp-result"></div>' +
         '<div id="pl-body" data-sub="' + sub + '"></div>' +
       '</div>';
+
+    alignRnpToolbarPeriod(root, 'pl-subtabs', 'pl-period');
 
     // Переключение подтабов.
     root.querySelector('#pl-subtabs').addEventListener('click', (e) => {
