@@ -289,7 +289,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v4|" + "|".join([
+    ck = "rnps_tree|v5|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -455,8 +455,11 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
 
     if not is_ya:
         # Общий склад 1С доступен независимо от файла заказов.
-        # Только точная дата, только товары данного МП; никаких переносов
-        # вчерашних значений и искусственных нулей по заказам.
+        # Состав товаров задают ТОЛЬКО дневные строки РНП выбранного периода.
+        # Склад дополняет даты этих товаров, но не расширяет состав отчёта.
+        # Только точная дата; никаких переносов вчерашних значений
+        # и искусственных нулей по заказам.
+        eligible_articles = {r["seller_article"].upper() for r in rows}
         stock_where, stock_params = [], [mp]
         if d_from:
             stock_where.append("sd.date >= %s")
@@ -478,6 +481,8 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         by_key = {(r["date"], r["seller_article"].upper()): r for r in rows}
         for stock in stock_rows:
             key = (stock["date"], stock["seller_article"].upper())
+            if key[1] not in eligible_articles:
+                continue
             if key in by_key:
                 by_key[key]["stock_ap_qty"] = stock["stock_ap_qty"]
             else:

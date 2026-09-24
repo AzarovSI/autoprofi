@@ -61,15 +61,69 @@ class TreeTests(unittest.TestCase):
                     self.assertIsNone(cell[key])
                 self.assertIn(DAY.isoformat(), [d["key"] for d in result["months"][0]["days"]])
 
-    def test_stock_only_day_and_article_and_no_duplicate(self):
+    def test_stock_updates_existing_day_without_adding_stock_only_article(self):
         for mp in ("ozon", "wb"):
             result = tree(mp, [row(stock_ap_qty=5)],
                           [row(stock_ap_qty=80), row(art="SKU-2", stock_ap_qty=0)])
             self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["stock_ap_qty"], 80)
             items = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
-            self.assertEqual(len(items), 2)
-            self.assertEqual(items["SKU-2"]["cells"][DAY.isoformat()]["stock_ap_qty"], 0)
-            self.assertIsNone(items["SKU-2"]["cells"][DAY.isoformat()]["orders_qty"])
+            self.assertEqual(set(items), {"SKU-1"})
+            self.assertEqual(result["undistributed"]["count"], 0)
+
+    def test_new_stock_day_for_existing_article_keeps_partial_values(self):
+        for mp in ("ozon", "wb"):
+            with self.subTest(mp=mp):
+                result = tree(mp, [row(PREV, orders_qty=10)],
+                              [row(stock_ap_qty=80), row(art="SKU-2", stock_ap_qty=900)])
+                items = list(leaves(result["tree"]))
+                self.assertEqual(len(items), 1)
+                cell = items[0]["cells"][DAY.isoformat()]
+                self.assertEqual(cell["stock_ap_qty"], 80)
+                self.assertIsNone(cell["orders_qty"])
+                self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["stock_ap_qty"], 80)
+                self.assertEqual(result["tree"]["forecast"]["2026-09"], 1)
+
+    def test_stock_only_unallocated_article_does_not_affect_warning_or_totals(self):
+        for mp in ("ozon", "wb"):
+            with self.subTest(mp=mp):
+                extra = row(art="STOCK-ONLY", stock_ap_qty=900)
+                extra.update(category_l1=None, status=None, manager=None)
+                result = tree(mp, [row(orders_qty=2)], [row(stock_ap_qty=80), extra])
+                self.assertEqual(result["undistributed"]["count"], 0)
+                self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["stock_ap_qty"], 80)
+                self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["orders_qty"], 2)
+
+    def test_existing_unallocated_article_stays_in_warning_and_totals(self):
+        for mp in ("ozon", "wb"):
+            with self.subTest(mp=mp):
+                daily = row(orders_qty=2)
+                daily["manager"] = None
+                stock = row(stock_ap_qty=80)
+                stock["manager"] = None
+                result = tree(mp, [daily], [stock])
+                self.assertEqual(result["undistributed"]["count"], 1)
+                self.assertEqual(list(leaves(result["tree"])), [])
+                self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["stock_ap_qty"], 80)
+
+    def test_common_stock_does_not_activate_inactive_dash_status(self):
+        for mp in ("ozon", "wb"):
+            with self.subTest(mp=mp):
+                daily = row(PREV, orders_qty=0)
+                daily["status"] = "-"
+                stock = row(stock_ap_qty=80)
+                stock["status"] = "-"
+                result = tree(mp, [daily], [stock])
+                self.assertEqual(list(leaves(result["tree"])), [])
+                self.assertEqual(result["undistributed"]["count"], 0)
+                self.assertNotIn(DAY.isoformat(), result["tree"]["cells"])
+
+    def test_stock_without_daily_source_keeps_report_empty(self):
+        for mp in ("ozon", "wb"):
+            with self.subTest(mp=mp):
+                result = tree(mp, stocks=[row(stock_ap_qty=80)])
+                self.assertEqual(list(leaves(result["tree"])), [])
+                self.assertEqual(result["months"], [])
+                self.assertEqual(result["undistributed"]["count"], 0)
 
     def test_snapshot_day_does_not_reduce_forecast_or_raise_turnover(self):
         for mp in ("ozon", "wb"):
@@ -83,7 +137,7 @@ class TreeTests(unittest.TestCase):
         self.assertEqual(result["tree"]["forecast"]["2026-09"], .5)
 
     def test_snapshot_only_has_no_forecast(self):
-        self.assertIsNone(tree(stocks=[row(stock_ap_qty=50)])["tree"]["forecast"]["2026-09"])
+        self.assertIsNone(tree(sales=[row()], stocks=[row(stock_ap_qty=50)])["tree"]["forecast"]["2026-09"])
 
     def test_no_carry_from_yesterday(self):
         result = tree(sales=[row(PREV, orders_qty=2, delivery_time_hours=9),
