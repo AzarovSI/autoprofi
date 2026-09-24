@@ -360,6 +360,20 @@ def load_ozon_daily(conn, path):
                         "WHERE t.date = v.d AND t.seller_article = v.sa",
                         flat)
                     restored = cur.rowcount
+                # Независимые показатели сохраняются и у товаров, отсутствующих
+                # в новом файле заказов. Старые заказы при этом не возвращаем.
+                stub_rows = [
+                    (d_key, art_key, *(vals[c] for c in PRESERVE_COLS))
+                    for (d_key, art_key), vals in preserved.items()
+                    if (d_key, art_key) not in new_keys
+                ]
+                if stub_rows:
+                    cols = ["date", "seller_article", *PRESERVE_COLS]
+                    cur.executemany(
+                        f"INSERT INTO ozon_daily_sales ({','.join(cols)}) "
+                        f"VALUES ({','.join(['%s'] * len(cols))})",
+                        stub_rows)
+                    restored += len(stub_rows)
 
             msg = (f"Даты {period_text}; удалено старых: {deleted}; "
                    f"вставлено: {len(tuples)}")

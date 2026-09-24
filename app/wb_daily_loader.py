@@ -90,6 +90,7 @@ PRESERVE_COLS = [
     "ads_views", "ads_clicks", "ads_avg_cpc", "ads_atbs",
     "ads_orders", "ads_shks", "ads_sum_price", "stock_ap_qty",
     "comp_price_avg", "comp_price_min",
+    "price_index_pi", "spp_pct",
 ]
 
 # Порядок колонок INSERT (без id/created_at — дефолты БД).
@@ -377,6 +378,20 @@ def load_wb_daily(conn, path):
                         "WHERE t.date = v.d AND t.seller_article = v.sa",
                         flat)
                     restored = cur.rowcount
+                # Отдельно загруженные показатели не исчезают, если товар
+                # отсутствует в повторном файле воронки. Заказы остаются NULL.
+                stub_rows = [
+                    (d_key, art_key, *(vals[c] for c in PRESERVE_COLS))
+                    for (d_key, art_key), vals in preserved.items()
+                    if (d_key, art_key) not in new_keys
+                ]
+                if stub_rows:
+                    cols = ["date", "seller_article", *PRESERVE_COLS]
+                    cur.executemany(
+                        f"INSERT INTO wb_daily_sales ({','.join(cols)}) "
+                        f"VALUES ({','.join(['%s'] * len(cols))})",
+                        stub_rows)
+                    restored += len(stub_rows)
 
             msg = (f"Даты {period_text}; удалено старых: {deleted}; "
                    f"вставлено: {len(tuples)}")

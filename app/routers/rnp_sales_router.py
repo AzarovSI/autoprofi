@@ -76,7 +76,8 @@ RU_MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "
 # отставал от реальности и прогноз выполнения плана сильно ЗАВЫШАЛСЯ
 # (напр. факт за 20 дней делился на 10 → проекция ×2).
 _MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))
-TODAY = datetime.datetime.now(_MSK_TZ).date()
+def _today():
+    return datetime.datetime.now(_MSK_TZ).date()
 
 # --- Наборы метрик (ключ, подпись, тип, цвет HEX, жирный) ---
 # kind: qty | rub | price | pct | num
@@ -288,8 +289,9 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v3|" + "|".join([
+    ck = "rnps_tree|v4|" + "|".join([
         mp_norm,
+        _today().isoformat(),
         pi_revision,
         date_from or "", date_to or "",
         status or "", manager or "",
@@ -316,6 +318,7 @@ def rnp_sales_tree(
 def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
     """Чистая сборка дерева (без кэша и без Depends). Логика без изменений."""
     mp = MP_MAP.get((marketplace or "").lower(), "Ozon")
+    today = _today()
 
     # Диапазон дат (необязательный).
     def _pd(s):
@@ -450,6 +453,39 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
             tuple([mp] + params),
         )
 
+    if not is_ya:
+        # Общий склад 1С доступен независимо от файла заказов.
+        # Только точная дата, только товары данного МП; никаких переносов
+        # вчерашних значений и искусственных нулей по заказам.
+        stock_where, stock_params = [], [mp]
+        if d_from:
+            stock_where.append("sd.date >= %s")
+            stock_params.append(d_from)
+        if d_to:
+            stock_where.append("sd.date <= %s")
+            stock_params.append(d_to)
+        stock_rows = db.query_all(
+            """SELECT sd.date, ci.seller_article, ci.sample_name AS item_name,
+                      ci.category_l1, ci.category_l2, ci.category_l3,
+                      cm.status, cm.manager, cm.product_url, sd.qty AS stock_ap_qty
+               FROM stock_daily sd
+               JOIN catalog_items ci ON upper(ci.seller_article)=upper(sd.seller_article)
+               JOIN catalog_marketplace cm
+                 ON upper(cm.seller_article)=upper(ci.seller_article)
+                AND cm.marketplace=%s
+               WHERE """ + (" AND ".join(stock_where) or "TRUE"),
+            tuple(stock_params))
+        by_key = {(r["date"], r["seller_article"].upper()): r for r in rows}
+        for stock in stock_rows:
+            key = (stock["date"], stock["seller_article"].upper())
+            if key in by_key:
+                by_key[key]["stock_ap_qty"] = stock["stock_ap_qty"]
+            else:
+                rows.append(stock)
+                by_key[key] = stock
+
+    # Дни заказов отдельно от дней с отзывами/ценами/остатками.
+    order_dates = {r["date"] for r in rows if r.get("orders_qty") is not None}
     # Месяцы и дни, реально присутствующие в данных.
     months = {}  # month_key -> {year, month, days:set}
     for r in rows:
@@ -720,10 +756,10 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         #    поэтому делим факт ровно на те дни, за которые он есть — иначе прогноз
         #    искажается (пустые хвостовые дни занижали бы, а отставшая дата — завышала).
         #  • БУДУЩИЙ месяц → 0 → прогноза нет.
-        if (y, m) < (TODAY.year, TODAY.month):
+        if (y, m) < (today.year, today.month):
             passed = dim
-        elif (y, m) == (TODAY.year, TODAY.month):
-            passed = len(info["days"])
+        elif (y, m) == (today.year, today.month):
+            passed = len(info["days"] if is_ya else info["days"] & order_dates)
         else:
             passed = 0
         if passed <= 0:
@@ -747,13 +783,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
     TURN_WINDOW_DAYS = 30
     _all_data_dates = set()
     for _m in months.values():
-        _all_data_dates |= _m["days"]
+        _all_data_dates |= _m["days"] if is_ya else _m["days"] & order_dates
     turn_window = set()
     turn_window_days_n = 0
     if _all_data_dates:
         _anchor = max(_all_data_dates)
-        if _anchor > TODAY:
-            _anchor = TODAY
+        if _anchor > today:
+            _anchor = today
         _win_start = _anchor - datetime.timedelta(days=TURN_WINDOW_DAYS - 1)
         _win_dates = {d for d in _all_data_dates if _win_start <= d <= _anchor}
         turn_window = {d.isoformat() for d in _win_dates}

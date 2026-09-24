@@ -17,8 +17,8 @@
     • ключевые колонки по ИМЕНИ: «Артикул», «Рейтинг», «Отзывы».
 
 Данные пишутся ТОЛЬКО по товарам, которые есть в общем справочнике
-дашборда (catalog_items), и ТОЛЬКО в уже существующие строки продаж
-ozon_daily_sales за указанную дату (строки продаж не создаёт).
+дашборда (catalog_items). При отсутствии заказов создаётся строка за указанную
+дату только с рейтингом и отзывами; показатели заказов остаются NULL.
 Метрика рейтинга/отзывов — snapshot (последнее значение на дату).
 
 Каждая загрузка фиксируется в report_uploads (marketplace='Ozon',
@@ -227,7 +227,7 @@ def load_ozon_reviews(conn, path, report_date=None):
     обязательна, т.к. в файле даты нет.
 
     Пишет rating и delivery_time_hours (=количество отзывов) в
-    ozon_daily_sales для существующих строк продаж за эту дату,
+    ozon_daily_sales независимо от наличия заказов за эту дату,
     только по товарам из справочника дашборда (catalog_items).
     """
     if isinstance(report_date, datetime.date):
@@ -291,30 +291,27 @@ def load_ozon_reviews(conn, path, report_date=None):
     try:
         with conn.cursor() as cur:
             # 0) Фильтр по ОБЩЕМУ СПРАВОЧНИКУ дашборда (catalog_items).
-            cur.execute("SELECT upper(seller_article) FROM catalog_items")
-            catalog = {r[0] for r in cur.fetchall()}
+            cur.execute("SELECT upper(seller_article), seller_article FROM catalog_items")
+            catalog = dict(cur.fetchall())
             filtered = {au: v for au, v in data.items() if au in catalog}
             skipped_not_in_catalog = len(data) - len(filtered)
 
             synced = 0
             if filtered:
-                # Один массовый UPDATE ... FROM (VALUES ...) — быстро,
-                # без риска таймаута шлюза (524). Обновляем rating и
-                # delivery_time_hours (=количество отзывов) для строк
-                # продаж Ozon за эту дату.
+                # Независимый snapshot: не ждём появления строки заказов.
+                # Канонический артикул берём из справочника, не из файла.
                 vals = []
                 params = []
                 for au, (art_orig, rating, reviews) in filtered.items():
-                    vals.append("(%s,%s,%s)")
-                    params.extend([au, rating, reviews])
+                    vals.append("(%s,%s,%s,%s)")
+                    params.extend([d, catalog[au], rating, reviews])
                 sql = (
-                    "UPDATE ozon_daily_sales AS o "
-                    "SET rating = v.rating::numeric, "
-                    "    delivery_time_hours = v.reviews::numeric "
-                    "FROM (VALUES " + ",".join(vals) +
-                    ") AS v(art_up, rating, reviews) "
-                    "WHERE o.date = %s AND upper(o.seller_article) = v.art_up")
-                params.append(d)
+                    "INSERT INTO ozon_daily_sales "
+                    "(date, seller_article, rating, delivery_time_hours) VALUES "
+                    + ",".join(vals) +
+                    " ON CONFLICT (date, seller_article) DO UPDATE SET "
+                    "rating=EXCLUDED.rating, "
+                    "delivery_time_hours=EXCLUDED.delivery_time_hours")
                 cur.execute(sql, params)
                 synced = cur.rowcount
 
