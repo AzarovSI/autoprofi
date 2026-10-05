@@ -49,6 +49,61 @@ def tree(mp="ozon", sales=None, stocks=None, plan=300):
 
 
 class TreeTests(unittest.TestCase):
+    def test_wb_blank_status_inactive_reviews_do_not_require_distribution(self):
+        for status in (None, "", "  "):
+            with self.subTest(status=status):
+                daily = row(delivery_time_hours=42, orders_qty=0)
+                daily.update(status=status, manager=None, category_l1=None)
+                stock = dict(daily, stock_ap_qty=80)
+                result = tree("wb", [daily], [stock])
+                self.assertEqual(result["undistributed"]["count"], 0)
+                self.assertEqual(list(leaves(result["tree"])), [])
+                self.assertNotIn(DAY.isoformat(), result["tree"]["cells"])
+                self.assertEqual(daily["delivery_time_hours"], 42)
+
+    def test_wb_blank_status_with_activity_still_requires_distribution(self):
+        for field in ("orders_qty", "orders_rub", "ads_expense_rub", "stock_ozon_qty"):
+            with self.subTest(field=field):
+                daily = row(delivery_time_hours=42, **{field: 1})
+                daily.update(status=None, manager=None)
+                result = tree("wb", [daily])
+                self.assertEqual(result["undistributed"]["count"], 1)
+                self.assertEqual(result["tree"]["cells"][DAY.isoformat()][field], 1)
+
+    def test_wb_activity_on_previous_day_keeps_reviews_on_current_day(self):
+        sales = [row(PREV, orders_qty=1), row(delivery_time_hours=42)]
+        for daily in sales:
+            daily.update(status=None, manager=None)
+        result = tree("wb", sales)
+        self.assertEqual(result["undistributed"]["count"], 1)
+        self.assertIn(DAY.isoformat(), result["tree"]["cells"])
+
+    def test_wb_whitespace_status_with_activity_is_unassigned(self):
+        daily = row(orders_qty=1)
+        daily["status"] = "   "
+        result = tree("wb", [daily])
+        self.assertEqual(result["undistributed"]["count"], 1)
+        self.assertEqual(list(leaves(result["tree"])), [])
+        self.assertEqual(result["tree"]["cells"][DAY.isoformat()]["orders_qty"], 1)
+
+    def test_wb_assigned_status_keeps_inactive_partial_data(self):
+        for status in ("CORE", "NEW", "?"):
+            with self.subTest(status=status):
+                daily = row(delivery_time_hours=42)
+                daily["status"] = status
+                result = tree("wb", [daily])
+                self.assertEqual(len(list(leaves(result["tree"]))), 1)
+                cell = next(leaves(result["tree"]))["cells"][DAY.isoformat()]
+                self.assertEqual(cell["delivery_time_hours"], 42)
+                self.assertIsNone(cell["orders_qty"])
+
+    def test_blank_status_rule_does_not_change_other_marketplaces(self):
+        for mp in ("ozon", "ya"):
+            with self.subTest(mp=mp):
+                daily = row(delivery_time_hours=42)
+                daily.update(status=None, manager=None)
+                self.assertEqual(tree(mp, [daily])["undistributed"]["count"], 1)
+
     def test_today_without_orders_keeps_values_and_dashes(self):
         for mp in ("ozon", "wb"):
             with self.subTest(mp=mp):

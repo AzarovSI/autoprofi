@@ -289,7 +289,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v5|" + "|".join([
+    ck = "rnps_tree|v6|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -623,12 +623,20 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         st_norm = (st or "").strip()
         if st_norm == "-" and not status and art and art not in active:
             continue
+        # WB: пустой статус не делает старый товар активным. Одни отзывы,
+        # цены или общий склад без заказов/рекламы/остатка WB не являются
+        # основанием включать его в РНП и список требующих распределения.
+        # Данные остаются в источнике; любая активность за выбранный период
+        # возвращает товар в отчёт с обычной проверкой распределения.
+        if is_wb and not st_norm and art and art not in active:
+            continue
         l1, l2, l3 = r.get("category_l1"), r.get("category_l2"), r.get("category_l3")
         d = r["date"]
         day_key = d.isoformat()
         mk = f"{d.year}-{d.month:02d}"
 
-        is_undist = (not l1 or not l2 or not l3 or not st or not mgr)
+        missing_status = not st_norm if is_wb else not st
+        is_undist = (not l1 or not l2 or not l3 or missing_status or not mgr)
         if is_undist and art and art not in undistributed:
             undistributed[art] = r.get("item_name")
 
