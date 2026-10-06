@@ -32,6 +32,9 @@ Playwright на локальном стенде с синтетическим SK
 - Yandex: CORE → ?; payload Yandex.
 - Ошибка HTTP 500 при смене WB на NEW: поле возвращается к Closeout,
   тестовое сохранённое значение не меняется.
+- Отложенный ответ WB при переключении на Ozon: запрос WB удержан route
+  interceptor, открыт Ozon с NEW, затем ответ WB завершён успешно; после
+  сворачивания/раскрытия Ozon сохраняет NEW. PASS.
 - JS errors: 0. Desktop screenshot просмотрен; mobile screenshot сохранён,
   адаптивность не менялась.
 - Это не тестирование записи в production. Снимки находятся вне public.
