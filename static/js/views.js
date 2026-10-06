@@ -5585,27 +5585,32 @@ const Views = (() => {
         rnpsOpenCmtPopover(cell, sa, date);
       });
     });
-    // Смена статуса товара → сохранение в справочник. Для Yandex — свой
-    // справочник ('Yandex'). Для Ozon/WB поведение НЕ меняем
-    // (исторически шло 'Ozon' — оставляем как есть).
-    const rnpsMpName = (rnpSalesState.mp === 'yandex') ? 'Yandex' : 'Ozon';
+    // Статус сохраняется только для маркетплейса отображаемого отчёта.
+    const rnpsMpName = rnpSalesState.mp === 'wb' ? 'Wildberries'
+      : rnpSalesState.mp === 'yandex' ? 'Yandex' : 'Ozon';
+    const rnpsStatusTree = rnpSalesState.data.tree;
     host.querySelectorAll('.rnp-status-sel').forEach(sel => {
       sel.addEventListener('click', (e) => e.stopPropagation());
       sel.addEventListener('change', async (e) => {
         e.stopPropagation();
         const sa = sel.getAttribute('data-sa');
         const newVal = sel.value;
+        const prevVal = stDisplay(rnpFindLeafStatus(rnpsStatusTree, sa));
         if (!sa) return;
         sel.className = 'rnp-status-sel ' + stClass(newVal);
         sel.disabled = true;
         try {
           await API.catalogUpdate(sa, { marketplace: rnpsMpName, status: stToApi(newVal) });
-          rnpsSetLeafStatus(rnpSalesState.data.tree, sa, stToApi(newVal));
+          // Пока запрос выполняется, пользователь может переключить МП.
+          // Обновляем исходное дерево, а не дерево новой вкладки.
+          rnpsSetLeafStatus(rnpsStatusTree, sa, stToApi(newVal));
           if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/rnp_sales/tree'); API.cacheClear('/api/abc'); }
           // статус влияет на дашборд ABC (в т.ч. «Сравнение МП») — сбросить его памятный кэш
           if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
           App.toast('Статус обновлён: ' + sa + ' → ' + newVal, 'ok');
         } catch (err) {
+          sel.value = prevVal;
+          sel.className = 'rnp-status-sel ' + stClass(prevVal);
           App.toast('Ошибка сохранения статуса: ' + err.message, 'err');
         } finally {
           sel.disabled = false;

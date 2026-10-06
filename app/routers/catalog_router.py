@@ -19,7 +19,16 @@ from ..util import canon_article
 
 # Кэш дерева РНП-продаж зависит от справочника (категории/статус/менеджер в JOIN).
 # При любой правке справочника бампаем его версию (должно совпадать с CACHE_NS роутера).
-RNP_TREE_CACHE_NS = "rnp_sales_tree"
+RNP_TREE_CACHE_NAMESPACES = (
+    "rnp_sales_tree", "rnp_sales_tree_wb", "rnp_sales_tree_ya",
+)
+
+
+def _invalidate_rnp_trees():
+    # Категории общие для маркетплейсов. Любая правка/импорт справочника
+    # может затронуть несколько деревьев, поэтому сбрасываем все три.
+    for namespace in RNP_TREE_CACHE_NAMESPACES:
+        cache.bump(namespace)
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -164,7 +173,7 @@ def update_item(payload: dict = Body(...), user=Depends(auth.get_current_user)):
                 WHERE seller_article = %s AND marketplace = %s""",
             tuple(mp_params),
         )
-    cache.bump(RNP_TREE_CACHE_NS)  # правка справочника → сбросить кэш дерева
+    _invalidate_rnp_trees()
     return {"ok": True, "seller_article": sa, "marketplace": mp}
 
 
@@ -282,5 +291,5 @@ def import_items(
         template="(%s,%s,%s,%s,%s, now())",
     )
 
-    cache.bump(RNP_TREE_CACHE_NS)  # импорт справочника → сбросить кэш дерева
+    _invalidate_rnp_trees()
     return {"ok": True, "imported": len(items_rows), "marketplace": mp}
