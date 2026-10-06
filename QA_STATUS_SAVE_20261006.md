@@ -41,4 +41,10 @@ Playwright на локальном стенде с синтетическим SK
 
 ## Статус
 
-Исправление подготовлено, публикация ещё не выполнялась.
+Опубликовано на https://autoprofi.pplx.app после подтверждения пользователя
+06.10.2026 13:14 МСК. Runtime commit 4f8aca1; QA/security 18aa077.
+Cloud browser: страница входа доступна; health HTTP 200; анонимный WB RNP
+HTTP 401; live views.js содержит корректный WB → Wildberries.
+Visibility Public, собственная авторизация приложения сохранена.
+Production-запись статуса для проверки не выполнялась.
+Резервный архив кода/документации: avtoprofi_app_bak_20261006_STATUS_SAVE.zip.
