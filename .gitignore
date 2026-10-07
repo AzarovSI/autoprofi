@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Секреты и локальная конфигурация — никогда не в git
+.env
+.env.*
+recovery/config.json
+recovery/runtime/
+
+# Архивы и выгрузки
+repo.bundle
+*.zip
+# Локальная копия выгрузки знаний Perplexity: содержит пароль админа сайта открытым текстом
+docs/archive/perplexity_export_*/
+
+# macOS
+.DS_Store
