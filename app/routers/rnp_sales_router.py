@@ -289,7 +289,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v6|" + "|".join([
+    ck = "rnps_tree|v7|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -725,6 +725,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         • Нет данных вовсе → None (не показываем).
         """
         stock = snap.get("stock_ozon_qty") if snap else None
+        if is_wb:
+            # Отзывы/СПП следующего дня не должны обнулять базу расчёта.
+            # Остаток берём СТРОГО на дату базы заказов, без поиска более
+            # старого ненулевого остатка. Ноль и отсутствие различаются.
+            values = [wb_turnover_stock[a] for a in node["arts"]
+                      if wb_turnover_stock.get(a) is not None]
+            stock = sum(_f(v) for v in values) if values else None
         # Σ заказов узла за скользящее окно 30 дней (turn_window — set дат-isoformat).
         orders_sum = 0.0
         for dk in turn_window:
@@ -799,6 +806,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         _all_data_dates |= _m["days"] if is_ya else _m["days"] & order_dates
     turn_window = set()
     turn_window_days_n = 0
+    turn_anchor = None
     if _all_data_dates:
         _anchor = max(_all_data_dates)
         if _anchor > today:
@@ -807,6 +815,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         _win_dates = {d for d in _all_data_dates if _win_start <= d <= _anchor}
         turn_window = {d.isoformat() for d in _win_dates}
         turn_window_days_n = len(_win_dates)
+        turn_anchor = max(_win_dates) if _win_dates else None
+
+    wb_turnover_stock = {}
+    if is_wb and turn_anchor is not None:
+        for r in rows:
+            if r["date"] == turn_anchor:
+                wb_turnover_stock[r["seller_article"].upper()] = r.get("stock_ozon_qty")
 
     pi_by_day, pi_month_dates = {}, {}
     if not is_ya and months:
@@ -911,7 +926,9 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         "group_metrics": _metric_payload(GROUP_METRIC_DEFS, is_wb=is_wb, is_ya=is_ya),
         "product_metrics": _metric_payload(PRODUCT_METRIC_DEFS, product=True, is_wb=is_wb, is_ya=is_ya),
         "top_metric": {"key": "orders_qty", "label": "Заказы, шт", "kind": "qty"},
-        "turnover_cfg": {"red": turn_red, "blue": turn_blue, "enabled": turn_on},
+        "turnover_cfg": {"red": turn_red, "blue": turn_blue, "enabled": turn_on,
+                         **({"as_of": turn_anchor.isoformat() if turn_anchor else None}
+                            if is_wb else {})},
         "tree": tree,
         "undistributed": {"count": len(undist_list), "articles": undist_list},
         "managers": sorted(managers),

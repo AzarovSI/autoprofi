@@ -49,6 +49,36 @@ def tree(mp="ozon", sales=None, stocks=None, plan=300):
 
 
 class TreeTests(unittest.TestCase):
+    def test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock(self):
+        result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                             row(delivery_time_hours=42, spp_pct=.31)])
+        product = next(leaves(result["tree"]))
+        self.assertEqual(product["turnover"]["2026-09"], 10)
+        self.assertEqual(result["tree"]["turnover"]["2026-09"], 10)
+        self.assertIsNone(product["cells"][DAY.isoformat()]["stock_ozon_qty"])
+        self.assertIsNone(product["cells"]["2026-09"]["stock_ozon_qty"])
+        self.assertEqual(result["turnover_cfg"]["as_of"], PREV.isoformat())
+
+    def test_wb_turnover_does_not_resurrect_missing_or_zero_stock(self):
+        for stock in (None, 0):
+            with self.subTest(stock=stock):
+                result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                                     row(orders_qty=10, stock_ozon_qty=stock)])
+                self.assertEqual(result["tree"]["turnover"]["2026-09"], stock)
+                self.assertEqual(result["turnover_cfg"]["as_of"], DAY.isoformat())
+
+    def test_wb_turnover_no_orders_source_has_no_stock_date(self):
+        result = tree("wb", [row(delivery_time_hours=42)])
+        self.assertIsNone(result["turnover_cfg"]["as_of"])
+        self.assertIsNone(result["tree"]["turnover"]["2026-09"])
+
+    def test_wb_turnover_uses_common_reference_day_not_stale_article_stock(self):
+        result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                             row(art="SKU-2", orders_qty=10, stock_ozon_qty=20)])
+        products = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
+        self.assertIsNone(products["SKU-1"]["turnover"]["2026-09"])
+        self.assertEqual(products["SKU-2"]["turnover"]["2026-09"], 4)
+
     def test_wb_blank_status_inactive_reviews_do_not_require_distribution(self):
         for status in (None, "", "  "):
             with self.subTest(status=status):

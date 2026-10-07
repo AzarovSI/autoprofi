@@ -4654,8 +4654,10 @@ const Views = (() => {
       if (n < red) cls = 'rnps-turn-red';
       else if (n > blue) cls = 'rnps-turn-blue';
       else cls = 'rnps-turn-green';
-      title = `Оборачиваемость: ~${days} дн. запаса (остаток Ozon / среднедневные заказы)`;
+      const stockMp = rnpSalesState.mp === 'wb' ? 'WB' : rnpSalesState.mp === 'yandex' ? 'Yandex' : 'Ozon';
+      title = `Оборачиваемость: ~${days} дн. запаса (остаток ${stockMp} / среднедневные заказы)`;
     }
+    if (cfg.as_of) title += ' · Данные на ' + fmtRu(cfg.as_of);
     return `<span class="rnps-turn ${cls}" title="${U.esc(title)}">${text}</span>`;
   }
 
