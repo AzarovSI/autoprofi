@@ -3,11 +3,14 @@
 
 Эндпоинты под /api/*, статика под /static/*, дашборд на «/».
 """
+import hashlib
 import os
+import re
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -71,15 +74,42 @@ def health():
     return {"status": "ok", "build": "20260921-daily-pi"}
 
 
+_STATIC_REF = re.compile(r'(href=|src=)"/static/([^"?]+)(?:\?v=[^"]*)?"')
+
+
+def render_index(templates_dir=TEMPLATES_DIR, static_dir=STATIC_DIR):
+    """index.html, где у каждого /static/-файла штамп ?v=<отпечаток содержимого>.
+
+    Штамп считается по содержимому файла, поэтому браузер перекачивает только
+    изменившиеся js/css — вручную ничего проставлять не нужно.
+    """
+    html = Path(templates_dir, "index.html").read_text(encoding="utf-8")
+
+    def stamp(m):
+        try:
+            digest = hashlib.sha256(Path(static_dir, m.group(2)).read_bytes()).hexdigest()[:12]
+        except OSError:
+            return m.group(0)
+        return f'{m.group(1)}"/static/{m.group(2)}?v={digest}"'
+
+    return _STATIC_REF.sub(stamp, html)
+
+
+# Статика меняется только при выкладке (= перезапуск процесса) — считаем один раз.
+_index_html = None
+
+
 @app.get("/")
 def index():
-    idx = os.path.join(TEMPLATES_DIR, "index.html")
-    if os.path.isfile(idx):
-        # index.html НЕ кешируем: внутри него штамп «?v=...» для js/css.
-        # Иначе браузер держит старый index со старым штампом и грузит устаревший код.
-        return FileResponse(idx, headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        })
-    return JSONResponse({"detail": "index.html не найден"}, status_code=404)
+    global _index_html
+    if not os.path.isfile(os.path.join(TEMPLATES_DIR, "index.html")):
+        return JSONResponse({"detail": "index.html не найден"}, status_code=404)
+    if _index_html is None:
+        _index_html = render_index()
+    # index.html НЕ кешируем: внутри него штампы «?v=...» для js/css.
+    # Иначе браузер держит старый index со старыми штампами и грузит устаревший код.
+    return HTMLResponse(_index_html, headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })

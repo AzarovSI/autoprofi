@@ -112,4 +112,6 @@
 
 ## Обновление фронта
 
-- После правки JS/CSS обновить `?v=YYYYMMDDHHMM` в `templates/index.html`. Сейчас метка стоит только у `api.js` и `views.js`; `app.css`, `abc.css`, `util.js`, `abc_module.js`, `app.js` подключены без неё. Правка этих файлов без новой метки может не дойти до браузеров сотрудников.
+- Метки `?v=` у всех `/static/`-файлов проставляет сервер сам по отпечатку содержимого
+  (`app/main.py:render_index`, с 07.10.2026). В `templates/index.html` их вручную не писать.
+  Для `dist/public` (только хостинг Perplexity) — `python3 rebuild_index.py`.
