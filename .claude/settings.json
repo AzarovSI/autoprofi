@@ -4,7 +4,8 @@
       "Read(./recovery/config.json)",
       "Read(./recovery/runtime/**)",
       "Read(./.env)",
-      "Read(./.env.*)"
+      "Read(./.env.*)",
+      "Read(~/.pgpass)"
     ],
     "ask": [
       "Bash(git push:*)",

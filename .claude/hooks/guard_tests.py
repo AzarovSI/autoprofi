@@ -12,7 +12,13 @@ import sys
 TEST_DBS = ("autoprofi_test", "wb_price_test")
 
 cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
-if not re.search(r"\b(pytest|unittest)\b", cmd):
+# Установка пакетов (pip/uv install pytest) — не запуск тестов.
+# Текст в кавычках (сообщения коммитов и т.п.) запуском не считается.
+unquoted = re.sub(r"\"[^\"]*\"|'[^']*'", "", cmd)
+segments = [s for s in re.split(r"&&|\|\||[;|\n]", unquoted)
+            if not re.search(r"\b(pip|uv)\b.*\b(install|add)\b", s)]
+if not any(re.search(r"(^|[\s/(])pytest(\s|$)|-m\s+(pytest|unittest)\b", s)
+           for s in segments):
     sys.exit(0)
 dsn = re.search(r"DB_DSN=(\"[^\"]*\"|'[^']*'|\S+)", cmd)
 if dsn and any(db in dsn.group(1) for db in TEST_DBS):
