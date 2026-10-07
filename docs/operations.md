@@ -73,14 +73,19 @@
 
 ## Бэкап кода на Google Диск
 
-- `bash backup_to_drive.sh --output <папка>` вызывает `recovery/build_backup.py`.
-- Скрипт собирает ZIP по allowlist, без секретов, с SHA-256-манифестом.
-- Папка бэкапов на Диске — `1MFXb-PykO7yUOvneqAzLkWcHrOZ0xf2E`.
-- Загружать ZIP на Диск (около 15 МБ) пока нечем: Perplexity использовал свою утилиту `gws`. Способ выберем в задаче 4: `rclone` с доступом только к своим файлам или Google Drive для Mac.
+Одна команда (скил `backup`): `bash backup_to_drive.sh`.
+- Требует чистый git: бэкап = конкретный коммит.
+- Собирает ZIP через `recovery/build_backup.py`: allowlist, SHA-256-манифест, без секретов
+  и без `docs/archive/perplexity_export_*`; внутри код, `docs/`, `CLAUDE.md`, `.claude/`,
+  офлайн-зависимости для Linux.
+- Загружает через `rclone` (Mac, `~/.local/bin/rclone`, remote `gdrive`, доступ
+  `drive.file` — только к своим файлам) в папку **`autoprofi_backups`** на Google Диске
+  владельца и сверяет MD5.
+- Старая папка бэкапов Perplexity (`1MFXb-PykO7yUOvneqAzLkWcHrOZ0xf2E`) с `drive.file`
+  недоступна; её копии остаются как есть.
 
-**Что доработать в сборщике:**
-- `build_backup.py` пока не включает `CLAUDE.md`, `docs/` и `.claude/` — добавить их в allowlist;
-- `docs/archive/perplexity_export_*` в бэкап не включать: там пароль.
+Первый бэкап: 07.10.2026, `avtoprofi_FULL_RECOVERY_20261007_193343.zip`, 11 МБ, MD5 сверен.
+Архив проверен восстановлением: распакован, манифест сошёлся, тесты из копии — 100 passed.
 
 ## Выкладка
 
