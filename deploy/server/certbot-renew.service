@@ -1,0 +1,8 @@
+# Продление сертификата https. Certbot сам решает, пора ли (короткий сертификат на IP живёт ~6 дней)
+[Unit]
+Description=Продление сертификата Let's Encrypt
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/certbot/bin/certbot renew --quiet

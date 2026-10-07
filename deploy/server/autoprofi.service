@@ -1,0 +1,25 @@
+# Сайт ТД АВТОПРОФИ (FastAPI). Запускается из /srv/autoprofi/current — ссылки на текущую версию.
+# Строго ОДИН процесс: кэш ответов живёт в памяти процесса (app/cache.py), и при нескольких
+# процессах загрузка отчёта сбросила бы кэш только в одном из них.
+[Unit]
+Description=ТД АВТОПРОФИ: сайт аналитики маркетплейсов
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=autoprofi-app
+Group=autoprofi-app
+WorkingDirectory=/srv/autoprofi/current
+EnvironmentFile=/etc/autoprofi/env
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ExecStart=/srv/autoprofi/current/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=3
+# Защита: сайт не видит домашние папки, не меняет систему и не повышает себе права
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
