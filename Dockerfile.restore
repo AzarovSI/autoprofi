@@ -1,0 +1,8 @@
+FROM python:3.12.13-slim-bookworm
+WORKDIR /opt/avtoprofi
+COPY . .
+RUN mkdir -p recovery/runtime && useradd --create-home app && chown -R app:app /opt/avtoprofi
+USER app
+ENV HOST=0.0.0.0 PORT=8000
+EXPOSE 8000
+CMD ["python", "recovery/run.py"]

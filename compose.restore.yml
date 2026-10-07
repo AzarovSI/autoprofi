@@ -1,0 +1,14 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.restore
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./recovery/config.json:/opt/avtoprofi/recovery/config.json
+      - recovery-runtime:/opt/avtoprofi/recovery/runtime
+    restart: unless-stopped
+volumes:
+  recovery-runtime:
