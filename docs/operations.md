@@ -31,7 +31,7 @@
 - порт 6432 (PgBouncer), `sslmode=require`;
 - хост и объёмы таблиц — в `docs/database.md`;
 - облако/каталог `autoprofi` (до 07.10.2026 — `cloud-azar7`), кластер `default`;
-- в этом же кластере под пользователем `app` работает сервис владельца azarov_capital — не задевать;
+- в этой же БД `avtoprofi` (схема `azarov_capital`, 20 таблиц) под пользователем `app` работает сервис владельца azarov_capital — не задевать, АВТОПРОФИ только схема `public`;
 - пользователи для Claude: `autoprofi_test` (владелец тестовой БД `autoprofi_test`)
   и `autoprofi_ro` (только SELECT на таблицы АВТОПРОФИ в `avtoprofi`), созданы 07.10.2026;
   подключения на Mac — `~/.pg_service.conf` (сервисы `autoprofi_test`, `autoprofi_ro`), пароли в `~/.pgpass`;
