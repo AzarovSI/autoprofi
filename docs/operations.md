@@ -30,7 +30,11 @@
 - Yandex Cloud Managed PostgreSQL 17.10, БД `avtoprofi`, пользователь `app`, около 160 МиБ;
 - порт 6432 (PgBouncer), `sslmode=require`;
 - хост и объёмы таблиц — в `docs/database.md`;
-- облако и каталог кластера владелец уточнит;
+- облако/каталог `autoprofi` (до 07.10.2026 — `cloud-azar7`), кластер `default`;
+- в этом же кластере под пользователем `app` работает сервис владельца azarov_capital — не задевать;
+- пользователи для Claude: `autoprofi_test` (владелец тестовой БД `autoprofi_test`)
+  и `autoprofi_ro` (только SELECT на таблицы АВТОПРОФИ в `avtoprofi`), созданы 07.10.2026;
+  подключения на Mac — `~/.pg_service.conf` (сервисы `autoprofi_test`, `autoprofi_ro`), пароли в `~/.pgpass`;
 - резервирует БД Yandex Cloud, копии БД на Google Диск не нужны.
 
 **Цель:**
