@@ -138,6 +138,13 @@ DB_DSN="service=autoprofi_test" SECRET_KEY=... .venv/bin/python -m uvicorn app.m
 
 # Диагностика рабочей БД — только чтение
 $PG/psql "service=autoprofi_ro"
+
+# Выкладка на сервер (только после «да» владельца) и откат
+bash deploy/deploy.sh
+bash deploy/deploy.sh --rollback
+
+# Сервер
+ssh -i ~/.ssh/autoprofi_admin autoprofi@51.250.30.154
 ```
 
 ## Документация
