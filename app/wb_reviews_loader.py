@@ -8,8 +8,9 @@
 по ключу (date, seller_article). РейтингТовара НЕ берём — рейтинг уже приходит
 из отчёта «Воронка» (rating), чтобы не задваивать источник.
 
-ПроцентСПП в файле — в процентах (напр. 45.01). В БД spp_pct хранится как
-ДОЛЯ 0..1 (как у Ozon), поэтому делим на 100 при записи. Пустое значение
+ПроцентСПП: обычные числа и текст с % — процентные пункты (45.01);
+числовые ячейки с процентным форматом Excel — доли (0.4501).
+В БД spp_pct хранится как ДОЛЯ 0..1. Пустое значение
 СПП не затирает уже сохранённое (обновляем только непустые).
 
 Для строк (date, article), которых ещё нет в wb_daily_sales, создаём
@@ -21,8 +22,12 @@
 """
 import os
 import datetime
+import math
+import re
+import zipfile
 
 from python_calamine import CalamineWorkbook
+from openpyxl import load_workbook
 
 try:
     from .util import canon_article
@@ -74,9 +79,38 @@ def _build_colidx(header_row):
 
 
 def _read_sheet(path):
+    # XLSX carries the scale in the cell format. Calamine's to_python()
+    # discards it, making 31% indistinguishable from an ordinary 0.31.
+    if zipfile.is_zipfile(path):
+        with open(path, "rb") as source:
+            wb = load_workbook(source, read_only=True, data_only=True)
+            try:
+                name = SHEET_NAME if SHEET_NAME in wb.sheetnames else wb.worksheets[0].title
+                data, percent_cells = [], set()
+                for row_no, row in enumerate(wb[name].iter_rows()):
+                    data.append([c.value for c in row])
+                    for col_no, cell in enumerate(row):
+                        # Quoted/escaped percent signs are literal text, not scale.
+                        fmt = re.sub(r'"[^"]*"|\\.|_.|\*.', "", cell.number_format or "")
+                        if "%" in fmt:
+                            percent_cells.add((row_no, col_no))
+                return data, name, percent_cells
+            finally:
+                wb.close()
     wb = CalamineWorkbook.from_path(path)
     name = SHEET_NAME if SHEET_NAME in wb.sheet_names else wb.sheet_names[0]
-    return wb.get_sheet_by_name(name).to_python(), name
+    return wb.get_sheet_by_name(name).to_python(), name, set()
+
+
+def _to_spp(value, excel_percent=False):
+    """Use explicit Excel metadata, never guess the scale from magnitude."""
+    number = _to_num(value)
+    if number is None:
+        return None
+    fraction = number if excel_percent and isinstance(value, (int, float)) else number / 100
+    if not math.isfinite(fraction) or not 0 <= fraction <= 1:
+        raise ValueError("СПП должен быть в диапазоне 0–100%")
+    return round(fraction, 4)
 
 
 def _journal_error(conn, path, msg):
@@ -114,7 +148,7 @@ def load_wb_reviews(conn, path, report_date=None):
     сохранённое. Только товары из справочника дашборда.
     """
     try:
-        data, sheet = _read_sheet(path)
+        data, sheet, percent_cells = _read_sheet(path)
     except Exception as exc:
         _journal_error(conn, path, f"Не удалось прочитать файл: {exc}")
         return {"ok": False, "error": f"Не удалось прочитать файл: {exc}"}
@@ -142,7 +176,7 @@ def load_wb_reviews(conn, path, report_date=None):
     rev_by_date = {}   # {date: {art: reviews_qty}}
     spp_by_date = {}   # {date: {art: spp_pct(доля)}}
     file_total = 0
-    for r in data[1:]:
+    for row_no, r in enumerate(data[1:], start=1):
         def cell(i):
             return r[i] if (i is not None and i < len(r)) else None
         art = canon_article(cell(c_art))
@@ -157,11 +191,16 @@ def load_wb_reviews(conn, path, report_date=None):
         rev = _to_num(cell(c_rev))
         if rev is not None:
             rev_by_date.setdefault(d, {})[art] = rev
-        # СПП: проценты → доля 0..1. Пустое пропускаем (не затираем).
+        # Пустое СПП пропускаем; масштаб чисел берём из формата Excel.
         if c_spp is not None:
-            spp = _to_num(cell(c_spp))
+            try:
+                spp = _to_spp(cell(c_spp), (row_no, c_spp) in percent_cells)
+            except ValueError as exc:
+                msg = f"Строка {row_no + 1}: {exc}"
+                _journal_error(conn, path, msg)
+                return {"ok": False, "error": msg}
             if spp is not None:
-                spp_by_date.setdefault(d, {})[art] = round(spp / 100.0, 4)
+                spp_by_date.setdefault(d, {})[art] = spp
 
     all_dates = sorted(set(rev_by_date) | set(spp_by_date))
     if not all_dates:
