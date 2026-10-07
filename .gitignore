@@ -18,3 +18,6 @@ docs/archive/perplexity_export_*/
 
 # macOS
 .DS_Store
+
+# Манифест создаётся заново в каждом архиве бэкапа (recovery/build_backup.py)
+BACKUP_MANIFEST.json

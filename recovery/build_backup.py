@@ -9,10 +9,14 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
-DIRS = ("app", "static", "templates", "dist", "migrations", "tests", "recovery")
+DIRS = ("app", "static", "templates", "dist", "migrations", "tests", "recovery",
+        "docs", ".claude")
 FILES = ("requirements.txt", "rebuild_index.py", "migrate_incidents.py",
          "backup_to_drive.sh", "RESTORE.md", "HANDOFF_RECOVERY.md",
-         "Dockerfile.restore", "compose.restore.yml", ".dockerignore")
+         "Dockerfile.restore", "compose.restore.yml", ".dockerignore",
+         "CLAUDE.md", ".gitignore")
+# Локальная выгрузка Perplexity содержит пароль открытым текстом — никогда не в архив.
+SKIP_PREFIXES = ("docs/archive/perplexity_export_",)
 
 
 def main():
@@ -30,6 +34,8 @@ def main():
                 continue
             rel = path.relative_to(ROOT)
             if any(p in ("__pycache__", "runtime", ".venv", ".git") for p in rel.parts):
+                continue
+            if rel.as_posix().startswith(SKIP_PREFIXES) or path.name == ".DS_Store":
                 continue
             if path.name.startswith(".env") or path.suffix == ".pyc" or path.name == "config.json":
                 continue
