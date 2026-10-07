@@ -52,13 +52,21 @@
 
 ## Локальная разработка (Mac)
 
-На Mac сейчас Python 3.9, а нужен 3.12. План: поставить `uv`, через него Python 3.12
-и `.venv` с зависимостями из `requirements.txt` с PyPI. Wheels из `recovery/wheels`
-собраны только под Linux x86_64 и на Mac не подойдут.
+Настроено 07.10.2026:
+- `uv` и Python 3.12.15, `.venv` с зависимостями из `requirements.txt` (с PyPI;
+  wheels из `recovery/wheels` — только для Linux x86_64);
+- Postgres.app 18.6: клиенты `psql`/`pg_dump` и локальный сервер для тестов
+  (данные в `~/.local/share/autoprofi-pgdata`, 127.0.0.1:5432, БД `wb_price_test`,
+  пользователь `wb_test`);
+- `~/.pg_service.conf`: `autoprofi_test` (облачная тестовая БД) и `autoprofi_ro`
+  (рабочая БД, только чтение), пароли в `~/.pgpass`, CA Yandex Cloud в `~/.postgresql/root.crt`.
 
-Тесты запускаются только с явным `DB_DSN` тестовой БД — это проверяет хук
-`.claude/hooks/guard_tests.py`. Тестовая схема — `tests/wb_test_schema.sql`.
-Последний полный прогон у Perplexity: 98 passed, 4 skipped, 85 subtests passed.
+Команды — в `CLAUDE.md`. Тесты только на локальной `wb_price_test` (делают TRUNCATE).
+Прогон 07.10.2026 на Mac: 98 passed, 4 skipped, 85 subtests passed — как у Perplexity.
+
+Тестовая облачная БД `autoprofi_test`: 07.10.2026 развёрнута структура схемы `public`
+рабочей БД (`pg_dump -n public --schema-only` через `autoprofi_ro`): 31 таблица,
+3 функции, 12 триггеров daily Pi. Данные пока не перенесены.
 
 ## Бэкап кода на Google Диск
 

@@ -42,8 +42,9 @@ production продолжает работать на Perplexity, а код та
   пока не сверен результат.
 - Не запускать `app.main` с рабочей БД ради проверки: на старте выполняется
   миграция `daily_pi.migrate()`.
-- **Тесты — только на тестовой БД** (`autoprofi_test` или локальная `wb_price_test`).
-  Часть тестов пересоздаёт таблицы. Перед запуском проверить, куда смотрит `DB_DSN`.
+- **Тесты — только на локальной `wb_price_test`** (Postgres на Mac, 127.0.0.1:5432):
+  тесты делают TRUNCATE. Облачная `autoprofi_test` — для запуска сайта и проверки
+  в браузере, не для тестов. Хук `.claude/hooks/guard_tests.py` это проверяет.
 - Секреты (`DB_DSN`, `SECRET_KEY`, пароли, токены) никогда не попадают в код, git,
   docs и чат. Источники: окружение или `recovery/config.json` (в `.gitignore`).
 - **В той же БД `avtoprofi` и под тем же пользователем `app` работает другой рабочий
@@ -116,17 +117,26 @@ production продолжает работать на Perplexity, а код та
 
 ## Команды
 
-Локальное окружение на Mac ещё не настроено (нужен Python 3.12): это задача 2 в `docs/operations.md`.
+Окружение на Mac: Python 3.12 в `.venv` (через `uv`), клиенты PostgreSQL из Postgres.app,
+локальный Postgres для тестов. Подключения к облаку — `~/.pg_service.conf`
+(`autoprofi_test`, `autoprofi_ro`), пароли в `~/.pgpass` (не читать).
 
 ```sh
-# Тесты — ТОЛЬКО с DB_DSN тестовой БД и тестовым SECRET_KEY
-PYTHONPATH=.:tests pytest -q tests
+PG=/Applications/Postgres.app/Contents/Versions/latest/bin
 
-# Запуск приложения
-DB_DSN=... SECRET_KEY=... python -m uvicorn app.main:app --port 8000
+# Локальный Postgres для тестов (если не запущен)
+$PG/pg_ctl -D ~/.local/share/autoprofi-pgdata -o "-c listen_addresses=127.0.0.1 -p 5432" \
+  -l ~/.local/share/autoprofi-pgdata/server.log -w start
 
-# Проверка комплекта восстановления (Linux x86_64 + Python 3.12)
-python3.12 recovery/run.py --check
+# Тесты (эталон: 98 passed, 4 skipped, 85 subtests passed)
+DB_DSN="postgresql://wb_test:local-test-only@127.0.0.1:5432/wb_price_test" \
+  SECRET_KEY=local-test-secret-key-0123456789abcdef PYTHONPATH=.:tests .venv/bin/python -m pytest -q tests
+
+# Сайт на тестовой облачной БД
+DB_DSN="service=autoprofi_test" SECRET_KEY=... .venv/bin/python -m uvicorn app.main:app --port 8000
+
+# Диагностика рабочей БД — только чтение
+$PG/psql "service=autoprofi_ro"
 ```
 
 ## Документация

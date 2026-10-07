@@ -9,7 +9,7 @@ import json
 import re
 import sys
 
-TEST_DBS = ("autoprofi_test", "wb_price_test")
+TEST_DBS = ("wb_price_test",)  # autoprofi_test — для запуска сайта, тесты делают TRUNCATE
 
 cmd = json.load(sys.stdin).get("tool_input", {}).get("command", "")
 # Установка пакетов (pip/uv install pytest) — не запуск тестов.
