@@ -10,7 +10,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 DIRS = ("app", "static", "templates", "dist", "migrations", "tests", "recovery",
-        "docs", ".claude")
+        "docs", ".claude", "db")
 FILES = ("requirements.txt", "rebuild_index.py", "migrate_incidents.py",
          "backup_to_drive.sh", "RESTORE.md", "HANDOFF_RECOVERY.md",
          "Dockerfile.restore", "compose.restore.yml", ".dockerignore",
