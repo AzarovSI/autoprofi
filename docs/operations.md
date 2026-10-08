@@ -71,7 +71,30 @@
 `~/.local/share/autoprofi-qa/qa_admin.env` (вне репозитория). Обновлять копию — повтором
 этой процедуры (TRUNCATE тестовой БД + COPY), QA-админа создать заново.
 
-## Бэкап кода на Google Диск
+## Копии на Mac владельца (с 08.10.2026)
+
+Решение владельца после пожара в зоне ru-central1-b: копии базы и кода — на его Mac,
+в `~/AUTOPROFI_backups/` (`db/` и `code/`).
+
+**База** — `deploy/mac/backup-db.sh`, ставится `bash deploy/mac/install.sh`
+(задача launchd `ru.autoprofi.backup-db`):
+- раз в 4 часа проверка, копия делается, если за 20 часов удачной не было;
+- `pg_dump -n public -Fc` через сервис `autoprofi_ro`, только данные АВТОПРОФИ;
+- проверка: в копии все 31 таблица;
+- хранение 30 дней, журнал `backup.log`;
+- при сбое — уведомление macOS не чаще раза в сутки.
+
+Для `pg_dump` пользователю `autoprofi_ro` нужен SELECT на 14 счётчиков (GRANT в WebSQL
+под `app` — см. «Пользователи БД»). Если рабочая БД переедет на другой хост — поправить
+`host` в `~/.pg_service.conf` (сервисы `autoprofi_ro`, `autoprofi_test`).
+
+**Восстановление** — `bash deploy/mac/restore-db.sh <файл.dump> "<подключение к пустой БД>"`.
+Пропускает `CREATE SCHEMA public`, восстанавливает только в пустую базу. Проверено
+08.10.2026: 31 таблица, 12 триггеров, данные и счётчики, `check_database.py` — OK.
+
+**Код** — `bash backup_to_drive.sh --local` → `~/AUTOPROFI_backups/code/`.
+
+## Бэкап кода на Google Диск (дополнительно)
 
 Одна команда (скил `backup`): `bash backup_to_drive.sh`.
 - Требует чистый git: бэкап = конкретный коммит.

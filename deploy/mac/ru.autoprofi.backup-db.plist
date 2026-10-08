@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Копия базы АВТОПРОФИ на Mac: проверка раз в 4 часа, копия — если за сутки её не было.
+     __HOME__ подставляет install.sh. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ru.autoprofi.backup-db</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/.local/share/autoprofi/backup-db.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>14400</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__HOME__/AUTOPROFI_backups/db/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/AUTOPROFI_backups/db/launchd.log</string>
+</dict>
+</plist>

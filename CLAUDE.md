@@ -145,6 +145,12 @@ bash deploy/deploy.sh --rollback
 
 # Сервер
 ssh -i ~/.ssh/autoprofi_admin autoprofi@51.250.30.154
+
+# Копии на Mac: база — сама раз в сутки (журнал), код — вручную после доработки
+tail ~/AUTOPROFI_backups/db/backup.log
+bash backup_to_drive.sh --local
+# Восстановить копию базы в пустую БД
+bash deploy/mac/restore-db.sh <файл.dump> "<подключение>"
 ```
 
 ## Документация

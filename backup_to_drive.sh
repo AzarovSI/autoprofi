@@ -4,7 +4,7 @@
 # Без секретов и без дампа БД — БД резервируется в Yandex Cloud.
 #
 #   bash backup_to_drive.sh            — собрать и загрузить (только при чистом git)
-#   bash backup_to_drive.sh --local    — только собрать архив, без загрузки
+#   bash backup_to_drive.sh --local    — собрать архив в ~/AUTOPROFI_backups/code (на Mac), без Диска
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RCLONE="${RCLONE:-$HOME/.local/bin/rclone}"
@@ -17,7 +17,7 @@ if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   exit 1
 fi
 
-OUT="$(mktemp -d)"
+if [[ "${1:-}" == "--local" ]]; then OUT="${AUTOPROFI_CODE_BACKUP_DIR:-$HOME/AUTOPROFI_backups/code}"; mkdir -p "$OUT"; else OUT="$(mktemp -d)"; fi
 ZIP="$(python3 "$ROOT/recovery/build_backup.py" --output "$OUT" | head -1)"
 echo "Архив: $ZIP ($(du -h "$ZIP" | cut -f1)), коммит $(git -C "$ROOT" rev-parse --short HEAD)"
 [[ "${1:-}" == "--local" ]] && exit 0
