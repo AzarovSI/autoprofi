@@ -3207,7 +3207,9 @@ const Views = (() => {
     if (!weeks.length) {
       const lbl = rnpState.mp === 'cross' ? 'данным'
         : (rnpState.mp === 'wb' ? 'Wildberries' : (rnpState.mp === 'yandex' ? 'Yandex' : 'OZON'));
-      root.innerHTML = `<div class="empty">Нет загруженных недель по ${lbl}.</div>`;
+      // Подтабы оставляем: иначе на пустой БД не попасть в «Загрузка данных».
+      root.innerHTML = `<div class="card rnp-card mp-${rnpMpCls()}"><div class="rnp-toolbar"><div class="subtabs" id="rnp-subtabs"></div></div><div class="empty" style="padding:40px;">Нет загруженных недель по ${lbl}.</div></div>`;
+      rnpSubtabs(root.querySelector('#rnp-subtabs'));
       return;
     }
 
