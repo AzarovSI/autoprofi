@@ -6,16 +6,17 @@
 set -euo pipefail
 ENV=/etc/autoprofi/env
 PASSFILE=/etc/autoprofi/pgpass
-read -r -s -p "Пароль пользователя БД autoprofi_app (из Lockbox): " pw; echo
+read -r -s -p "Пароль пользователя БД autoprofi_app (задан в панели TimeWeb): " pw; echo
 [[ -n "$pw" ]] || { echo "Пустой пароль — ничего не изменено."; exit 1; }
 
 DSN=$(sed -n 's/^DB_DSN=//p' "$ENV")
-host=$(sed -E 's/.*host=([^ ]+).*/\1/' <<<"$DSN")
+host=$(sed -E 's/(^| )host=([^ ]+).*/\2/' <<<"$DSN")
+port=$(sed -E 's/.*port=([^ ]+).*/\1/' <<<"$DSN")
 # Формат pgpass: в пароле экранируются \ и :
 esc=${pw//\\/\\\\}
 esc=${esc//:/\\:}
 tmp=$(mktemp /etc/autoprofi/pgpass.XXXXXX)
-printf '%s:6432:avtoprofi:autoprofi_app:%s\n' "$host" "$esc" >"$tmp"
+printf '%s:%s:avtoprofi:autoprofi_app:%s\n' "$host" "$port" "$esc" >"$tmp"
 chown autoprofi-app:autoprofi-app "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$PASSFILE"
 unset pw esc
 

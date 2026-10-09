@@ -3,12 +3,16 @@
 # Запуск на сервере от root из папки с файлами deploy/server:
 #   sudo SITE_HOST=<IP или домен> ./setup.sh
 # Повторный запуск безопасен: сделанное не ломается, секреты не перегенерируются.
-# БД на сервере нет — используется Managed PostgreSQL в той же облачной сети.
+# БД на сервере нет — используется облачная БД TimeWeb Cloud в той же приватной сети.
 set -euo pipefail
 : "${SITE_HOST:?Укажите SITE_HOST — адрес сайта (IP или домен)}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 APP=/srv/autoprofi
-DB_HOST=rc1b-4fhafeuci7krrg56.mdb.yandexcloud.net
+# Имя из сертификата БД (по нему проверяется TLS) и её адрес в приватной сети
+DB_HOST=1a1fbe83529bcc71516c3259.twc1.net
+DB_ADDR=192.168.0.4
+DB_PORT=5432
+ADMIN=autoprofi
 export DEBIAN_FRONTEND=noninteractive
 
 log() { echo; echo "=== $*"; }
@@ -26,6 +30,17 @@ fi
 echo 'vm.swappiness=10' >/etc/sysctl.d/90-autoprofi.conf
 sysctl -q -p /etc/sysctl.d/90-autoprofi.conf
 
+log "Администратор $ADMIN: вход по ключам root, sudo без пароля (нужно deploy.sh)"
+id "$ADMIN" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$ADMIN"
+install -d -m 700 -o "$ADMIN" -g "$ADMIN" "/home/$ADMIN/.ssh"
+if [[ ! -s "/home/$ADMIN/.ssh/authorized_keys" ]]; then
+  [[ -s /root/.ssh/authorized_keys ]] || { echo "Нет ключей в /root/.ssh/authorized_keys — вход не закрываю"; exit 1; }
+  install -m 600 -o "$ADMIN" -g "$ADMIN" /root/.ssh/authorized_keys "/home/$ADMIN/.ssh/authorized_keys"
+fi
+echo "$ADMIN ALL=(ALL) NOPASSWD:ALL" >"/etc/sudoers.d/90-$ADMIN"
+chmod 440 "/etc/sudoers.d/90-$ADMIN"
+visudo -cq
+
 log "SSH: вход только по ключу, root не входит"
 cat >/etc/ssh/sshd_config.d/10-autoprofi.conf <<'EOF'
 PermitRootLogin no
@@ -39,16 +54,16 @@ id autoprofi-app >/dev/null 2>&1 || useradd --system --home-dir "$APP" --shell /
 mkdir -p "$APP/releases" "$APP/venvs" "$APP/bin" /etc/autoprofi /var/www/letsencrypt
 chmod 755 "$APP"
 
-log "Сертификат CA Yandex Cloud для проверки TLS базы"
-curl -fsS -o /etc/autoprofi/yandex-ca.pem https://storage.yandexcloud.net/cloud-certs/CA.pem
-chmod 644 /etc/autoprofi/yandex-ca.pem
+log "Сертификат CA TimeWeb Cloud для проверки TLS базы"
+curl -fsS -o /etc/autoprofi/db-ca.pem https://st.timeweb.com/cloud-static/ca.crt
+chmod 644 /etc/autoprofi/db-ca.pem
 
 log "Настройки сайта (/etc/autoprofi/env создаётся один раз)"
 if [[ ! -f /etc/autoprofi/env ]]; then
   umask 077
   cat >/etc/autoprofi/env <<EOF
 # Пароль БД — в /etc/autoprofi/pgpass, задаётся: sudo /srv/autoprofi/bin/set-db-password
-DB_DSN=host=$DB_HOST port=6432 dbname=avtoprofi user=autoprofi_app sslmode=verify-full sslrootcert=/etc/autoprofi/yandex-ca.pem passfile=/etc/autoprofi/pgpass
+DB_DSN=host=$DB_HOST hostaddr=$DB_ADDR port=$DB_PORT dbname=avtoprofi user=autoprofi_app sslmode=verify-full sslrootcert=/etc/autoprofi/db-ca.pem passfile=/etc/autoprofi/pgpass
 SECRET_KEY=$(openssl rand -hex 32)
 TOKEN_TTL_HOURS=24
 EOF

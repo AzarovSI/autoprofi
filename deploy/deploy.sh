@@ -6,7 +6,7 @@
 # ставит зависимости, переключает версию и проверяет /health (при сбое — откат сам).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST="${AUTOPROFI_HOST:-51.250.30.154}"
+HOST="${AUTOPROFI_HOST:-201.24.55.48}"
 SSH=(ssh -i "$HOME/.ssh/autoprofi_admin" -o IdentitiesOnly=yes "autoprofi@$HOST")
 
 if [[ "${1:-}" == "--rollback" ]]; then
