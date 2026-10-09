@@ -5,11 +5,16 @@
 #   ~/.local/share/autoprofi/backup-db.sh          — по расписанию (или вручную)
 #   ~/.local/share/autoprofi/backup-db.sh --force  — сделать копию сейчас
 # Подключение: сервис autoprofi_ro из ~/.pg_service.conf (только чтение, пароль в
-# ~/.pgpass). Схема azarov_capital в копию не входит.
+# ~/.pgpass). БД TimeWeb доступна только через SSH-канал через сервер сайта
+# (127.0.0.1:15432 → 192.168.0.4:5432): если канала нет, скрипт открывает свой и
+# закрывает после копии. Так копия не зависит от VPN на Mac.
 set -uo pipefail
 
 DEST="${AUTOPROFI_BACKUP_DIR:-$HOME/AUTOPROFI_backups/db}"
 CONN="${AUTOPROFI_DB_CONN:-service=autoprofi_ro}"
+TUNNEL_HOST="${AUTOPROFI_TUNNEL_HOST:-autoprofi@201.24.55.48}"
+TUNNEL_PORT=15432
+DB_ADDR=192.168.0.4:5432
 EXPECT_TABLES="${AUTOPROFI_EXPECT_TABLES:-31}"
 KEEP_DAYS=30
 PG="/Applications/Postgres.app/Contents/Versions/latest/bin"
@@ -34,6 +39,20 @@ if [[ "${1:-}" != "--force" && -f "$OK_STAMP" && -z "$(find "$OK_STAMP" -mmin +1
   exit 0  # свежая копия уже есть
 fi
 [[ -x "$PG/pg_dump" ]] || fail "не найден pg_dump (Postgres.app)"
+
+if [[ -n "$TUNNEL_HOST" ]] && ! nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null; then
+  ssh -i "$HOME/.ssh/autoprofi_admin" -o IdentitiesOnly=yes -o BatchMode=yes \
+    -o ExitOnForwardFailure=yes -o ConnectTimeout=20 \
+    -N -L "127.0.0.1:$TUNNEL_PORT:$DB_ADDR" "$TUNNEL_HOST" 2>>"$LOG" &
+  tunnel_pid=$!
+  trap 'kill "$tunnel_pid" 2>/dev/null' EXIT
+  for _ in $(seq 1 30); do
+    nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null && break
+    kill -0 "$tunnel_pid" 2>/dev/null || break
+    sleep 1
+  done
+  nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null || fail "нет SSH-канала к БД через $TUNNEL_HOST"
+fi
 
 name="autoprofi_public_$(date '+%Y-%m-%d_%H%M').dump"
 tmp="$DEST/.incoming-$name"

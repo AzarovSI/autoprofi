@@ -2,7 +2,7 @@
 # Восстановить копию базы АВТОПРОФИ (из backup-db.sh) в ПУСТУЮ базу.
 #   bash deploy/mac/restore-db.sh <файл.dump> "<строка подключения к новой базе>"
 # Пример: bash deploy/mac/restore-db.sh ~/AUTOPROFI_backups/db/autoprofi_public_2026-10-09_0900.dump \
-#           "host=... port=6432 dbname=avtoprofi user=... sslmode=verify-full"
+#           "host=... port=5432 dbname=avtoprofi user=... sslmode=verify-full"
 # Восстанавливает таблицы, данные, индексы, функции и триггеры схемы public.
 # Строка CREATE SCHEMA public пропускается: в новой базе схема уже есть.
 set -euo pipefail

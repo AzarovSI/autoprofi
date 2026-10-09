@@ -6,13 +6,15 @@ MPPROFIT, 1С и PriceVA и работают с заказами, ценами, 
 юнит-экономикой. Интеграций с API маркетплейсов нет: все данные приходят файлами.
 Главный ключ товара — артикул продавца (`util.canon_article`), а не SKU площадки.
 
-Стек: Python 3.12 + FastAPI + psycopg3 (пул), PostgreSQL 17 (Yandex Cloud Managed,
-порт 6432 через PgBouncer, БД `avtoprofi`), фронтенд — чистый JavaScript без сборщика.
+Стек: Python 3.12 + FastAPI + psycopg3 (пул), PostgreSQL 17 (облачная БД TimeWeb Cloud
+с 09.10.2026, до этого — Yandex Cloud Managed; БД `avtoprofi`), фронтенд — чистый JavaScript
+без сборщика.
 
 ## Текущий этап: переезд из Perplexity
 
 Проект до 07.10.2026 вёл агент Perplexity Computer, production — https://autoprofi.pplx.app.
-Сейчас идёт перенос на собственный сервер в Yandex Cloud под управлением Claude.
+Сейчас идёт перенос на собственный сервер под управлением Claude. После сбоя Yandex Cloud
+(08.10.2026, `docs/history.md`) сервер и БД — в TimeWeb Cloud, БД заполняется заново из отчётов.
 План, статус и инфраструктура — `docs/operations.md`. Пока сайт не переключён,
 production продолжает работать на Perplexity, а код там заморожен.
 
@@ -47,13 +49,15 @@ production продолжает работать на Perplexity, а код та
   в браузере, не для тестов. Хук `.claude/hooks/guard_tests.py` это проверяет.
 - Секреты (`DB_DSN`, `SECRET_KEY`, пароли, токены) никогда не попадают в код, git,
   docs и чат. Источники: окружение или `recovery/config.json` (в `.gitignore`).
-- **В той же БД `avtoprofi` и под тем же пользователем `app` работает другой рабочий
+- **В БД `avtoprofi` в Yandex Cloud под тем же пользователем `app` работает другой рабочий
   сервис владельца — azarov_capital (личная финансовая аналитика), схема
   `azarov_capital`, 20 таблиц.** АВТОПРОФИ — только схема `public` (31 таблица,
-  `recovery/schema_contract.json`). Не трогать схему `azarov_capital`. Дампы — только
-  `pg_dump -n public`, никогда всей базы; права, очистки, миграции — только по явному
-  списку таблиц `public`. Пароль `app` не менять, настройки и
+  `recovery/schema_contract.json`). Не трогать схему `azarov_capital`, кластер в Yandex
+  не удалять. Дампы — только `pg_dump -n public`, никогда всей базы; права, очистки,
+  миграции — только по явному списку таблиц `public`. Пароль `app` не менять, настройки и
   перезапуск кластера — только по согласованию: это остановит оба сервиса.
+  В TimeWeb azarov_capital нет; пользователи и права там — только через панель
+  (`docs/operations.md`).
 - Отложены владельцем: сужение CORS, обновление h11, ротация старых паролей.
   Не делать этого попутно с другой задачей.
 
@@ -120,7 +124,8 @@ production продолжает работать на Perplexity, а код та
 
 Окружение на Mac: Python 3.12 в `.venv` (через `uv`), клиенты PostgreSQL из Postgres.app,
 локальный Postgres для тестов. Подключения к облаку — `~/.pg_service.conf`
-(`autoprofi_test`, `autoprofi_ro`), пароли в `~/.pgpass` (не читать).
+(TimeWeb: `autoprofi_ro`, `autoprofi_owner`; Yandex: `autoprofi_test`, `autoprofi_ro_yandex`),
+пароли в `~/.pgpass` (не читать). БД TimeWeb с Mac — только через SSH-канал (команда ниже).
 
 ```sh
 PG=/Applications/Postgres.app/Contents/Versions/latest/bin
@@ -133,8 +138,8 @@ $PG/pg_ctl -D ~/.local/share/autoprofi-pgdata -o "-c listen_addresses=127.0.0.1 
 DB_DSN="postgresql://wb_test:local-test-only@127.0.0.1:5432/wb_price_test" \
   SECRET_KEY=local-test-secret-key-0123456789abcdef PYTHONPATH=.:tests .venv/bin/python -m pytest -q tests
 
-# Сайт на тестовой облачной БД
-DB_DSN="service=autoprofi_test" SECRET_KEY=... .venv/bin/python -m uvicorn app.main:app --port 8000
+# SSH-канал к БД TimeWeb (нужен для psql/pg_dump с Mac; копия открывает его сама)
+ssh -i ~/.ssh/autoprofi_admin -f -N -L 127.0.0.1:15432:192.168.0.4:5432 autoprofi@201.24.55.48
 
 # Диагностика рабочей БД — только чтение
 $PG/psql "service=autoprofi_ro"
@@ -143,8 +148,9 @@ $PG/psql "service=autoprofi_ro"
 bash deploy/deploy.sh
 bash deploy/deploy.sh --rollback
 
-# Сервер
-ssh -i ~/.ssh/autoprofi_admin autoprofi@51.250.30.154
+# Сервер (TimeWeb), логи сайта
+ssh -i ~/.ssh/autoprofi_admin autoprofi@201.24.55.48
+ssh -i ~/.ssh/autoprofi_admin autoprofi@201.24.55.48 sudo journalctl -u autoprofi -n 50
 
 # Копии на Mac: база — сама раз в сутки (журнал), код — вручную после доработки
 tail ~/AUTOPROFI_backups/db/backup.log
