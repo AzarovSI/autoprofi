@@ -72,8 +72,19 @@ app.include_router(ozon_warehouses_router.router)
 app.include_router(prices_router.router)
 
 # Статика
+class StampedStaticFiles(StaticFiles):
+    """Файл со штампом ?v=<отпечаток> (render_index) не меняется — браузер держит его
+    в кэше год и не перепроверяет на каждом входе (было: ~10 запросов-проверок)."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200 and b"v=" in scope.get("query_string", b""):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if os.path.isdir(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", StampedStaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/health")

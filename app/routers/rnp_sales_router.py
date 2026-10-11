@@ -30,10 +30,10 @@ import threading
 
 import json as _json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 
-from .. import db, auth
+from .. import db, auth, fastjson
 from .. import cache
 from .. import daily_pi
 from ..util import l1_sort_key, cat_sort_key
@@ -273,6 +273,7 @@ def rnp_sales_tree(
     status: str = Query(None),
     manager: str = Query(None),
     user=Depends(auth.get_current_user),
+    request: Request = None,
 ):
     """Дерево дневных продаж Ozon по месяцам (с кэшем ответа).
 
@@ -289,7 +290,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v7|" + "|".join([
+    ck = "rnps_tree|v8|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -301,24 +302,22 @@ def rnp_sales_tree(
     ns = (CACHE_NS_WB if mp_norm == "Wildberries"
           else CACHE_NS_YA if mp_norm == "Yandex"
           else CACHE_NS)
-    # В кэше храним УЖЕ СЕРИАЛИЗОВАННЫЕ JSON-байты, а не dict.
-    # Причина: дерево ~9.5 МБ, и повторная сериализация dict→JSON
-    # в FastAPI (jsonable_encoder + json.dumps) стоит ~2 с НА КАЖДЫЙ ответ —
-    # даже когда данные взяты из кэша. Отдавая готовые байты через Response,
-    # минуем эту сериализацию и HIT становится почти мгновенным.
+    # В кэше храним УЖЕ СЖАТЫЙ gzip JSON (fastjson), а не dict: повторная
+    # сериализация ~10 МБ стоила ~2 с, а сжатие на лету в GZipMiddleware —
+    # ~0,7 с на каждый ответ (1 ядро, замер 11.10.2026).
     cached = cache.get(ns, ck)
     if cached is not None:
-        return Response(content=cached, media_type="application/json")
+        return fastjson.gzipped_response(cached, request)
     # Одно и то же дерево не собираем параллельно (запрос + фоновый прогрев
     # rnp_warmup или два пользователя): второй ждёт и берёт готовое из кэша.
     with _build_lock(ck):
         cached = cache.get(ns, ck)
         if cached is not None:
-            return Response(content=cached, media_type="application/json")
+            return fastjson.gzipped_response(cached, request)
         result = _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager)
-        payload = _json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
-        cache.set(ns, ck, payload, ttl=CACHE_TTL)
-    return Response(content=payload, media_type="application/json")
+        cached = fastjson.gzip_bytes(fastjson.dumps(result))
+        cache.set(ns, ck, cached, ttl=CACHE_TTL)
+    return fastjson.gzipped_response(cached, request)
 
 
 _build_locks = {}

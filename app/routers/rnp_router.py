@@ -14,7 +14,7 @@
 
 from fastapi import APIRouter, Depends, Query
 
-from .. import db, auth
+from .. import db, auth, fastjson
 from ..util import l1_sort_key, cat_sort_key
 
 router = APIRouter(prefix="/api/rnp", tags=["rnp"])
@@ -833,7 +833,8 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.get_current_use
             collect(c)
     collect(tree)
 
-    return {
+    # Готовые байты (fastjson): ~7 МБ через jsonable_encoder FastAPI заметно медленнее.
+    return fastjson.json_response({
         "marketplace": mp,
         "weeks": weeks,
         "metrics": [
@@ -845,7 +846,7 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.get_current_use
         "undistributed": {"count": len(undist_list), "articles": undist_list},
         "managers": sorted(managers),
         "statuses": sorted(statuses),
-    }
+    })
 
 
 # ---------------------------------------------------------------------------
