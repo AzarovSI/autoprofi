@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Разовая загрузка истории РНП Ozon из таблицы владельца в ozon_daily_sales.
+"""Разовая загрузка истории РНП (Ozon, Wildberries) из таблиц владельца в *_daily_sales.
 
-Зачем: после потери БД в Yandex Cloud (docs/history.md) дневная история РНП Ozon
-восстанавливается из рабочей таблицы владельца «РНП-ТД OZON 2026». Сопоставление
-метрик и правила согласованы с владельцем 09–10.10.2026 (docs/data_sources.md, 3а).
+Зачем: после потери БД в Yandex Cloud (docs/history.md) дневная история РНП
+восстанавливается из рабочих таблиц владельца «РНП-ТД OZON 2026» и
+«РНП-ТД Wildberries 2026». Сопоставление метрик и правила согласованы с владельцем
+09–11.10.2026 (docs/data_sources.md, 3а).
 
-    .venv/bin/python db/import_rnp_ozon_history.py <файл.xlsx>            — разбор и сверка, без записи
-    .venv/bin/python db/import_rnp_ozon_history.py <файл.xlsx> --write    — запись (service=autoprofi_owner,
-                                                                           другая БД — --dsn)
+    .venv/bin/python db/import_rnp_history.py --mp ozon|wb <файл.xlsx>           — разбор и сверка, без записи
+    .venv/bin/python db/import_rnp_history.py --mp ozon|wb <файл.xlsx> --write   — запись (service=autoprofi_owner,
+                                                                                 другая БД — --dsn)
 
-Устройство листа «РНП-АП Ozon»: строка 4 — даты (с колонки M), строка товара — артикул
-в колонке J (там же «Заказы, шт»), SKU Ozon в L; ниже — строки метрик с подписью в J.
-Служебные колонки A–H местами сбиты, поэтому товар определяется по J, а не по G.
+Устройство листа: в строке дат (Ozon — 4, WB — 5) даты идут с колонки M, между месяцами
+бывают служебные колонки («Оборачиваемость», «ОКТ») — берутся только колонки-даты 2026 года.
+Строка товара — артикул в колонке J (там же «Заказы, шт»), SKU в L; ниже — строки метрик
+с подписью в J. Строки групп и итогов (в т.ч. их метрики) пропускаются. Служебные колонки
+A–H местами сбиты, поэтому товар определяется по J, а не по G.
 """
 import argparse
 import collections
@@ -25,12 +28,10 @@ import openpyxl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.util import canon_article  # noqa: E402
 
-SHEET = "РНП-АП Ozon"
-FIRST_COL = 13          # M — первая дата
-DATE_ROW = 4
+YEAR_FROM = datetime.date(2026, 1, 1)
 
-# Подпись в таблице → поле ozon_daily_sales (None — не загружается, только сверка)
-LABELS = {
+# Подписи, общие для обеих таблиц (None — не загружается, только сверка)
+COMMON = {
     "Сумма заказов, руб.": "orders_rub",
     "Ср. загружаемая цена": None,
     "Цена для покупателя": None,
@@ -38,7 +39,6 @@ LABELS = {
     "Минимальная цена конкурентов": "comp_price_min",
     "Отменено заказов": "cancels_qty",
     "Процент отмен": None,
-    "Соинвест": "spp_pct",
     "Индекс цены, Pi": "price_index_pi",
     "ДРР, общая": None,
     "Расходы на рекламу": "ads_expense_rub",
@@ -46,23 +46,40 @@ LABELS = {
     "CTR, с рк": "ctr_pct",
     "CR, корзина общий": "cr_cart_pct",
     "CR, в заказ общий": "cr_order_pct",
-    "Средняя позиция в поиске": "avg_position",
-    "Среднее время доставки, часов": None,   # поле занято «Количеством отзывов»
+    "Среднее время доставки, часов": None,   # у Ozon поле занято «Количеством отзывов», у WB его нет
     "Рейтинг товара": "rating",
-    "Остаток на складе ОЗОН, шт.": "stock_ozon_qty",
-    "Остаток на складе АВТОПРОФИ, шт.": "stock_ap_qty",
 }
-# Согласовано с владельцем: опечатки в таблице, артикул сверен по SKU с MPPROFIT
-ARTICLE_FIX = {"GRN-400 BK/BE": "GRN-400 BR/BE", "MLT-320G BK/BK": "MLT-320G BK"}
+MP = {
+    "ozon": {
+        "name": "Ozon", "sheet": "РНП-АП Ozon", "date_row": 4, "table": "ozon_daily_sales",
+        "sku_col": "sku_ozon", "period_kind": "daily",
+        "labels": {**COMMON, "Соинвест": "spp_pct", "Средняя позиция в поиске": "avg_position",
+                   "Остаток на складе ОЗОН, шт.": "stock_ozon_qty",
+                   "Остаток на складе АВТОПРОФИ, шт.": "stock_ap_qty"},
+        # Согласовано с владельцем: опечатки в таблице, артикул сверен по SKU с MPPROFIT
+        "article_fix": {"GRN-400 BK/BE": "GRN-400 BR/BE", "MLT-320G BK/BK": "MLT-320G BK"},
+    },
+    "wb": {
+        "name": "Wildberries", "sheet": "РНП-АП Wildberries", "date_row": 5, "table": "wb_daily_sales",
+        "sku_col": "nm_id", "period_kind": "wb_daily",
+        "group_metrics": True,   # у групп и итогов свои строки метрик — не берём (решение владельца)
+        # «Остаток на складе АВТОПРОФИ» у WB сайт берёт из общей stock_daily (1С), а не из
+        # wb_daily_sales; в таблице WB эта строка расходится с Ozon — не загружается.
+        "labels": {**COMMON, "СПП": "spp_pct", "Средняя позиция в поиске": "avg_search_position",
+                   "Остаток на складе WB, шт.": "stock_wb_qty",
+                   "Остаток на складе АВТОПРОФИ, шт.": None},
+        "article_fix": {},
+    },
+}
 
 ZERO_IS_REAL = {"orders_qty", "orders_rub", "cancels_qty", "ads_expense_rub",
-                "card_visits", "stock_ozon_qty", "stock_ap_qty"}
-ZERO_IS_EMPTY = {"price_index_pi", "rating", "avg_position", "comp_price_avg",
-                 "comp_price_min", "spp_pct"}
-DB_COLS = ["orders_qty", "orders_rub", "cancels_qty", "price_index_pi", "spp_pct",
-           "card_visits", "cr_cart_pct", "cr_order_pct", "avg_position", "rating",
-           "stock_ozon_qty", "comp_price_avg", "comp_price_min", "ads_expense_rub",
-           "ctr_pct", "stock_ap_qty"]
+                "card_visits", "stock_ozon_qty", "stock_wb_qty", "stock_ap_qty"}
+ZERO_IS_EMPTY = {"price_index_pi", "rating", "avg_position", "avg_search_position",
+                 "comp_price_avg", "comp_price_min", "spp_pct"}
+
+
+def db_cols(cfg):
+    return ["orders_qty"] + [c for c in cfg["labels"].values() if c]
 
 
 def norm(s):
@@ -73,36 +90,42 @@ def num(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def read_sheet(path):
+def read_sheet(path, cfg):
     """→ dates, products{art: {sku, row, label, orders[], m{label: [(value, fmt)]}}}, groups, problems."""
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    ws = wb[SHEET]
-    dates, products, groups, problems = [], collections.OrderedDict(), 0, []
+    ws = wb[cfg["sheet"]]
+    labels, fix = cfg["labels"], cfg["article_fix"]
+    dates, dcols, products, groups, problems = [], [], collections.OrderedDict(), 0, []
+    today = datetime.date.today()
     cur = None
-    for r, row in enumerate(ws.iter_rows(min_row=DATE_ROW), DATE_ROW):
+    for r, row in enumerate(ws.iter_rows(min_row=cfg["date_row"]), cfg["date_row"]):
         cell = lambda c: row[c - 1] if len(row) >= c else None
         val = lambda c: (cell(c).value if cell(c) is not None else None)
-        if r == DATE_ROW:
-            for c in range(FIRST_COL, len(row) + 1):
+        if r == cfg["date_row"]:
+            for c in range(1, len(row) + 1):
                 v = val(c)
-                if not isinstance(v, datetime.datetime):
-                    break
-                dates.append(v.date())
+                if isinstance(v, datetime.datetime) and YEAR_FROM <= v.date() < today:
+                    dates.append(v.date())
+                    dcols.append(c)
+            gaps = [(a, b) for a, b in zip(dates, dates[1:]) if (b - a).days != 1]
+            if gaps:
+                problems.append(f"даты не подряд: {gaps[:3]}")
             continue
         J, G = norm(val(10)), norm(val(7))
         if not J:
             continue
         cells = [(cell(c).value, cell(c).number_format) if cell(c) is not None else (None, None)
-                 for c in range(FIRST_COL, FIRST_COL + len(dates))]
-        if J in LABELS:
+                 for c in dcols]
+        if J in labels:
             if cur is None:
-                problems.append(f"строка {r}: метрика «{J}» без товара")
+                if not cfg.get("group_metrics"):
+                    problems.append(f"строка {r}: метрика «{J}» без товара")
             elif J in cur["m"]:
                 problems.append(f"строка {r}: повтор метрики «{J}» у {cur['label']}")
             else:
                 cur["m"][J] = cells
         elif G:
-            art = canon_article(ARTICLE_FIX.get(J, J))
+            art = canon_article(fix.get(J, J))
             if art in products:
                 problems.append(f"строка {r}: повтор артикула {art}")
             sku = norm(val(12)).split(".")[0]
@@ -117,7 +140,7 @@ def read_sheet(path):
         del products[art]
         groups += 1
     for art, p in products.items():
-        miss = [l for l in LABELS if l not in p["m"]]
+        miss = [l for l in labels if l not in p["m"]]
         if miss:
             problems.append(f"{art}: нет строк {miss}")
     return dates, products, groups, problems
@@ -127,7 +150,7 @@ def closest(x, cands, target):
     return min(cands, key=lambda c: abs(c - target))
 
 
-def convert(dates, products):
+def convert(dates, products, cfg):
     """→ rows[(date, art, sku, {col: value})], stats, check."""
     st = collections.Counter()
     notes = collections.defaultdict(list)
@@ -147,7 +170,7 @@ def convert(dates, products):
                 notes["сломанные дни"].append((art, d))
                 rows.append((d, art, p["sku"], rec))
                 continue
-            for label, col in LABELS.items():
+            for label, col in cfg["labels"].items():
                 if not col:
                     continue
                 x, fmt = raw[label], f[label][i]
@@ -246,35 +269,36 @@ def cr_order_value(x, fmt, o, visits, st, notes, art, d):
     return v
 
 
-def write(conn, rows, dates, source_file):
+def write(conn, rows, dates, source_file, cfg):
     """Одна транзакция: справочник (новые артикулы — нераспределённые), журнал
-    report_uploads, строки ozon_daily_sales. Диапазон дат должен быть пуст."""
+    report_uploads, строки *_daily_sales. Диапазон дат должен быть пуст."""
     arts = sorted({a for _, a, _, _ in rows})
+    table, mp, cols_db = cfg["table"], cfg["name"], db_cols(cfg)
     with conn.transaction():
         cur = conn.cursor()
-        n = cur.execute("SELECT count(*) FROM ozon_daily_sales WHERE date BETWEEN %s AND %s",
+        n = cur.execute(f"SELECT count(*) FROM {table} WHERE date BETWEEN %s AND %s",
                         (dates[0], dates[-1])).fetchone()[0]
         if n:
-            raise SystemExit(f"В ozon_daily_sales уже {n} строк за {dates[0]}–{dates[-1]} — запись отменена")
+            raise SystemExit(f"В {table} уже {n} строк за {dates[0]}–{dates[-1]} — запись отменена")
         known = {r[0] for r in cur.execute("SELECT seller_article FROM catalog_items")}
         new = [a for a in arts if a not in known]
         cur.executemany("INSERT INTO catalog_items (seller_article) VALUES (%s) "
                         "ON CONFLICT (seller_article) DO NOTHING", [(a,) for a in new])
-        cur.executemany("INSERT INTO catalog_marketplace (seller_article, marketplace) VALUES (%s, 'Ozon') "
-                        "ON CONFLICT (seller_article, marketplace) DO NOTHING", [(a,) for a in arts])
+        cur.executemany("INSERT INTO catalog_marketplace (seller_article, marketplace) VALUES (%s, %s) "
+                        "ON CONFLICT (seller_article, marketplace) DO NOTHING", [(a, mp) for a in arts])
         names = dict(cur.execute("SELECT seller_article, sample_name FROM catalog_items "
                                  "WHERE seller_article = ANY(%s)", (arts,)).fetchall())
         upload_id = cur.execute(
             "INSERT INTO report_uploads (marketplace, year, period_text, period_start, period_end, "
-            "source_file, status, period_kind, message) VALUES ('Ozon', %s, %s, %s, %s, %s, "
-            "'В ПРОЦЕССЕ', 'daily', %s) RETURNING id",
-            (dates[0].year, f"{dates[0]:%d.%m.%Y}–{dates[-1]:%d.%m.%Y}", dates[0], dates[-1],
-             source_file, "Разовая загрузка истории РНП Ozon из таблицы владельца "
-             "(db/import_rnp_ozon_history.py, docs/data_sources.md 3а)")).fetchone()[0]
-        cols = ["date", "seller_article", "sku_ozon", "item_name"] + DB_COLS + ["upload_id"]
-        with cur.copy(f"COPY ozon_daily_sales ({', '.join(cols)}) FROM STDIN") as cp:
+            "source_file, status, period_kind, message) VALUES (%s, %s, %s, %s, %s, %s, "
+            "'В ПРОЦЕССЕ', %s, %s) RETURNING id",
+            (mp, dates[0].year, f"{dates[0]:%d.%m.%Y}–{dates[-1]:%d.%m.%Y}", dates[0], dates[-1],
+             source_file, cfg["period_kind"], f"Разовая загрузка истории РНП {mp} из таблицы владельца "
+             "(db/import_rnp_history.py, docs/data_sources.md 3а)")).fetchone()[0]
+        cols = ["date", "seller_article", cfg["sku_col"], "item_name"] + cols_db + ["upload_id"]
+        with cur.copy(f"COPY {table} ({', '.join(cols)}) FROM STDIN") as cp:
             for d, a, sku, rec in rows:
-                cp.write_row([d, a, sku, names.get(a)] + [rec.get(c) for c in DB_COLS] + [upload_id])
+                cp.write_row([d, a, sku, names.get(a)] + [rec.get(c) for c in cols_db] + [upload_id])
         cur.execute("UPDATE report_uploads SET status='OK', rows_loaded=%s WHERE id=%s", (len(rows), upload_id))
     return upload_id, new
 
@@ -282,14 +306,17 @@ def write(conn, rows, dates, source_file):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("xlsx")
+    ap.add_argument("--mp", choices=sorted(MP), required=True)
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--dsn", default="service=autoprofi_owner")
+    ap.add_argument("--source", help="имя исходного файла для журнала загрузок")
     a = ap.parse_args()
-    dates, products, groups, problems = read_sheet(a.xlsx)
+    cfg = MP[a.mp]
+    dates, products, groups, problems = read_sheet(a.xlsx, cfg)
     print(f"Даты: {dates[0]:%d.%m.%Y}–{dates[-1]:%d.%m.%Y}, {len(dates)} дн.; товаров {len(products)}; строк групп {groups}")
     for pr in problems:
         print("  ПРОБЛЕМА:", pr)
-    rows, st, notes = convert(dates, products)
+    rows, st, notes = convert(dates, products, cfg)
     print(f"Строк день×артикул: {len(rows)}")
     for k, v in sorted(st.items()):
         print(f"  {k}: {v}")
@@ -300,7 +327,7 @@ def main():
     if a.write:
         import psycopg
         with psycopg.connect(a.dsn) as conn:
-            upload_id, new = write(conn, rows, dates, "РНП-ТД OZON 2026 - рабочий (2).xlsx")
+            upload_id, new = write(conn, rows, dates, os.path.basename(a.source or a.xlsx), cfg)
         print(f"Записано: {len(rows)} строк, upload_id={upload_id}; новые артикулы в справочнике: {new}")
 
 
