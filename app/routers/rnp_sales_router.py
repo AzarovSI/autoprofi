@@ -309,10 +309,28 @@ def rnp_sales_tree(
     cached = cache.get(ns, ck)
     if cached is not None:
         return Response(content=cached, media_type="application/json")
-    result = _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager)
-    payload = _json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
-    cache.set(ns, ck, payload, ttl=CACHE_TTL)
+    # Одно и то же дерево не собираем параллельно (запрос + фоновый прогрев
+    # rnp_warmup или два пользователя): второй ждёт и берёт готовое из кэша.
+    with _build_lock(ck):
+        cached = cache.get(ns, ck)
+        if cached is not None:
+            return Response(content=cached, media_type="application/json")
+        result = _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager)
+        payload = _json.dumps(result, ensure_ascii=False, default=str).encode("utf-8")
+        cache.set(ns, ck, payload, ttl=CACHE_TTL)
     return Response(content=payload, media_type="application/json")
+
+
+_build_locks = {}
+_build_locks_guard = threading.Lock()
+
+
+def _build_lock(key):
+    with _build_locks_guard:
+        if len(_build_locks) > 500:   # ключи с прошлыми датами/ревизиями больше не нужны
+            for k in [k for k, lk in _build_locks.items() if not lk.locked()]:
+                del _build_locks[k]
+        return _build_locks.setdefault(key, threading.Lock())
 
 
 def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):

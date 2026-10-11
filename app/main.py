@@ -33,6 +33,13 @@ def migrate_daily_pi():
     from .daily_pi import migrate
     migrate()
 
+
+@app.on_event("startup")
+def start_rnp_warmup():
+    # Фоновый прогрев дерева «РНП заказы» (только при RNP_WARMUP=1, см. app/rnp_warmup.py)
+    from .rnp_warmup import start
+    start()
+
 # CORS: статика может раздаваться с другого origin (S3 на *.pplx.app).
 app.add_middleware(
     CORSMiddleware,

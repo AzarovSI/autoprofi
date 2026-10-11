@@ -28,6 +28,13 @@ _versions = {}
 # Хранилище: key -> (namespace, version_at_store, expires_at, value)
 _store = {}
 _lock = threading.Lock()
+# Подписчики на bump(namespace) — напр. фоновый прогрев РНП (rnp_warmup).
+_bump_listeners = []
+
+
+def on_bump(fn):
+    """Подписаться на инвалидацию: fn(namespace) вызывается после каждого bump()."""
+    _bump_listeners.append(fn)
 
 
 def version(namespace: str) -> int:
@@ -45,7 +52,12 @@ def bump(namespace: str) -> int:
     with _lock:
         v = _versions.get(namespace, 0) + 1
         _versions[namespace] = v
-        return v
+    for fn in list(_bump_listeners):
+        try:
+            fn(namespace)
+        except Exception:
+            pass  # подписчик не должен ломать загрузку данных
+    return v
 
 
 def get(namespace: str, key: str):

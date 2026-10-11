@@ -69,6 +69,8 @@ TOKEN_TTL_HOURS=24
 EOF
   umask 022
 fi
+# Фоновый прогрев дерева «РНП заказы» (app/rnp_warmup.py); дописывается и в старый env
+grep -q '^RNP_WARMUP=' /etc/autoprofi/env || echo 'RNP_WARMUP=1' >>/etc/autoprofi/env
 chown root:autoprofi-app /etc/autoprofi/env
 chmod 640 /etc/autoprofi/env
 
