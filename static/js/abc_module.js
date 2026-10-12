@@ -51,7 +51,9 @@ window.ABCDash = (function () {
     const cur = stDisplay(current);
     const opts = STATUS_PRESETS.map(s =>
       `<option value="${escapeAttr(s)}"${s === cur ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
-    return `<select class="abc-status-sel ${stClass(cur)}" data-sa="${escapeAttr(sa)}" data-mp="${escapeAttr(mp)}" data-prev="${escapeAttr(cur)}" title="Статус товара">${opts}</select>`;
+    // Без функции «Изменить статус товара» (ABC) — select неактивен.
+    const off = App.can('abc.status.edit') ? '' : ' disabled';
+    return `<select class="abc-status-sel ${stClass(cur)}" data-sa="${escapeAttr(sa)}" data-mp="${escapeAttr(mp)}" data-prev="${escapeAttr(cur)}" title="Статус товара"${off}>${opts}</select>`;
   }
   // Товар со статусом «-» (выведен из продаж) без движения за выбранный период
   // скрывается из всех таблиц ABC. «Движение» = любое ненулевое из
@@ -1592,6 +1594,7 @@ window.ABCDash = (function () {
     document.querySelectorAll('.btn-export').forEach(btn => {
       const newBtn = btn.cloneNode(true);
       btn.parentNode.replaceChild(newBtn, btn);
+      if (!App.can('abc.actions.export')) newBtn.style.display = 'none';
       newBtn.addEventListener('click', () => exportCsv(newBtn.dataset.export, groups));
     });
   }
@@ -2118,6 +2121,11 @@ window.ABCDash = (function () {
   }
 
   /* ============ Под-навигация вкладок внутри ABC ============ */
+  // Вкладка → функция роли (app/permissions.py).
+  const TAB_RIGHTS = {
+    overview: 'abc.tab.overview', ozon: 'abc.tab.ozon', vb: 'abc.tab.wb', yandex: 'abc.tab.ya',
+    cross: 'abc.tab.compare', actions: 'abc.tab.actions',
+  };
   function bindSubNav() {
     const root = STATE.rootEl || document;
     const tabs = root.querySelectorAll('.abc-subnav .tab');
@@ -2131,6 +2139,12 @@ window.ABCDash = (function () {
     tabs.forEach((btn) => {
       btn.addEventListener('click', () => activate(btn.dataset.tab));
     });
+    // Вкладки — по правам роли; недоступная выбранная — первая доступная.
+    const allowed = Array.from(tabs).filter((b) => App.can(TAB_RIGHTS[b.dataset.tab]));
+    tabs.forEach((b) => { if (!allowed.includes(b)) b.style.display = 'none'; });
+    if (!allowed.some((b) => b.dataset.tab === STATE.activeTab) && allowed.length) {
+      STATE.activeTab = allowed[0].dataset.tab;
+    }
     // Восстановить ранее выбранную под-вкладку (после перерисовки DOM).
     if (STATE.activeTab && STATE.activeTab !== 'overview') activate(STATE.activeTab);
   }

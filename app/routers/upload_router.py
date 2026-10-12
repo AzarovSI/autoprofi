@@ -75,7 +75,7 @@ def _set_uploader(conn, user):
 # Набор журнала → функция «Журналы загрузок» своего раздела.
 _HISTORY_CODES = {
     **dict.fromkeys(("unit_econ", "weekly", "monthly"), "unit.uploads.log"),
-    **dict.fromkeys(("wb_stock", "cost"), "stock.uploads.log"),
+    **dict.fromkeys(("wb_stock", "ozon_stock", "cost"), "stock.uploads.log"),
     **dict.fromkeys(("daily", "ads", "stock", "reviews", "competitors", "rnps", "rnps_ozon",
                      "rnps_common", "rnps_wb", "rnps_ya"), "rnp.uploads.log"),
 }
@@ -124,6 +124,10 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
         where = "WHERE period_kind = 'wb_stock'"
     elif kind == "cost":
         where = "WHERE period_kind = 'cost'"
+    elif kind == "ozon_stock":
+        # Остатки Ozon по складам (ozon_wh_stock_loader). Раньше набора не было —
+        # журнал «Склады → Ozon» показывал все загрузки.
+        where = "WHERE period_kind = 'ozon_stock'"
     elif kind == "rnps_ozon":
         where = "WHERE period_kind IN ('daily','ads','reviews','competitors')"
     elif kind == "rnps_common":

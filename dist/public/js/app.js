@@ -11,8 +11,12 @@ const App = (() => {
     rnp_sales: 'РНП', rnp: 'Юнит-экономика', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
   };
 
-  // Разделы, доступные только администратору.
-  const ADMIN_VIEWS = ['users'];
+  // Раздел → функция «Открыть раздел» (коды — app/permissions.py, docs/access_roles.md).
+  const VIEW_RIGHTS = {
+    rnp_sales: 'rnp.open', rnp: 'unit.open', prices: 'prices.open', skus: 'sales.open',
+    abc: 'abc.open', warehouses: 'stock.open', catalog: 'catalog.open', users: 'users.open',
+  };
+  const MENU_ORDER = ['rnp_sales', 'rnp', 'prices', 'skus', 'abc', 'warehouses', 'catalog', 'users'];
 
   // --- Разделы «только для владельца» (временно скрыты от всех, кроме меня) ---
   // Пока раздел «в разработке», он виден и доступен ТОЛЬКО этим e-mail'ам.
@@ -31,13 +35,33 @@ const App = (() => {
   // true, если раздел доступен текущему пользователю (учитывая owner-only).
   function canSeeView(view) {
     if (OWNER_VIEWS.includes(view) && !isOwner()) return false;
-    if (ADMIN_VIEWS.includes(view) && !isAdmin()) return false;
-    return true;
+    return !!VIEW_RIGHTS[view] && can(VIEW_RIGHTS[view]);
   }
 
+  // --- Права роли (интерфейс только прячет; проверяет сервер) ---
+  // Есть ли у пользователя функция `code`. Администратору можно всё.
+  function can(code) {
+    const u = API.getUser();
+    return !!(u && (u.is_admin || (u.permissions || []).includes(code)));
+  }
+  // Площадка у роли: 'Wildberries' | 'Ozon' | 'Yandex' (или 'wb' | 'ozon' | 'yandex').
+  const MP_NAMES = { wb: 'Wildberries', ozon: 'Ozon', yandex: 'Yandex', ya: 'Yandex' };
+  const MP_SUFFIX = { Wildberries: 'wb', Ozon: 'ozon', Yandex: 'ya' };
+  function mpName(mp) { return MP_NAMES[mp] || mp; }
+  function hasMp(mp) {
+    const u = API.getUser();
+    return !!(u && (u.is_admin || (u.marketplaces || []).includes(mpName(mp))));
+  }
+  // Вкладка площадки раздела: функция вкладки и (кроме РНП и ABC) площадка роли.
+  // section: 'rnp' | 'unit' | 'sales' | 'abc' | 'stock'.
+  function canTab(section, mp) {
+    const name = mpName(mp);
+    if (!can(section + '.tab.' + MP_SUFFIX[name])) return false;
+    return section === 'rnp' || section === 'abc' || hasMp(name);
+  }
   function isAdmin() {
     const u = API.getUser();
-    return !!(u && (u.role || '').toLowerCase() === 'admin');
+    return !!(u && u.is_admin);
   }
 
   // ---------- экраны ----------
@@ -50,21 +74,16 @@ const App = (() => {
     document.getElementById('app-screen').classList.remove('hidden');
   }
 
-  // Скрываем пункты меню только-для-админа, если роль не admin.
-  // Это удобство UI; реальная защита — на бэкенде (require_admin).
+  // Пункты меню — по функции «Открыть раздел» роли (и owner-only).
+  // Это удобство UI; реальная защита — на бэкенде (auth.require).
   function applyRoleVisibility() {
-    const admin = isAdmin();
-    document.querySelectorAll('#nav a[data-admin]').forEach(a => {
-      a.style.display = admin ? '' : 'none';
+    document.querySelectorAll('#nav a[data-view]').forEach(a => {
+      a.style.display = canSeeView(a.dataset.view) ? '' : 'none';
     });
-    // Разделы «только для владельца» (по data-owner) — скрыты от всех, кроме меня.
-    const owner = isOwner();
-    document.querySelectorAll('#nav a[data-owner]').forEach(a => {
-      const v = a.dataset.view;
-      // если раздел больше не owner-only (убран из OWNER_VIEWS) — показываем всем
-      const restricted = OWNER_VIEWS.includes(v);
-      a.style.display = (!restricted || owner) ? '' : 'none';
-    });
+  }
+  // Первый доступный раздел по порядку меню (или null).
+  function firstView() {
+    return MENU_ORDER.find(canSeeView) || null;
   }
 
   // keep-alive: пока вкладка открыта, не даём прод-сэндбоксу заснуть.
@@ -79,6 +98,17 @@ const App = (() => {
 
   // ---------- инициализация после логина ----------
   async function boot() {
+    // Права роли берём с сервера при каждом старте: изменённая роль подхватывается без перезахода.
+    try {
+      API.setUser(await API.me());
+    } catch (e) {
+      if (e.message === 'Не авторизовано') return;
+      // Нет роли или вход для роли закрыт (403) — обратно на экран входа с причиной.
+      API.clearToken();
+      showLogin();
+      document.getElementById('li-err').textContent = e.message;
+      return;
+    }
     state.user = API.getUser();
     startKeepAlive();
     document.getElementById('foot-name').textContent = state.user ? state.user.name : '';
@@ -91,16 +121,16 @@ const App = (() => {
     state.sel = state.weeks.length ? { year: state.weeks[0].year, week: state.weeks[0].week } : null;
     showApp();
     applyRoleVisibility();
-    // Если текущий раздел недоступен пользователю — переводим на РНП.
-    if (!canSeeView(state.view)) state.view = 'rnp_sales';
+    // Если текущий раздел недоступен пользователю — первый доступный по меню.
+    if (!canSeeView(state.view)) state.view = firstView();
     setView(state.view, true);
   }
 
   // ---------- навигация ----------
   function setView(view, force) {
     if (view === state.view && !force) { closeNav(); return; }
-    // Защита: недоступный раздел (админский или owner-only) нельзя открыть напрямую.
-    if (!canSeeView(view)) view = 'rnp_sales';
+    // Защита: недоступный раздел (нет права или owner-only) нельзя открыть напрямую.
+    if (!canSeeView(view)) view = firstView();
     // Перед уходом с РНП-отчёта запоминаем позицию прокрутки окна, чтобы при
     // возврате в этот отчёт вернуться на то же место (состояние раскрытия
     // хранится в самих отчётах по маркетплейсам).
@@ -142,6 +172,10 @@ const App = (() => {
     host.innerHTML = '';
     host.appendChild(root);
 
+    if (!state.view) {
+      root.innerHTML = '<div class="empty">Для вашей роли нет доступных разделов. Обратитесь к администратору.</div>';
+      return;
+    }
     const fn = Views[state.view];
     if (fn) {
       Promise.resolve(fn(root, ctl, state)).catch(err => {
@@ -250,7 +284,7 @@ const App = (() => {
     }
   }
 
-  return { start, state, weekSelect, setView, toast, renderView };
+  return { start, state, weekSelect, setView, toast, renderView, can, hasMp, canTab, isAdmin };
 })();
 
 document.addEventListener('DOMContentLoaded', () => App.start());

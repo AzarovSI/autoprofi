@@ -134,6 +134,8 @@ const API = (() => {
   return {
     getToken, setToken, clearToken, getUser, setUser, login, wakeBackend,
     cacheClear, API_BASE, raw,
+    // Текущий пользователь с ролью, правами и площадками (обновляется при каждом старте).
+    me: () => request('/api/auth/me'),
     // metrics (кэшируемые GET)
     weeks: () => cget('/api/metrics/weeks'),
     summary: (p) => cget('/api/metrics/summary' + qs(p)),

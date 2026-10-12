@@ -663,7 +663,7 @@ const Views = (() => {
         statusCells = isLeaf ? `<td class="sp-st sp-st1">${statusBadge(li.status)}</td>` : `<td class="sp-st sp-st1"></td>`;
       }
     }
-    const canEdit = isLeaf && !isCross;
+    const canEdit = isLeaf && !isCross && App.can('sales.plan.edit');
     const monthCells = months.map(mo => {
       const cls = mo === curMonth ? 'sp-cur' : '';
       const edit = canEdit ? { art: li.seller_article, month: mo } : null;
@@ -786,8 +786,13 @@ const Views = (() => {
 
   // Переключатель МП раздела «Продажи шт.» (общий для реальных
   // табов и для заглушки Yandex) — чтобы оформление было единым.
-  function skusSubtabsHtml() {
+  // Вкладки «Продаж», доступные роли: площадки — функция вкладки и площадка роли.
+  function skusTabs() {
     return [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'], ['yandex', 'Yandex', 'yandex'], ['cross', 'Сводная', 'cross']]
+      .filter(([id]) => id === 'cross' ? App.can('sales.tab.summary') : App.canTab('sales', id));
+  }
+  function skusSubtabsHtml() {
+    return skusTabs()
       .map(([id, label, c]) => `<button class="subtab ${c}${salesState.tab === id ? ' active' : ''}" data-stab="${id}">${label}</button>`)
       .join('');
   }
@@ -807,7 +812,9 @@ const Views = (() => {
 
   async function skus(root, ctl, state) {
     ctl.innerHTML = '';
-    const isAdmin = App && App.state && App.state.user && App.state.user.role === 'admin';
+    const allowedTabs = skusTabs();
+    if (!allowedTabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!allowedTabs.some(([id]) => id === salesState.tab)) salesState.tab = allowedTabs[0][0];
     root.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
 
     // YANDEX — полноценная вкладка, как Ozon/WB: факт из fact_monthly
@@ -879,11 +886,11 @@ const Views = (() => {
               <button class="btn-sm" id="sp-collapse" type="button" title="Свернуть все группировки до корня («Итоги»)">Свернуть всё</button>
             </div>
             ${(isSingle) ? `<div class="sp-actions">
-              <button class="btn" id="sp-export" title="Выгрузить план в Excel">⬇️ Выгрузить</button>
-              ${isAdmin ? `<button class="btn" id="sp-import-btn" title="Загрузить план из Excel">⬆️ Загрузить</button>
+              ${App.can('sales.plan.export') ? `<button class="btn" id="sp-export" title="Выгрузить план в Excel">⬇️ Выгрузить</button>` : ''}
+              ${App.can('sales.plan.import') ? `<button class="btn" id="sp-import-btn" title="Загрузить план из Excel">⬆️ Загрузить</button>
               <input type="file" id="sp-import-file" accept=".xlsx,.xls" class="hidden" style="display:none">` : ''}
             </div>` : `<div class="sp-actions">
-              <button class="btn" id="sp-report-export" title="Выгрузить красивый отчёт в Excel: иерархия номенклатуры, план/факт помесячно и прогноз выполнения текущего месяца">📊 Выгрузить отчёт</button>
+              ${App.can('sales.summary.export') ? `<button class="btn" id="sp-report-export" title="Выгрузить красивый отчёт в Excel: иерархия номенклатуры, план/факт помесячно и прогноз выполнения текущего месяца">📊 Выгрузить отчёт</button>` : ''}
             </div>`}
           </div>
         </div>
@@ -1229,10 +1236,17 @@ const Views = (() => {
   function catMpName() { return catState.mp === 'wb' ? 'Wildberries' : (catState.mp === 'yandex' ? 'Yandex' : 'Ozon'); }
 
   async function catalog(root, ctl, state) {
+    // Вкладки площадок — только площадки роли (решение владельца 12.10.2026).
+    const allowedTabs = [['ozon', 'OZON', 'ozon'], ['wb', 'Wildberries', 'wb'], ['yandex', 'Yandex', 'yandex']]
+      .filter(([id]) => App.hasMp(id));
+    if (!allowedTabs.length || !App.can('catalog.table')) {
+      root.innerHTML = '<div class="empty">Нет доступных площадок.</div>';
+      return;
+    }
+    if (!allowedTabs.some(([id]) => id === catState.mp)) { catState.mp = allowedTabs[0][0]; catState.tree = null; }
     if (!catState.tree) catState.tree = await API.catalogTree({ marketplace: catMpName() });
-    const isAdmin = App && App.state && App.state.user && App.state.user.role === 'admin';
     // Переключатель маркетплейсов (как в РНП): статус/менеджер раздельные по МП.
-    const subtabs = [['ozon', 'OZON', 'ozon'], ['wb', 'Wildberries', 'wb'], ['yandex', 'Yandex', 'yandex']]
+    const subtabs = allowedTabs
       .map(([id, label, c]) => `<button class="subtab ${c}${catState.mp === id ? ' active' : ''}" data-cmp="${id}">${label}</button>`)
       .join('');
     // Легенда статусов: фирменные плашки (те же CSS-классы, что и у селекторов)
@@ -1262,9 +1276,9 @@ const Views = (() => {
           <input class="input-sm" id="cat-search" placeholder="Поиск по артикулу…" value="${U.esc(catState.search)}">
           <label class="ctl" style="cursor:pointer;"><input type="checkbox" id="cat-unc" ${catState.only_unc ? 'checked' : ''}> только нераспределённые</label>
           <span style="flex:1"></span>
-          ${isAdmin ? `<button class="btn btn-primary" id="cat-add-btn" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">➕ Добавить товар</button>` : ''}
-          <button class="btn" id="cat-export" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">⬇️ Выгрузить Excel</button>
-          ${isAdmin ? `<button class="btn" id="cat-import-btn" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">⬆️ Загрузить Excel</button>
+          ${App.can('catalog.add') ? `<button class="btn btn-primary" id="cat-add-btn" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">➕ Добавить товар</button>` : ''}
+          ${App.can('catalog.export') ? `<button class="btn" id="cat-export" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">⬇️ Выгрузить Excel</button>` : ''}
+          ${App.can('catalog.import') ? `<button class="btn" id="cat-import-btn" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">⬆️ Загрузить Excel</button>
           <input type="file" id="cat-import-file" accept=".xlsx,.xls" class="hidden" style="display:none">` : ''}
         </div>
         ${legendHtml}
@@ -1505,6 +1519,12 @@ const Views = (() => {
     });
     h += '</tbody></table></div>';
     el.innerHTML = h;
+    // Без функции правки карточки — строки только для чтения (кнопки остаются скрытыми,
+    // чтобы обработчики ниже находили свои элементы).
+    if (!App.can('catalog.edit')) {
+      el.querySelectorAll('tr[data-sa] input, tr[data-sa] select').forEach(x => { x.disabled = true; });
+      el.querySelectorAll('.c-save').forEach(b => { b.style.display = 'none'; });
+    }
     // Сброс фильтра «нераспределённые из РНП» → возврат к полному справочнику.
     const undResetBtn = el.querySelector('#cat-undist-reset');
     if (undResetBtn) {
@@ -2313,7 +2333,7 @@ const Views = (() => {
   let __histReq = 0;
   async function loadHistory(kind) {
     const el = document.getElementById('up-history');
-    if (!el) return;
+    if (!el || !App.can('unit.uploads.log')) return;
     const my = ++__histReq;
     const rows = await API.uploadHistory(kind || 'all');
     // Если за время ожидания был новый вызов — этот результат устарел, игнорируем.
@@ -2378,7 +2398,39 @@ const Views = (() => {
   }
 
   // Обновляет все три журнала подраздела «Загрузка данных».
+  // Права во вкладке «Загрузка данных»: карточка зоны загрузки без функции роли скрывается,
+  // журналы (#uphist-*) — без функции журнала; подвкладка без видимых карточек скрывается,
+  // если активная скрыта — открывается первая оставшаяся. zones: { 'uz-ozday': код, … }.
+  function applyUploadRights(root, zones, logCode) {
+    Object.entries(zones).forEach(([id, code]) => {
+      const el = root.querySelector('#' + id);
+      const card = el && el.closest('.card');
+      if (card && !App.can(code)) card.style.display = 'none';
+    });
+    if (logCode && !App.can(logCode)) {
+      root.querySelectorAll('[id^="uphist-"], #up-history, #pl-upload-log').forEach(el => {
+        const card = el.closest('.card');
+        if (card) card.style.display = 'none';
+      });
+    }
+    // Подвкладки: если у роли есть хоть одна загрузка — только подвкладки с загрузками
+    // (журнал чужой площадки менеджеру не нужен), иначе — подвкладки с журналами.
+    const btns = Array.from(root.querySelectorAll('[data-uptab]'));
+    const visible = (pane, sel) => pane && Array.from(pane.querySelectorAll('.card'))
+      .some(c => c.style.display !== 'none' && (!sel || c.querySelector(sel)));
+    const paneOf = b => root.querySelector(
+      `.up-pane[data-uppane="${b.dataset.uptab}"], .up-pane[data-whpane="${b.dataset.uptab}"]`);
+    const anyUploads = btns.some(b => visible(paneOf(b), '.upload-zone'));
+    btns.forEach(b => {
+      if (!visible(paneOf(b), anyUploads ? '.upload-zone' : null)) b.style.display = 'none';
+    });
+    const active = btns.find(b => b.classList.contains('active'));
+    const first = btns.find(b => b.style.display !== 'none');
+    if (active && active.style.display === 'none' && first) first.click();
+  }
+
   async function loadRnpsUploadHistory() {
+    if (!App.can('rnp.uploads.log')) return;
     await Promise.all([
       loadOneUploadHistory('uphist-ozon', 'rnps_ozon'),
       loadOneUploadHistory('uphist-wb', 'rnps_wb'),
@@ -2400,7 +2452,7 @@ const Views = (() => {
           <span class="hint">логин — это e-mail; пароль задаёте вы при добавлении</span>
         </h3>
         <div class="users-toolbar">
-          <button class="btn-sm primary" id="usr-add-btn">+ Добавить пользователя</button>
+          ${App.can('users.add') ? '<button class="btn-sm primary" id="usr-add-btn">+ Добавить пользователя</button>' : ''}
         </div>
         <div id="usr-form-wrap"></div>
         <div id="usr-list"><div class="loader"><span class="spinner"></span></div></div>
@@ -2439,7 +2491,7 @@ const Views = (() => {
             <label>Роль</label>
             <select class="select" id="usr-role">
               <option value="user" selected>Пользователь</option>
-              <option value="admin">Администратор</option>
+              ${App.isAdmin() ? '<option value="admin">Администратор</option>' : ''}
             </select>
           </div>
         </div>
@@ -2525,9 +2577,10 @@ const Views = (() => {
       const rolePill = r.role === 'admin'
         ? '<span class="pill pill-admin">Администратор</span>'
         : '<span class="pill pill-user">Пользователь</span>';
-      const editBtn = `<button class="btn-sm usr-edit" data-id="${r.id}" data-name="${U.esc(r.display_name || '')}" data-email="${U.esc(r.email)}" data-role="${U.esc(r.role || 'user')}">Изменить</button>`;
+      const editBtn = !App.can('users.edit') ? '' : `<button class="btn-sm usr-edit" data-id="${r.id}" data-name="${U.esc(r.display_name || '')}" data-email="${U.esc(r.email)}" data-role="${U.esc(r.role || 'user')}">Изменить</button>`;
       const delCell = isMe
         ? '<span class="muted" style="font-size:11.5px;">это вы</span>'
+        : !App.can('users.delete') ? ''
         : `<button class="btn-sm usr-del" data-id="${r.id}" data-email="${U.esc(r.email)}">Удалить</button>`;
       const seenCell = seen === '—'
         ? '<span class="muted">—</span>'
@@ -2742,11 +2795,12 @@ const Views = (() => {
     return 'st-none';
   }
   // <select> предустановленных статусов для строки-товара РНП.
-  function statusSelectHtml(sa, current) {
+  // editable=false (нет права «Изменить статус товара») — тот же select, но неактивный.
+  function statusSelectHtml(sa, current, editable = true) {
     const cur = stDisplay(current);
     const opts = STATUS_PRESETS.map(s =>
       `<option value="${U.esc(s)}"${s === cur ? ' selected' : ''}>${U.esc(s)}</option>`).join('');
-    return `<select class="rnp-status-sel ${stClass(cur)}" data-sa="${U.esc(sa)}" title="Статус товара">${opts}</select>`;
+    return `<select class="rnp-status-sel ${stClass(cur)}" data-sa="${U.esc(sa)}" title="Статус товара"${editable ? '' : ' disabled'}>${opts}</select>`;
   }
   // Опции фильтра статусов наверху панели: всегда весь набор предустановленных
   // статусов (а не только те, что фактически встречаются). Значение '-' фильтрует
@@ -3007,6 +3061,7 @@ const Views = (() => {
   // для сравнения с фракцией.
   function marginSignalClass(frac) {
     if (frac === null || frac === undefined || isNaN(frac)) return '';
+    if (!App.can('unit.margin')) return '';
     if (rnpState.marginNegOn && frac < 0) return 'rnp-sig-neg';
     const tgtRaw = String(rnpState.marginTarget == null ? '' : rnpState.marginTarget).replace(',', '.').trim();
     if (tgtRaw !== '') {
@@ -3056,14 +3111,17 @@ const Views = (() => {
     row.append(tabs, period);
   }
 
+  // Вкладки юнит-экономики, доступные роли (функция вкладки и площадка роли).
+  function rnpTabs() {
+    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
+                  ['yandex', 'Yandex', 'yandex']].filter(([id]) => App.canTab('unit', id));
+    if (App.can('unit.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    return tabs;
+  }
+
   function rnpSubtabs(host) {
     if (!host) return;
-    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
-                  ['yandex', 'Yandex', 'yandex']];
-    const __u = API.getUser && API.getUser();
-    const __isAdmin = !!(__u && (__u.role || '').toLowerCase() === 'admin');
-    // Эндпоинты загрузки защищены require_admin — таб только для админов.
-    if (__isAdmin) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    const tabs = rnpTabs();
     tabs.forEach(([id, label, c, pushRight]) => {
       const b = document.createElement('button');
       b.className = 'subtab ' + c + (rnpState.mp === id ? ' active' : '') + (pushRight ? ' subtab-right' : '');
@@ -3092,8 +3150,12 @@ const Views = (() => {
     // как в разделе «Продажи, шт». Заголовок страницы остаётся стандартным.
     ctl.innerHTML = '';
     ctl.className = 'ctl';
+    // Текущая вкладка недоступна роли — первая доступная.
+    const allowedTabs = rnpTabs();
+    if (!allowedTabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!allowedTabs.some(([id]) => id === rnpState.mp)) rnpState.mp = allowedTabs[0][0];
 
-    // ЗАГРУЗКА ДАННЫХ — подраздел (только админ): еженедельные/ежемесячные
+    // ЗАГРУЗКА ДАННЫХ — подраздел: еженедельные/ежемесячные
     // отчёты MPPROFIT (Ozon + Wildberries) + общий журнал загрузок.
     // Перенесён сюда из бывшего раздела главного меню «Загрузка».
     if (rnpState.mp === 'upload') {
@@ -3160,6 +3222,8 @@ const Views = (() => {
       setupUploadZone(root, 'ozon');
       setupUploadZone(root, 'wb');
       setupUploadZone(root, 'yandex');
+      applyUploadRights(root, { 'uz-ozon': 'unit.upload.ozon', 'uz-wb': 'unit.upload.wb',
+                                'uz-yandex': 'unit.upload.ya' }, 'unit.uploads.log');
       const fbar = root.querySelector('#hist-filter');
       if (fbar) {
         fbar.addEventListener('click', async (e) => {
@@ -3996,7 +4060,7 @@ const Views = (() => {
       }
     } else if (isItem && node.leaf_info) {
       const sa = node.leaf_info.seller_article || '';
-      statusHtml = `<div class="rnp-node-status rnp-fixleft">${statusSelectHtml(sa, node.leaf_info.status)}</div>`;
+      statusHtml = `<div class="rnp-node-status rnp-fixleft">${statusSelectHtml(sa, node.leaf_info.status, App.can('unit.status.edit'))}</div>`;
     } else {
       statusHtml = `<div class="rnp-node-status rnp-fixleft"></div>`;
     }
@@ -4689,7 +4753,7 @@ const Views = (() => {
     // открывается popover. Маркер-уголок слева-вверху — только если есть комментарии.
     let cmtAttrs = '';
     let cmtMark = '';
-    if (col.type === 'day' && isItem && node.leaf_info) {
+    if (col.type === 'day' && isItem && node.leaf_info && App.can('rnp.comments.view')) {
       const sa = node.leaf_info.seller_article || '';
       const date = col.key;
       cls += ' rnps-cell-cmt';
@@ -4793,7 +4857,9 @@ const Views = (() => {
       // либо, если ссылка не задана, подсказка. Треугольник рядом раскрывает метрики.
       const purl = node.leaf_info.product_url || '';
       const artTitle = purl ? 'Открыть карточку товара' : 'Добавьте ссылку на товар в справочнике';
-      nameHtml = `<span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(purl)}" title="${U.esc(artTitle)}">${U.esc(node.leaf_info.seller_article)}</span>${mark}`;
+      nameHtml = App.can('rnp.product_link')
+        ? `<span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(purl)}" title="${U.esc(artTitle)}">${U.esc(node.leaf_info.seller_article)}</span>${mark}`
+        : `<span class="rnp-nm rnp-art-main">${U.esc(node.leaf_info.seller_article)}</span>${mark}`;
     } else {
       nameHtml = `<span class="rnp-nm">${U.esc(node.name)}</span>`;
     }
@@ -4801,7 +4867,7 @@ const Views = (() => {
     // Статус — только у товара (select с сохранением в справочник Ozon).
     let statusHtml;
     if (isItem && node.leaf_info) {
-      statusHtml = `<div class="rnp-node-status rnp-fixleft">${statusSelectHtml(node.leaf_info.seller_article || '', node.leaf_info.status)}</div>`;
+      statusHtml = `<div class="rnp-node-status rnp-fixleft">${statusSelectHtml(node.leaf_info.seller_article || '', node.leaf_info.status, App.can('rnp.status.edit'))}</div>`;
     } else {
       statusHtml = `<div class="rnp-node-status rnp-fixleft"></div>`;
     }
@@ -4813,9 +4879,9 @@ const Views = (() => {
     // по последней подгруженной неделе → монетки красим в красный (--bad).
     const ueNeg = !!(node.leaf_info || {}).ue_neg;
     const mBtn = isItem
-      ? `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
+      ? (!App.can('rnp.unit_popup') ? '' : `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v3c0 1.1 2.24 2 5 2s5-.9 5-2V4"/><path d="M3 7.5v3c0 1.1 2.24 2 5 2s5-.9 5-2v-3"/></svg>`
-        + `</button>`
+        + `</button>`)
       : `<button class="rnp-mbtn ${metricsOpen ? 'on' : ''}" data-mkey="${U.esc(node.key)}" title="Показать/скрыть показатели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"/><line x1="8" y1="13" x2="8" y2="4"/><line x1="13" y1="13" x2="13" y2="9"/></svg>`
         + `</button>`;
@@ -5007,6 +5073,7 @@ const Views = (() => {
   function rnpsRenderAnomHost() {
     const host = document.getElementById('rnps-anom-host');
     if (!host) return;
+    if (!App.can('rnp.anomalies.view')) { host.innerHTML = ''; return; }
     const on = rnpSalesState.anomOn;
     const applied = rnpSalesState.anomApplied;
     const total = applied ? rnpsAnomTotal() : 0;
@@ -5085,7 +5152,7 @@ const Views = (() => {
     return `
       <div class="rnp-anom-phead">
         <span>Правила отклонений</span>
-        <button class="rnp-anom-gear" id="rnps-anom-gear" type="button" title="Настройка порогов">
+        <button class="rnp-anom-gear" id="rnps-anom-gear" type="button" title="Настройка порогов"${App.can('rnp.anomalies.rules') ? '' : ' hidden'}>
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
@@ -5640,11 +5707,12 @@ const Views = (() => {
 
   // Может ли текущий пользователь редактировать/удалять комментарий (UI-уровень).
   // Сервер — источник истины (автор по author_id или admin), здесь — только видимость кнопок.
+  // Свой комментарий — «Изменить / удалить свой», чужой — «… чужой».
   function rnpsCanModifyCmt(c) {
     const u = API.getUser && API.getUser();
     if (!u) return false;
-    if (u.role === 'admin') return true;
-    return u.id != null && c.author_id != null && String(u.id) === String(c.author_id);
+    const own = u.id != null && c.author_id != null && String(u.id) === String(c.author_id);
+    return App.can(own ? 'rnp.comments.edit_own' : 'rnp.comments.edit_any');
   }
 
   // Отрисовка содержимого popover (список + форма добавления).
@@ -5688,10 +5756,10 @@ const Views = (() => {
         <button class="rnps-cmt-close" title="Закрыть">×</button>
       </div>
       <div class="rnps-cmt-list">${items}</div>
-      <div class="rnps-cmt-add">
+      ${App.can('rnp.comments.add') ? `<div class="rnps-cmt-add">
         <textarea class="rnps-cmt-new-ta" placeholder="Добавить комментарий…" maxlength="2000"></textarea>
         <button class="btn-sm rnps-cmt-addbtn">Добавить</button>
-      </div>`;
+      </div>` : ''}`;
   }
 
   // Позиционирование popover относительно ячейки (с учётом краёв экрана).
@@ -5968,6 +6036,7 @@ const Views = (() => {
     if (!dfrom && rnpSalesState.from) dfrom = rnpSalesState.from;
     if (!dto && rnpSalesState.to) dto = rnpSalesState.to;
     if (!dfrom || !dto) return;
+    if (!App.can('rnp.comments.view')) return;
     try {
       const res = await API.rnpCommentsList(dfrom, dto);
       const list = (res && res.comments) || [];
@@ -6158,15 +6227,19 @@ const Views = (() => {
     });
   }
 
+  // Вкладки РНП, доступные роли: [id, подпись, стиль, прижать вправо].
+  function rnpsTabs() {
+    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'], ['yandex', 'Yandex', 'yandex']]
+      .filter(([id]) => App.canTab('rnp', id));
+    if (App.can('rnp.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    return tabs;
+  }
+
   function rnpsSubtabs(host) {
     if (!host) return;
-    // Третий подтаб «Загрузка данных» — только для админов (эндпоинты загрузки
-    // защищены require_admin; для обычных пользователей таб не показываем).
-    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'], ['yandex', 'Yandex', 'yandex']];
-    const __u = API.getUser && API.getUser();
-    const __isAdmin = !!(__u && (__u.role || '').toLowerCase() === 'admin');
+    // Вкладки — по правам роли; «Загрузка данных» — по функции «Открыть вкладку».
     // Нейтральный (серый) стиль 'cross' — не синий, как Ozon. Флаг true = прижать вправо.
-    if (__isAdmin) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    const tabs = rnpsTabs();
     tabs.forEach(([id, label, c, pushRight]) => {
       const b = document.createElement('button');
       b.className = 'subtab ' + c + (rnpSalesState.mp === id ? ' active' : '') + (pushRight ? ' subtab-right' : '');
@@ -6199,6 +6272,10 @@ const Views = (() => {
 
   async function rnpSales(root, ctl, state) {
     ctl.innerHTML = '';
+    // Текущая вкладка недоступна роли — первая доступная.
+    const allowedTabs = rnpsTabs();
+    if (!allowedTabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!allowedTabs.some(([id]) => id === rnpSalesState.mp)) rnpSalesState.mp = allowedTabs[0][0];
     // pricesOpen — per-node карта (совместимо со сбросом в {}).
     if (!rnpSalesState.pricesOpen || typeof rnpSalesState.pricesOpen !== 'object') rnpSalesState.pricesOpen = {};
 
@@ -6452,6 +6529,14 @@ const Views = (() => {
       setupWbPiZone(root);
       setupYaDayZone(root);
       setupYaStockZone(root);
+      applyUploadRights(root, {
+        'uz-ozday': 'rnp.upload.ozon_daily', 'uz-ozads': 'rnp.upload.ozon_ads',
+        'uz-ozreviews': 'rnp.upload.ozon_reviews', 'uz-ozpriceva': 'rnp.upload.ozon_priceva',
+        'uz-wbday': 'rnp.upload.wb_daily', 'uz-wbreviews': 'rnp.upload.wb_reviews',
+        'uz-wbads': 'rnp.upload.wb_ads', 'uz-wbpriceva': 'rnp.upload.wb_priceva',
+        'uz-wbpi': 'rnp.upload.wb_pi', 'uz-yaday': 'rnp.upload.ya_daily',
+        'uz-yastock': 'rnp.upload.ya_stock', 'uz-ozstock': 'rnp.upload.stock_1c',
+      }, 'rnp.uploads.log');
       await loadRnpsUploadHistory();
       return;
     }
@@ -6733,11 +6818,13 @@ const Views = (() => {
 
   // Журналы загрузок: остатки WB (wb_stock) + себестоимость (cost) + остатки Ozon (ozon_stock).
   async function loadWhUploadHistory() {
-    await loadOneUploadHistory('uphist-wbstock', 'wb_stock');
-    if (document.getElementById('uphist-cost')) await loadOneUploadHistory('uphist-cost', 'cost');
-    if (document.getElementById('wh-dq-body')) await whRenderDataQuality();
-    if (document.getElementById('uphist-ozstock')) await loadOneUploadHistory('uphist-ozstock', 'ozon_stock');
-    if (document.getElementById('oz-dq-body')) await ozRenderDataQuality();
+    const logs = App.can('stock.uploads.log');
+    const dq = App.can('stock.quality');
+    if (logs) await loadOneUploadHistory('uphist-wbstock', 'wb_stock');
+    if (logs && document.getElementById('uphist-cost')) await loadOneUploadHistory('uphist-cost', 'cost');
+    if (dq && App.canTab('stock', 'wb') && document.getElementById('wh-dq-body')) await whRenderDataQuality();
+    if (logs && document.getElementById('uphist-ozstock')) await loadOneUploadHistory('uphist-ozstock', 'ozon_stock');
+    if (dq && App.canTab('stock', 'ozon') && document.getElementById('oz-dq-body')) await ozRenderDataQuality();
   }
 
   // ===== Баннер достоверности стоимостной оценки остатков =====
@@ -6837,14 +6924,19 @@ const Views = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // Вкладки «Складов», доступные роли: площадка — функция вкладки и площадка роли;
+  // «Загрузка данных» — если есть хоть одна загрузка, журнал или «Достоверность оценки».
+  // Нейтральный (серый) стиль 'cross' + прижать вправо — как «Загрузка данных» в РНП.
+  function whTabs() {
+    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon']].filter(([id]) => App.canTab('stock', id));
+    if (['stock.upload.wb', 'stock.upload.ozon', 'stock.upload.cost', 'stock.uploads.log', 'stock.quality']
+        .some(c => App.can(c))) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    return tabs;
+  }
+
   function whSubtabs(host) {
     if (!host) return;
-    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon']];
-    // Раздел «Склады» открыт ВСЕМ авторизованным (user+admin), включая
-    // «Загрузку данных» (эндпоинты загрузки теперь get_current_user).
-    // Нейтральный (серый) стиль 'cross' + прижать вправо — как «Загрузка данных» в РНП.
-    tabs.push(['upload', 'Загрузка данных', 'cross', true]);
-    tabs.forEach(([id, label, c, pushRight]) => {
+    whTabs().forEach(([id, label, c, pushRight]) => {
       const b = document.createElement('button');
       b.className = 'subtab ' + c + (whState.mp === id ? ' active' : '') + (pushRight ? ' subtab-right' : '');
       b.textContent = label;
@@ -6859,6 +6951,9 @@ const Views = (() => {
 
   async function warehouses(root, ctl, state) {
     ctl.innerHTML = '';
+    const allowedTabs = whTabs();
+    if (!allowedTabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!allowedTabs.some(([id]) => id === whState.mp)) whState.mp = allowedTabs[0][0];
     // Класс карточки задаёт бренд-акцент (синий Ozon / фиолетовый WB /
     // нейтральный серый для «Загрузка данных») — как в «РНП заказы».
     const mpCls = whState.mp === 'wb' ? 'mp-wb' : (whState.mp === 'ozon' ? 'mp-ozon' : 'mp-cross');
@@ -6963,6 +7058,7 @@ const Views = (() => {
       [['wb', 'Отчёты Wildberries', 'wb'], ['ozon', 'Отчёты Ozon', 'ozon'], ['gen', 'Отчёты общие', 'cross']].forEach(([id, label, c]) => {
         const b = document.createElement('button');
         b.className = 'subtab ' + c + (ut === id ? ' active' : '');
+        b.dataset.uptab = id;
         b.textContent = label;
         b.addEventListener('click', () => {
           if (whState.uploadTab === id) return;
@@ -6978,6 +7074,13 @@ const Views = (() => {
       setupWbStockZone(root);
       setupCostZone(root);
       setupOzonWhStockZone(root);
+      // «Достоверность оценки» — функция и вкладка площадки (как проверяет сервер).
+      [['#wh-dq-card', 'wb'], ['#oz-dq-card', 'ozon']].forEach(([sel, mp]) => {
+        const c = root.querySelector(sel);
+        if (c && !(App.can('stock.quality') && App.canTab('stock', mp))) c.style.display = 'none';
+      });
+      applyUploadRights(root, { 'uz-wbstock': 'stock.upload.wb', 'uz-whozstock': 'stock.upload.ozon',
+                                'uz-cost': 'stock.upload.cost' }, 'stock.uploads.log');
       await loadWhUploadHistory();
       return;
     }
@@ -7491,6 +7594,7 @@ const Views = (() => {
   }
   // Привязка двойного клика по ячейкам-датам. onDone() — перерисовка.
   function bindWhIncidentCells(root, onDone) {
+    if (!App.can('stock.incidents.edit')) return;
     async function doOpen(whId, dt) {
       try {
         await API.whIncidentOpen(whId, dt);
@@ -7687,6 +7791,20 @@ const Views = (() => {
   }
 
   // ============ Подтаб «Справочник складов» ============
+  // Справочник складов (WB и Ozon): элементы правки — по функциям роли.
+  function applyWhCatalogRights(body) {
+    const off = (sel, code, hide) => {
+      if (App.can(code)) return;
+      body.querySelectorAll(sel).forEach(el => { if (hide) el.style.display = 'none'; else el.disabled = true; });
+    };
+    off('.wh-fd-sel', 'stock.wh.district');
+    off('.wh-merge-sel', 'stock.wh.merge');
+    off('[data-act="unmerge"]', 'stock.wh.merge', true);
+    off('[data-act="rename"]', 'stock.wh.rename', true);
+    off('[data-act="toggle"]', 'stock.wh.status', true);
+    off('.oz-cl-inp', 'stock.wh.cluster');
+  }
+
   async function whRenderCatalog(body) {
     body.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
     let d;
@@ -7731,6 +7849,7 @@ const Views = (() => {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+    applyWhCatalogRights(body);
 
     // --- обработчики федерального округа ---
     bindWhDistrictControls(body, () => whRenderCatalog(body));
@@ -7916,6 +8035,7 @@ const Views = (() => {
   // ===== Инциденты Ozon: двойной клик по ячейке-дате (копия bindWhIncidentCells) =====
   let _ozReportDates = [];
   function bindOzIncidentCells(root, onDone) {
+    if (!App.can('stock.incidents.edit')) return;
     async function doOpen(whId, dt) {
       try {
         await API.ozIncidentOpen(whId, dt);
@@ -8468,6 +8588,7 @@ const Views = (() => {
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+    applyWhCatalogRights(body);
 
     bindOzDistrictControls(body, () => ozRenderCatalog(body));
     bindOzClusterControls(body, () => ozRenderCatalog(body));
@@ -8911,7 +9032,8 @@ const Views = (() => {
   function pricesPriceCellHtml(art, mp, val) {
     const empty = (val === null || val === undefined || val === '');
     const dataVal = empty ? '' : String(val);
-    let planCls = 'sp-plan sp-plan-edit';
+    // Без функции «Изменить базовую цену в ячейке» — ячейка не редактируется.
+    let planCls = App.can('prices.list.edit') ? 'sp-plan sp-plan-edit' : 'sp-plan';
     let planInner = empty ? '–' : pricesFmt(val);
     let title = empty ? 'Двойной клик — задать цену' : 'Двойной клик — изменить цену';
     if (empty) planCls += ' sp-plan-empty';
@@ -9299,6 +9421,8 @@ const Views = (() => {
 
     _plSetupUploadZone(host, 'ozon');
     _plSetupUploadZone(host, 'wb');
+    applyUploadRights(host, { 'pl-uz-ozon': 'prices.upload.ozon', 'pl-uz-wb': 'prices.upload.wb' },
+                      'prices.uploads.log');
     _reloadPlUploadLog();
   }
 
@@ -9401,7 +9525,7 @@ const Views = (() => {
 
   async function _reloadPlUploadLog() {
     const el = document.getElementById('pl-upload-log');
-    if (!el) return;
+    if (!el || !App.can('prices.uploads.log')) return;
     el.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
     try {
       const data  = await API.raw('GET', '/api/prices/upload_log?limit=50', null);
@@ -9482,11 +9606,20 @@ const Views = (() => {
     // Каркас раздела: карточка mp-cross + тулбар с подтабами и фильтрами.
     // Подтаб «Загрузка данных» прижат вправо (класс .subtab-right), как во
     // всех разделах, где он есть.
-    const sub = pricesState.sub || 'pricelist';
-    const subtabsHtml =
-      '<button type="button" class="subtab cross' + (sub === 'pricelist' ? ' active' : '') + '" data-sub="pricelist">Прайс-лист</button>' +
-      '<button type="button" class="subtab cross' + (sub === 'index' ? ' active' : '') + '" data-sub="index">Индекс цен</button>' +
-      '<button type="button" class="subtab cross subtab-right' + (sub === 'upload' ? ' active' : '') + '" data-sub="upload">Загрузка данных</button>';
+    // Подтабы — по правам роли; недоступный текущий — первый доступный.
+    const subs = [
+      ['pricelist', 'Прайс-лист', '', App.can('prices.list.view')],
+      ['index', 'Индекс цен', '', App.can('prices.index.view')],
+      ['upload', 'Загрузка данных', ' subtab-right',
+       App.can('prices.upload.ozon') || App.can('prices.upload.wb') || App.can('prices.uploads.log')],
+    ].filter(s => s[3]);
+    if (!subs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!subs.some(s => s[0] === pricesState.sub)) pricesState.sub = subs[0][0];
+    const sub = pricesState.sub;
+    const subtabsHtml = subs.map(([id, label, cls]) =>
+      '<button type="button" class="subtab cross' + cls + (sub === id ? ' active' : '') + '" data-sub="' + id + '">' + label + '</button>').join('');
+    // Себестоимость — только с функцией «Показать себестоимость».
+    if (!App.can('prices.list.cost')) pricesState.showCost = false;
 
     // Дефолт периода (единожды за сессию): — как в РНП заказы (rnpSales):
     //   from = 1-е число (текущий месяц − 2), to = последний день текущего месяца.
@@ -9514,18 +9647,20 @@ const Views = (() => {
       '</div>';
 
     // Массовая работа с ценами — теми же кнопками и в том же блоке .sp-actions,
-    // что в «Продажи, шт.»: выгрузка шаблона доступна всем, загрузка — админу.
-    const plIsAdmin = !!(App && App.state && App.state.user &&
-                         (App.state.user.role || '').toLowerCase() === 'admin');
+    // что в «Продажи, шт.»; галочка и кнопки — по правам роли.
     // Галочка «показать себестоимость» живёт рядом с кнопками отчёта
     // «Прайс-лист»; также управляет столбцом себестоимости в Excel-выгрузках.
     const plActionsHtml =
       '<div class="sp-actions">' +
-        '<label class="sp-fc-check" style="cursor:pointer;" title="Показать себестоимость в прайс-листе и включить её в Excel-выгрузки прайс-листа и индекса цен">' +
-          '<input type="checkbox" id="pl-show-cost"' + (pricesState.showCost ? ' checked' : '') + '> показать себестоимость' +
-        '</label>' +
-        '<button class="btn" id="pl-export" type="button" title="Выгрузить базовые цены в Excel: артикул, цены OZON, WB, Yandex и у каждой дата, с которой она действует">⬇️ Выгрузить</button>' +
-        (plIsAdmin
+        (App.can('prices.list.cost')
+          ? '<label class="sp-fc-check" style="cursor:pointer;" title="Показать себестоимость в прайс-листе и включить её в Excel-выгрузки прайс-листа и индекса цен">' +
+              '<input type="checkbox" id="pl-show-cost"' + (pricesState.showCost ? ' checked' : '') + '> показать себестоимость' +
+            '</label>'
+          : '') +
+        (App.can('prices.list.export')
+          ? '<button class="btn" id="pl-export" type="button" title="Выгрузить базовые цены в Excel: артикул, цены OZON, WB, Yandex и у каждой дата, с которой она действует">⬇️ Выгрузить</button>'
+          : '') +
+        (App.can('prices.list.import')
           ? '<button class="btn" id="pl-import-btn" type="button" title="Загрузить базовые цены из Excel. «Действует с» — день, с которого действует цена (и дальше); пусто — с текущего момента; будущие даты не принимаются">⬆️ Загрузить</button>' +
             '<input type="file" id="pl-import-file" accept=".xlsx,.xls" style="display:none">'
           : '') +
@@ -9558,7 +9693,9 @@ const Views = (() => {
              // из prices_router. Форматируется в refreshCnt().
              '<span class="muted" id="pl-idx-freshness" style="font-size:12px;font-weight:400;" title="Последний загруженный день заказов из РНП по каждой площадке"></span>' +
              '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
-             '<span class="sp-actions"><button class="btn" id="pl-index-export" type="button" title="Выгрузить индекс цен в Excel за выбранный период с учётом поиска. Себестоимость включается галочкой в прайс-листе.">Выгрузить отчёт</button></span>' +
+             (App.can('prices.index.export')
+               ? '<span class="sp-actions"><button class="btn" id="pl-index-export" type="button" title="Выгрузить индекс цен в Excel за выбранный период с учётом поиска. Себестоимость включается галочкой в прайс-листе.">Выгрузить отчёт</button></span>'
+               : '') +
            '</span>' +
          '</div>')
       : '';

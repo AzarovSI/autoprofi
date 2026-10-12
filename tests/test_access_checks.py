@@ -60,6 +60,7 @@ CASES = [
     ("GET", "/api/upload/history?kind=rnps_wb", {}, ["rnp.uploads.log"], []),
     ("GET", "/api/upload/history?kind=unit_econ", {}, ["unit.uploads.log"], []),
     ("GET", "/api/upload/history?kind=cost", {}, ["stock.uploads.log"], []),
+    ("GET", "/api/upload/history?kind=ozon_stock", {}, ["stock.uploads.log"], []),
     ("GET", "/api/upload/history?kind=all", {},
      ["rnp.uploads.log", "unit.uploads.log", "stock.uploads.log"], []),
     # Юнит-экономика
