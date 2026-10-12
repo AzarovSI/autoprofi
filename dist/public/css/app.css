@@ -1015,6 +1015,59 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 /* Последний визит: аккуратная дата+время, графитовый текст, моноширинные цифры */
 .usr-seen { color:var(--text-dim); font-variant-numeric:tabular-nums; white-space:nowrap; }
 
+/* ── Роли доступа (Пользователи → Роли, docs/access_roles.md) ── */
+.usr-subtabs { margin-bottom:16px; display:inline-flex; }
+.pill.pill-none  { background:var(--bad-bg); color:var(--bad); }
+.role-mps { display:inline-flex; gap:4px; flex-wrap:wrap; }
+.role-cnt { font-variant-numeric:tabular-nums; color:var(--text-dim); white-space:nowrap; }
+.role-users { color:var(--text-dim); font-size:12px; line-height:1.5; }
+.role-name-link { background:none; border:0; padding:0; font:inherit; font-weight:600; color:var(--text); cursor:pointer; text-align:left; }
+.role-name-link:hover { color:var(--accent); }
+.role-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+.role-head .role-title-inp { font-size:15px; font-weight:700; padding:7px 10px; min-width:260px; }
+.role-head .role-title { font-size:16px; font-weight:700; }
+.role-head .role-spacer { flex:1; }
+.role-note { font-size:12px; color:var(--text-dim); background:var(--bg-elev2); border-radius:var(--radius-sm); padding:8px 12px; margin-bottom:14px; }
+.role-block { border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:10px; background:var(--bg-elev); }
+.role-block-head { display:flex; align-items:center; gap:12px; padding:10px 14px; cursor:pointer; user-select:none; }
+.role-block-head:hover { background:var(--bg-hover); }
+.role-block-head .rb-arrow { color:var(--text-mute); width:12px; transition:transform .15s; }
+.role-block.open .rb-arrow { transform:rotate(90deg); }
+.role-block-head .rb-name { font-weight:600; min-width:200px; }
+.role-block-head .rb-access { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); cursor:pointer; }
+.role-block-head .rb-cnt { margin-left:auto; font-size:12px; color:var(--text-dim); font-variant-numeric:tabular-nums; }
+.role-block-head .rb-acts { display:inline-flex; gap:6px; }
+.role-block-body { display:none; border-top:1px solid var(--border-soft); padding:6px 14px 12px 38px; }
+.role-block.open .role-block-body { display:block; }
+.role-block.off .role-block-body { opacity:.45; }
+.role-block.off .rb-name { color:var(--text-mute); }
+.role-group { margin-top:10px; }
+.role-group-head { display:flex; align-items:center; gap:10px; font-size:11.5px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.03em; color:var(--text-mute); margin-bottom:4px; }
+.role-group-head .btn-link { text-transform:none; letter-spacing:0; font-weight:500; }
+.role-fn { display:grid; grid-template-columns:22px minmax(220px, 340px) 150px 1fr; gap:10px; align-items:start;
+  padding:5px 0; border-bottom:1px dashed var(--border-soft); font-size:13px; }
+.role-fn:last-child { border-bottom:0; }
+.role-fn input { margin-top:2px; }
+.role-fn .rf-kind { font-size:11.5px; color:var(--text-dim); }
+.role-fn .rf-desc { font-size:12px; color:var(--text-mute); }
+.role-mp-block { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 14px; }
+.role-mp-block .rm-title { font-weight:600; min-width:200px; }
+.role-mp-chk { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:999px; border:1px solid var(--border);
+  font-size:13px; cursor:pointer; background:var(--bg-elev); }
+.role-mp-chk.on.wb { border-color:var(--wb-line); background:var(--wb-bg); color:var(--wb-soft); }
+.role-mp-chk.on.ozon { border-color:var(--ozon-line); background:var(--ozon-bg); color:var(--ozon-soft); }
+.role-mp-chk.on.yandex { border-color:var(--ya-line); background:var(--ya-bg); color:var(--ya-soft); }
+.role-mp-hint { font-size:12px; color:var(--text-mute); flex-basis:100%; }
+.role-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
+.role-dirty { font-size:12px; color:var(--warn); }
+@media (max-width: 900px) {
+  .role-fn { grid-template-columns:22px 1fr; }
+  .role-fn .rf-kind, .role-fn .rf-desc { grid-column:2; }
+  .role-block-head { flex-wrap:wrap; }
+  .role-block-head .rb-name { min-width:0; }
+}
+
 /* Заглушка раздела ABC (раздел в разработке) */
 .abc-stub { display:flex; align-items:center; justify-content:center; min-height:340px; }
 .abc-stub-inner { text-align:center; max-width:420px; padding:24px; }

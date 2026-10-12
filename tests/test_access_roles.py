@@ -6,7 +6,7 @@ import openpyxl
 import psycopg
 
 from test_wb_prices import prepare_local_db
-from app import db, permissions
+from app import auth, db, permissions
 
 XLSX = Path(__file__).resolve().parent.parent / "docs" / "access" / "roles_matrix_20261012.xlsx"
 
@@ -67,6 +67,18 @@ class MigrationTest(unittest.TestCase):
                     f[1] for f, r in zip(permissions.FUNCTIONS, rows) if r[7 + i] == "✓"}
                 self.assertEqual(got, expected)
                 self.assertLessEqual(got, permissions.CODES)
+
+    def test_owner_gets_admin_role_others_untouched(self):
+        reset_roles()
+        owner = next(iter(auth.OWNER_EMAILS))
+        db.execute("INSERT INTO app_users (id, email, display_name, role) VALUES (50, %s, 'Владелец', 'admin')",
+                   (owner.upper(),))
+        permissions.migrate()
+        rows = {r["id"]: r for r in db.query_all(
+            "SELECT u.id, r.is_admin FROM app_users u LEFT JOIN app_roles r ON r.id = u.role_id")}
+        self.assertTrue(rows[50]["is_admin"])
+        self.assertIsNone(rows[1]["is_admin"])  # пользователь из prepare_local_db — без роли
+        db.execute("DELETE FROM app_users WHERE id = 50")
 
     def test_second_run_changes_nothing(self):
         db.execute("UPDATE app_roles SET name='РОП (переименована)' WHERE name='РОП'")

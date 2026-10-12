@@ -2,6 +2,12 @@
 CREATE TABLE IF NOT EXISTS app_users (
   id integer PRIMARY KEY, email text, display_name text, role text
 );
+-- Колонки рабочей app_users, нужные API пользователей (тесты прав доступа).
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS password_hash text,
+  ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+CREATE SEQUENCE IF NOT EXISTS app_users_test_id_seq START 1000;
+ALTER TABLE app_users ALTER COLUMN id SET DEFAULT nextval('app_users_test_id_seq');
 CREATE TABLE IF NOT EXISTS catalog_marketplace (
   seller_article text, marketplace text, status text
 );

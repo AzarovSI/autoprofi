@@ -17,6 +17,7 @@ from app.main import app
 from app.routers import prices_router, rnp_comments_router, users_router
 
 WB, OZ, YA = "Wildberries", "Ozon", "Yandex"
+ADMIN = "@admin"  # только роль «Администратор»
 FILE = {"file": ("t.xlsx", b"not an excel file")}
 DAY = {"stock_date": "2026-01-01", "report_date": "2026-01-01"}
 
@@ -128,10 +129,15 @@ CASES = [
     # Пользователи
     ("GET", "/api/users", {}, ["users.open"], []),
     ("POST", "/api/users", {"json": {"display_name": "Тест", "email": "new@local.test",
-                                     "password": "x", "role": "user"}}, ["users.add"], []),
+                                     "password": "x", "role_id": 999999}}, ["users.add"], []),
     ("PATCH", "/api/users/999999", {"json": {"display_name": "Тест", "email": "x@local.test",
-                                             "role": "user"}}, ["users.edit"], []),
+                                             "role_id": 999999}}, ["users.edit"], []),
     ("DELETE", "/api/users/999999", {}, ["users.delete"], []),
+    # Роли: смотреть — с разделом «Пользователи», менять — только администратор
+    ("GET", "/api/roles", {}, ["users.open"], []),
+    ("POST", "/api/roles", {"json": {"copy_from": 999999, "name": "Копия"}}, [ADMIN], []),
+    ("PUT", "/api/roles/999999", {"json": {"name": "X", "marketplaces": [], "permissions": []}}, [ADMIN], []),
+    ("DELETE", "/api/roles/999999", {}, [ADMIN], []),
 ]
 WH = [("rename", {"name": "x"}, "stock.wh.rename"), ("merge", {"canonical_id": 999998}, "stock.wh.merge"),
       ("unmerge", {}, "stock.wh.merge"), ("active", {"is_active": True}, "stock.wh.status"),
@@ -158,6 +164,8 @@ OWNER = next(iter(auth.OWNER_EMAILS))
 def allowed(role, codes, mps):
     if role["is_admin"]:
         return True
+    if ADMIN in codes:
+        return False
     perms = set(role["permissions"])
     has = all((set(c) & perms) if isinstance(c, tuple) else c in perms for c in codes)
     return has and set(mps) <= set(role["marketplaces"])
@@ -238,8 +246,13 @@ class AccessChecksTest(unittest.TestCase):
         rop = next(r for r in self.roles if r["name"] == "РОП")
         r = self.call(100 + rop["id"], "POST", "/api/users",
                       {"json": {"display_name": "Тест", "email": "adm@local.test",
-                                "password": "x", "role": "admin"}})
+                                "password": "x", "role_id": 1}})
         self.assertEqual(r.status_code, 403, r.text)
+
+
+def rows(user_row, role_row):
+    """db.query_one: запрос к app_roles — роль, остальные — пользователь."""
+    return lambda sql, params=None: role_row if "FROM app_roles" in sql else user_row
 
 
 def fake(**kw):
@@ -272,12 +285,13 @@ class AccessRulesTest(unittest.TestCase):
 
     def test_owner_cannot_be_demoted_or_deleted(self):
         admin = fake(is_admin=True)
-        target = {"id": 5, "email": OWNER, "role": "admin"}
-        with patch.object(db, "query_one", return_value=target), patch.object(db, "execute") as ex:
+        target = {"id": 5, "email": OWNER, "role_id": 1}
+        with patch.object(db, "query_one", side_effect=rows(target, {"id": 3, "is_admin": False})), \
+             patch.object(db, "execute") as ex:
             with self.assertRaises(HTTPException) as e:
                 users_router.delete_user(5, admin=admin)
             self.assertEqual(e.exception.status_code, 400)
-            body = users_router.UserUpdate(display_name="В", email=OWNER, role="user")
+            body = users_router.UserUpdate(display_name="В", email=OWNER, role_id=3)
             with self.assertRaises(HTTPException) as e:
                 users_router.update_user(5, body, admin=admin)
             self.assertEqual(e.exception.status_code, 400)
@@ -285,9 +299,10 @@ class AccessRulesTest(unittest.TestCase):
 
     def test_only_admin_changes_role(self):
         rop = fake(permissions=["users.edit"])
-        target = {"id": 5, "email": "w@local.test", "role": "user"}
-        body = users_router.UserUpdate(display_name="В", email="w@local.test", role="admin")
-        with patch.object(db, "query_one", return_value=target), patch.object(db, "execute") as ex:
+        target = {"id": 5, "email": "w@local.test", "role_id": 3}
+        body = users_router.UserUpdate(display_name="В", email="w@local.test", role_id=1)
+        with patch.object(db, "query_one", side_effect=rows(target, {"id": 1, "is_admin": True})), \
+             patch.object(db, "execute") as ex:
             with self.assertRaises(HTTPException) as e:
                 users_router.update_user(5, body, admin=rop)
             self.assertEqual(e.exception.status_code, 403)

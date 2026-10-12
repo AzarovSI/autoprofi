@@ -81,6 +81,11 @@ const App = (() => {
       a.style.display = canSeeView(a.dataset.view) ? '' : 'none';
     });
   }
+  // Перечитать права с сервера и обновить меню (после правки своей роли).
+  async function refreshMe() {
+    API.setUser(await API.me());
+    applyRoleVisibility();
+  }
   // Первый доступный раздел по порядку меню (или null).
   function firstView() {
     return MENU_ORDER.find(canSeeView) || null;
@@ -284,7 +289,7 @@ const App = (() => {
     }
   }
 
-  return { start, state, weekSelect, setView, toast, renderView, can, hasMp, canTab, isAdmin };
+  return { start, state, weekSelect, setView, toast, renderView, can, hasMp, canTab, isAdmin, refreshMe };
 })();
 
 document.addEventListener('DOMContentLoaded', () => App.start());

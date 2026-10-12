@@ -188,6 +188,17 @@ const API = (() => {
       body: JSON.stringify(body),
     }),
     userDelete: (id) => request('/api/users/' + id, { method: 'DELETE' }),
+    // Роли доступа: каталог функций, роли, сотрудники; копия, сохранение, удаление.
+    rolesList: () => request('/api/roles'),
+    roleCopy: (body) => request('/api/roles', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+    roleUpdate: (id, body) => request('/api/roles/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+    roleDelete: (id) => request('/api/roles/' + id, { method: 'DELETE' }),
     // upload
     // kind: 'all' | 'weekly' | 'monthly' — фильтр журнала по типу отчёта
     uploadHistory: (kind) => request('/api/upload/history' + qs(kind && kind !== 'all' ? { kind } : null)),

@@ -249,4 +249,10 @@ def migrate():
             return
         path = Path(__file__).resolve().parent.parent / "migrations" / (MIGRATION + ".sql")
         tx.conn.execute(path.read_text(encoding="utf-8"))
+        # Владелец всегда администратор — сразу с ролью «Администратор». Остальным роли
+        # назначает владелец (docs/access_roles.md, этап 5).
+        from .auth import OWNER_EMAILS  # здесь, а не наверху: auth импортирует permissions
+        tx.execute("""UPDATE app_users SET role_id = (SELECT id FROM app_roles WHERE is_admin)
+                      WHERE role_id IS NULL AND lower(email) = ANY(%s)""",
+                   ([e.lower() for e in OWNER_EMAILS],))
         tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))

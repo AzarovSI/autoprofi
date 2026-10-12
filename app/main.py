@@ -19,7 +19,7 @@ from .routers import (
     rnp_router, catalog_router, upload_router, users_router,
     abc_router, sales_router, rnp_sales_router, rnp_comments_router,
     rnp_anomalies_router, warehouses_router, ozon_warehouses_router,
-    prices_router,
+    prices_router, roles_router,
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,6 +76,7 @@ app.include_router(rnp_anomalies_router.router)
 app.include_router(warehouses_router.router)
 app.include_router(ozon_warehouses_router.router)
 app.include_router(prices_router.router)
+app.include_router(roles_router.router)
 
 # Статика
 class StampedStaticFiles(StaticFiles):

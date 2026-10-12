@@ -2443,23 +2443,69 @@ const Views = (() => {
   // Роли: 'admin' (Администратор — полные права) и 'user' (Пользователь —
   // просмотр всех разделов, кроме «Пользователи» и «Загрузка»).
   // Жёсткое удаление; нельзя удалить самого себя (своя строка без кнопки).
+  // ============================================================
+  // ПОЛЬЗОВАТЕЛИ И РОЛИ (docs/access_roles.md)
+  // ============================================================
+  // tab: 'users' | 'roles'; roles — ответ /api/roles (каталог функций, роли, can_edit);
+  // roleId — открытая карточка роли (null — список ролей).
+  const usersState = { tab: 'users', roles: null, roleId: null };
+
+  async function loadRolesData() {
+    usersState.roles = await API.rolesList();
+    return usersState.roles;
+  }
+
   async function users(root, ctl, state) {
+    const tab = usersState.tab;
+    const title = tab === 'roles'
+      ? '🔐 Роли и права доступа <span class="hint">роль задаёт разделы, функции и площадки сотрудника</span>'
+      : '👥 Пользователи системы <span class="hint">логин — это e-mail; пароль задаёте вы при добавлении</span>';
     root.innerHTML = `
       <div class="card">
-        <h3>👥 Пользователи системы
-          <span class="hint">логин — это e-mail; пароль задаёте вы при добавлении</span>
-        </h3>
-        <div class="users-toolbar">
-          ${App.can('users.add') ? '<button class="btn-sm primary" id="usr-add-btn">+ Добавить пользователя</button>' : ''}
+        <h3>${title}</h3>
+        <div class="subtabs usr-subtabs" id="usr-subtabs">
+          <button class="subtab cross${tab === 'users' ? ' active' : ''}" data-utab="users">Пользователи</button>
+          <button class="subtab cross${tab === 'roles' ? ' active' : ''}" data-utab="roles">Роли</button>
         </div>
-        <div id="usr-form-wrap"></div>
-        <div id="usr-list"><div class="loader"><span class="spinner"></span></div></div>
+        <div id="usr-body"><div class="loader"><span class="spinner"></span></div></div>
       </div>
     `;
-    const addBtn = root.querySelector('#usr-add-btn');
-    const formWrap = root.querySelector('#usr-form-wrap');
+    root.querySelectorAll('#usr-subtabs .subtab').forEach(b => b.addEventListener('click', () => {
+      if (b.dataset.utab === usersState.tab) return;
+      usersState.tab = b.dataset.utab;
+      usersState.roleId = null;
+      users(root, ctl, state);
+    }));
+    const body = root.querySelector('#usr-body');
+    try { await loadRolesData(); }
+    catch (e) { body.innerHTML = '<div class="empty">Не удалось загрузить роли: ' + U.esc(e.message) + '</div>'; return; }
+    if (tab === 'roles') {
+      if (usersState.roleId != null) renderRoleCard(body); else renderRolesList(body);
+      return;
+    }
+    body.innerHTML = `
+      <div class="users-toolbar">
+        ${App.can('users.add') ? '<button class="btn-sm primary" id="usr-add-btn">+ Добавить пользователя</button>' : ''}
+      </div>
+      <div id="usr-form-wrap"></div>
+      <div id="usr-list"><div class="loader"><span class="spinner"></span></div></div>`;
+    const addBtn = body.querySelector('#usr-add-btn');
+    const formWrap = body.querySelector('#usr-form-wrap');
     if (addBtn) addBtn.addEventListener('click', () => toggleUserForm(formWrap, addBtn));
     await loadUsersList(root);
+  }
+
+  // <option> ролей для формы пользователя. Роль «Администратор» назначает только администратор.
+  function roleOptionsHtml(selectedId) {
+    const roles = (usersState.roles && usersState.roles.roles) || [];
+    const opts = roles.filter(r => !r.is_admin || App.isAdmin() || r.id === selectedId)
+      .map(r => `<option value="${r.id}"${r.id === selectedId ? ' selected' : ''}>${U.esc(r.name)}</option>`).join('');
+    return (selectedId == null ? '<option value="" selected disabled>— выберите роль —</option>' : '') + opts;
+  }
+
+  function rolePillHtml(r) {
+    if (r.role_id == null) return '<span class="pill pill-none" title="Без роли сотрудник не войдёт на сайт">Нет роли</span>';
+    return `<span class="pill ${r.role_is_admin ? 'pill-admin' : 'pill-user'}">${U.esc(r.role_name || '')}</span>`;
   }
 
   // отрисовка/скрытие формы добавления
@@ -2487,10 +2533,7 @@ const Views = (() => {
           </div>
           <div class="field">
             <label>Роль</label>
-            <select class="select" id="usr-role">
-              <option value="user" selected>Пользователь</option>
-              ${App.isAdmin() ? '<option value="admin">Администратор</option>' : ''}
-            </select>
+            <select class="select" id="usr-role">${roleOptionsHtml(null)}</select>
           </div>
         </div>
         <div class="usr-form-actions">
@@ -2525,15 +2568,16 @@ const Views = (() => {
     const name = (formWrap.querySelector('#usr-name').value || '').trim();
     const email = (formWrap.querySelector('#usr-email').value || '').trim();
     const pass = formWrap.querySelector('#usr-pass').value || '';
-    const role = formWrap.querySelector('#usr-role').value || 'user';
+    const roleId = parseInt(formWrap.querySelector('#usr-role').value, 10);
     if (!name) { App.toast('Укажите ФИО', 'err'); return; }
     if (!email || !/.+@.+\..+/.test(email)) { App.toast('Укажите корректный e-mail', 'err'); return; }
     if (!pass) { App.toast('Задайте пароль', 'err'); return; }
+    if (!roleId) { App.toast('Выберите роль', 'err'); return; }
     const saveBtn = formWrap.querySelector('#usr-save');
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="btn-spin"></span>Сохранение…';
     try {
-      await API.userCreate({ display_name: name, email, password: pass, role });
+      await API.userCreate({ display_name: name, email, password: pass, role_id: roleId });
       App.toast('Пользователь добавлен: ' + email, 'ok');
       closeUserForm(formWrap, addBtn);
       await loadUsersList(document.getElementById('view-root'));
@@ -2572,10 +2616,7 @@ const Views = (() => {
       const isMe = myEmail && (r.email || '').toLowerCase() === myEmail;
       const dt = r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU') : '—';
       const seen = fmtSeen(r.last_seen_at);
-      const rolePill = r.role === 'admin'
-        ? '<span class="pill pill-admin">Администратор</span>'
-        : '<span class="pill pill-user">Пользователь</span>';
-      const editBtn = !App.can('users.edit') ? '' : `<button class="btn-sm usr-edit" data-id="${r.id}" data-name="${U.esc(r.display_name || '')}" data-email="${U.esc(r.email)}" data-role="${U.esc(r.role || 'user')}">Изменить</button>`;
+      const editBtn = !App.can('users.edit') ? '' : `<button class="btn-sm usr-edit" data-id="${r.id}" data-name="${U.esc(r.display_name || '')}" data-email="${U.esc(r.email)}" data-role-id="${r.role_id == null ? '' : r.role_id}">Изменить</button>`;
       const delCell = isMe
         ? '<span class="muted" style="font-size:11.5px;">это вы</span>'
         : !App.can('users.delete') ? ''
@@ -2585,7 +2626,7 @@ const Views = (() => {
         : `<span class="usr-seen">${U.esc(seen)}</span>`;
       h += `<tr data-uid="${r.id}"><td class="l">${U.esc(r.display_name || '—')}</td>`
         + `<td class="l">${U.esc(r.email)}</td>`
-        + `<td class="l">${rolePill}</td>`
+        + `<td class="l">${rolePillHtml(r)}</td>`
         + `<td class="l">${seenCell}</td>`
         + `<td class="l muted">${dt}</td>`
         + `<td class="l"><span class="usr-actions">${editBtn}${delCell}</span></td></tr>`;
@@ -2603,6 +2644,7 @@ const Views = (() => {
   // Инлайн-форма редактирования пользователя: раскрывается строкой под самим
   // пользователем (переиспользует стили .usr-form формы добавления). Одновременно
   // открыта только одна форма. Пароль необязателен (пустой = не менять).
+  // Роль сотрудника меняет только администратор — у остальных выбор неактивен.
   function openEditUserForm(btn, root) {
     const el = root.querySelector('#usr-list');
     if (!el) return;
@@ -2617,7 +2659,7 @@ const Views = (() => {
     const id = btn.dataset.id;
     const name = btn.dataset.name || '';
     const email = btn.dataset.email || '';
-    const role = btn.dataset.role || 'user';
+    const roleId = btn.dataset.roleId ? parseInt(btn.dataset.roleId, 10) : null;
     const editTr = document.createElement('tr');
     editTr.className = 'usr-edit-row';
     editTr.dataset.forUid = id;
@@ -2642,10 +2684,7 @@ const Views = (() => {
             </div>
             <div class="field">
               <label>Роль</label>
-              <select class="select" id="usre-role">
-                <option value="user"${role !== 'admin' ? ' selected' : ''}>Пользователь</option>
-                <option value="admin"${role === 'admin' ? ' selected' : ''}>Администратор</option>
-              </select>
+              <select class="select" id="usre-role"${App.isAdmin() ? '' : ' disabled title="Роль сотрудника меняет только администратор"'}>${roleOptionsHtml(roleId)}</select>
             </div>
           </div>
           <div class="usr-form-actions">
@@ -2675,17 +2714,19 @@ const Views = (() => {
     const name = (editTr.querySelector('#usre-name').value || '').trim();
     const email = (editTr.querySelector('#usre-email').value || '').trim();
     const pass = editTr.querySelector('#usre-pass').value || '';
-    const role = editTr.querySelector('#usre-role').value || 'user';
+    const roleId = parseInt(editTr.querySelector('#usre-role').value, 10);
     if (!name) { App.toast('Укажите ФИО', 'err'); return; }
     if (!email || !/.+@.+\..+/.test(email)) { App.toast('Укажите корректный e-mail', 'err'); return; }
+    if (!roleId) { App.toast('Выберите роль', 'err'); return; }
     const saveBtn = editTr.querySelector('#usre-save');
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="btn-spin"></span>Сохранение…';
     try {
-      const body = { display_name: name, email, role };
+      const body = { display_name: name, email, role_id: roleId };
       if (pass.trim()) body.password = pass;
       await API.userUpdate(id, body);
       App.toast('Пользователь обновлён: ' + email, 'ok');
+      await loadRolesData();
       await loadUsersList(root);
     } catch (e) {
       const msg = /409/.test(e.message) ? 'Пользователь с таким e-mail уже существует' : ('Ошибка: ' + e.message);
@@ -2704,6 +2745,209 @@ const Views = (() => {
     } catch (e) {
       App.toast('Ошибка удаления: ' + e.message, 'err');
     }
+  }
+
+  // ---------- Вкладка «Роли»: список ----------
+  const ROLE_MPS = [['Wildberries', 'WB', 'wb'], ['Ozon', 'Ozon', 'oz'], ['Yandex', 'Яндекс', 'ya']];
+
+  function roleMpsHtml(mps) {
+    const on = ROLE_MPS.filter(([name]) => mps.includes(name));
+    return on.length
+      ? '<span class="role-mps">' + on.map(([, label, cls]) => `<span class="pill ${cls}">${label}</span>`).join('') + '</span>'
+      : '<span class="muted">—</span>';
+  }
+
+  function renderRolesList(body) {
+    const d = usersState.roles;
+    const total = d.functions.length;
+    const edit = d.can_edit;
+    let h = `<div class="role-note">${edit
+      ? 'Откройте роль, чтобы настроить её разделы, функции и площадки. Новая роль создаётся копией существующей. Изменения действуют у всех сотрудников роли сразу.'
+      : 'Только просмотр: настраивать роли может администратор.'}</div>`;
+    h += '<div class="tbl-wrap"><table class="tbl"><thead><tr>'
+      + '<th class="l">Роль</th><th class="l">Площадки</th><th class="l">Функций</th><th class="l">Сотрудники</th><th></th>'
+      + '</tr></thead><tbody>';
+    d.roles.forEach(r => {
+      const users = r.users.length
+        ? r.users.map(u => U.esc(u.name)).join(', ')
+        : '<span class="muted">нет</span>';
+      const acts = edit
+        ? `<button class="btn-sm role-copy" data-id="${r.id}" data-name="${U.esc(r.name)}">Копировать</button>`
+          + (r.is_admin ? '' : `<button class="btn-sm role-del" data-id="${r.id}" data-name="${U.esc(r.name)}">Удалить</button>`)
+        : '';
+      h += `<tr><td class="l"><button class="role-name-link" data-id="${r.id}">${U.esc(r.name)}</button>`
+        + (r.is_admin ? ' <span class="pill pill-admin">все права</span>' : '') + '</td>'
+        + `<td class="l">${roleMpsHtml(r.marketplaces)}</td>`
+        + `<td class="l"><span class="role-cnt">${r.permissions.length} из ${total}</span></td>`
+        + `<td class="l"><span class="role-users">${users}</span></td>`
+        + `<td class="l"><span class="usr-actions"><button class="btn-sm role-open" data-id="${r.id}">${edit && !r.is_admin ? 'Настроить' : 'Открыть'}</button>${acts}</span></td></tr>`;
+    });
+    h += '</tbody></table></div>';
+    body.innerHTML = h;
+    const open = (id) => { usersState.roleId = id; renderRoleCard(body); };
+    body.querySelectorAll('.role-name-link, .role-open').forEach(b =>
+      b.addEventListener('click', () => open(parseInt(b.dataset.id, 10))));
+    body.querySelectorAll('.role-copy').forEach(b => b.addEventListener('click', async () => {
+      const name = prompt('Название новой роли (копия «' + b.dataset.name + '»):', b.dataset.name + ' — копия');
+      if (name == null || !name.trim()) return;
+      try {
+        const res = await API.roleCopy({ copy_from: parseInt(b.dataset.id, 10), name: name.trim() });
+        await loadRolesData();
+        App.toast('Роль создана: ' + res.name, 'ok');
+        open(res.id);
+      } catch (e) { App.toast('Ошибка: ' + e.message, 'err'); }
+    }));
+    body.querySelectorAll('.role-del').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Удалить роль «' + b.dataset.name + '»?')) return;
+      try {
+        await API.roleDelete(parseInt(b.dataset.id, 10));
+        await loadRolesData();
+        App.toast('Роль удалена: ' + b.dataset.name, 'ok');
+        renderRolesList(body);
+      } catch (e) { App.toast(e.message, 'err'); }
+    }));
+  }
+
+  // ---------- Вкладка «Роли»: карточка роли ----------
+  // Разделы — как в xlsx: блок раздела с галочкой «Доступ к разделу» (функция «Открыть раздел»,
+  // у «Входа» — «Вход на сайт»), внутри — функции по вкладкам. Снята — раздел пропадает
+  // из меню, функции серые (отметки сохраняются).
+  function roleSections(fns) {
+    const sections = [];
+    fns.forEach(f => {
+      let s = sections.find(x => x.name === f.section);
+      if (!s) { s = { name: f.section, access: null, groups: [] }; sections.push(s); }
+      if (!s.access && f.tab === '—' && (f.name === 'Открыть раздел' || f.n === 1)) { s.access = f; return; }
+      let g = s.groups.find(x => x.tab === f.tab);
+      if (!g) { g = { tab: f.tab, fns: [] }; s.groups.push(g); }
+      g.fns.push(f);
+    });
+    return sections;
+  }
+
+  function renderRoleCard(body) {
+    const d = usersState.roles;
+    const role = d.roles.find(r => r.id === usersState.roleId);
+    if (!role) { usersState.roleId = null; renderRolesList(body); return; }
+    const editable = d.can_edit && !role.is_admin;
+    const dis = editable ? '' : ' disabled';
+    const perms = new Set(role.permissions);
+    const sections = roleSections(d.functions);
+    const note = role.is_admin
+      ? 'Роль «Администратор» не меняется: у неё всегда все права и все площадки.'
+      : !d.can_edit ? 'Только просмотр: настраивать роли может администратор.'
+      : 'Отметьте функции роли. «Доступ к разделу» снят — раздел пропадает из меню, его функции не действуют. '
+        + 'После «Сохранить» права меняются у всех сотрудников роли сразу.';
+    let h = `<div class="role-head">
+        <button class="btn-sm" id="role-back">← Все роли</button>
+        ${editable
+          ? `<input class="input-sm role-title-inp" id="role-name" value="${U.esc(role.name)}" maxlength="80">`
+          : `<span class="role-title">${U.esc(role.name)}</span>`}
+        <span class="role-spacer"></span>
+        <span class="role-cnt" id="role-total"></span>
+      </div>
+      <div class="role-note">${note}${role.users.length
+        ? '<br>Сотрудники: ' + role.users.map(u => U.esc(u.name)).join(', ')
+        : '<br>Сотрудников с этой ролью нет.'}</div>
+      <div class="role-block">
+        <div class="role-mp-block">
+          <span class="rm-title">Площадки</span>
+          ${ROLE_MPS.map(([name, label]) => {
+            const cls = name === 'Wildberries' ? 'wb' : name === 'Ozon' ? 'ozon' : 'yandex';
+            const on = role.marketplaces.includes(name);
+            return `<label class="role-mp-chk ${cls}${on ? ' on' : ''}"><input type="checkbox" class="role-mp" value="${name}"${on ? ' checked' : ''}${dis}> ${label}</label>`;
+          }).join('')}
+          <span class="role-mp-hint">Ограничивают вкладки и данные площадок в юнит-экономике, продажах, складах. РНП, «Цены» и «Товары» площадками не ограничиваются.</span>
+        </div>
+      </div>`;
+    sections.forEach((s, si) => {
+      const fns = s.groups.flatMap(g => g.fns);
+      h += `<div class="role-block" data-sec="${si}">
+        <div class="role-block-head">
+          <span class="rb-arrow">▶</span>
+          <span class="rb-name">${U.esc(s.name)}</span>
+          ${s.access ? `<label class="rb-access" title="${U.esc(s.access.description)}"><input type="checkbox" class="role-fn-chk rb-access-chk" value="${s.access.code}"${perms.has(s.access.code) ? ' checked' : ''}${dis}> ${s.access.n === 1 ? 'Вход на сайт' : 'Доступ к разделу'}</label>` : ''}
+          <span class="rb-cnt"></span>
+          ${editable && fns.length ? `<span class="rb-acts"><button class="btn-sm rb-all" type="button">Отметить всё</button><button class="btn-sm rb-none" type="button">Снять всё</button></span>` : ''}
+        </div>
+        <div class="role-block-body">
+          ${s.groups.map(g => `<div class="role-group">
+            <div class="role-group-head"><span>${U.esc(g.tab === '—' ? 'Раздел' : g.tab)}</span>
+              ${editable && g.fns.length > 1 ? '<button class="btn-link rg-all" type="button">отметить</button><button class="btn-link rg-none" type="button">снять</button>' : ''}
+            </div>
+            ${g.fns.map(f => `<label class="role-fn">
+              <input type="checkbox" class="role-fn-chk" value="${f.code}"${perms.has(f.code) ? ' checked' : ''}${dis}>
+              <span>${U.esc(f.name)}</span>
+              <span class="rf-kind">${U.esc(f.kind)}</span>
+              <span class="rf-desc">${U.esc(f.description)}</span>
+            </label>`).join('')}
+          </div>`).join('')}
+        </div>
+      </div>`;
+    });
+    h += editable
+      ? `<div class="role-actions"><button class="btn-sm primary" id="role-save">Сохранить</button>
+         <button class="btn-sm" id="role-cancel">Отменить изменения</button><span class="role-dirty" id="role-dirty"></span></div>`
+      : '';
+    body.innerHTML = h;
+
+    const total = d.functions.length;
+    // Счётчики «N из M», серый раздел без доступа, пометка несохранённых изменений.
+    const refresh = (dirty) => {
+      body.querySelectorAll('.role-block[data-sec]').forEach(blk => {
+        const chks = Array.from(blk.querySelectorAll('.role-fn-chk'));
+        blk.querySelector('.rb-cnt').textContent = chks.filter(c => c.checked).length + ' из ' + chks.length;
+        const acc = blk.querySelector('.rb-access-chk');
+        blk.classList.toggle('off', !!acc && !acc.checked);
+      });
+      body.querySelectorAll('.role-mp-chk').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+      const n = body.querySelectorAll('.role-fn-chk:checked').length;
+      body.querySelector('#role-total').textContent = 'Отмечено: ' + n + ' из ' + total;
+      const dEl = body.querySelector('#role-dirty');
+      if (dEl && dirty) dEl.textContent = 'Есть несохранённые изменения';
+    };
+    refresh(false);
+    body.querySelector('#role-back').addEventListener('click', () => {
+      if (body.querySelector('#role-dirty')?.textContent && !confirm('Выйти без сохранения изменений?')) return;
+      usersState.roleId = null; renderRolesList(body);
+    });
+    body.querySelectorAll('.role-block-head').forEach(head => head.addEventListener('click', (e) => {
+      if (e.target.closest('input, label, button')) return;
+      head.parentElement.classList.toggle('open');
+    }));
+    if (!editable) return;
+    body.addEventListener('change', (e) => { if (e.target.matches('input[type=checkbox]')) refresh(true); });
+    const setAll = (host, on) => { host.querySelectorAll('.role-fn-chk').forEach(c => { c.checked = on; }); refresh(true); };
+    body.querySelectorAll('.rb-all, .rb-none').forEach(b => b.addEventListener('click', () =>
+      setAll(b.closest('.role-block'), b.classList.contains('rb-all'))));
+    body.querySelectorAll('.rg-all, .rg-none').forEach(b => b.addEventListener('click', (e) => {
+      e.preventDefault();
+      setAll(b.closest('.role-group'), b.classList.contains('rg-all'));
+    }));
+    body.querySelector('#role-name').addEventListener('input', () => refresh(true));
+    body.querySelector('#role-cancel').addEventListener('click', () => renderRoleCard(body));
+    body.querySelector('#role-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const payload = {
+        name: body.querySelector('#role-name').value.trim(),
+        marketplaces: Array.from(body.querySelectorAll('.role-mp:checked')).map(c => c.value),
+        permissions: Array.from(body.querySelectorAll('.role-fn-chk:checked')).map(c => c.value),
+      };
+      if (!payload.name) { App.toast('Укажите название роли', 'err'); return; }
+      btn.disabled = true; btn.innerHTML = '<span class="btn-spin"></span>Сохранение…';
+      try {
+        await API.roleUpdate(role.id, payload);
+        await loadRolesData();
+        App.toast('Роль сохранена: ' + payload.name + '. Права сотрудников обновлены.', 'ok');
+        // Своя роль — обновить меню сразу.
+        const me = API.getUser();
+        if (me && me.role_id === role.id && App.refreshMe) await App.refreshMe();
+        renderRoleCard(body);
+      } catch (err) {
+        App.toast('Ошибка: ' + err.message, 'err');
+        btn.disabled = false; btn.innerHTML = 'Сохранить';
+      }
+    });
   }
 
   // ============================================================
