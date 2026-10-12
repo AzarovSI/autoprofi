@@ -1236,14 +1236,12 @@ const Views = (() => {
   function catMpName() { return catState.mp === 'wb' ? 'Wildberries' : (catState.mp === 'yandex' ? 'Yandex' : 'Ozon'); }
 
   async function catalog(root, ctl, state) {
-    // Вкладки площадок — только площадки роли (решение владельца 12.10.2026).
-    const allowedTabs = [['ozon', 'OZON', 'ozon'], ['wb', 'Wildberries', 'wb'], ['yandex', 'Yandex', 'yandex']]
-      .filter(([id]) => App.hasMp(id));
-    if (!allowedTabs.length || !App.can('catalog.table')) {
-      root.innerHTML = '<div class="empty">Нет доступных площадок.</div>';
+    // Площадки роли справочник не ограничивают — общий раздел, как «Цены» (решение владельца 12.10.2026).
+    const allowedTabs = [['ozon', 'OZON', 'ozon'], ['wb', 'Wildberries', 'wb'], ['yandex', 'Yandex', 'yandex']];
+    if (!App.can('catalog.table')) {
+      root.innerHTML = '<div class="empty">Нет доступа к вкладкам справочника.</div>';
       return;
     }
-    if (!allowedTabs.some(([id]) => id === catState.mp)) { catState.mp = allowedTabs[0][0]; catState.tree = null; }
     if (!catState.tree) catState.tree = await API.catalogTree({ marketplace: catMpName() });
     // Переключатель маркетплейсов (как в РНП): статус/менеджер раздельные по МП.
     const subtabs = allowedTabs

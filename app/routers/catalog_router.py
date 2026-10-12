@@ -47,10 +47,12 @@ def _norm_mp(marketplace: str) -> str:
 
 
 def _require(*codes):
-    """Права: раздел «Товары», вкладки площадок, площадка роли и функции `codes`."""
-    def dependency(marketplace: str = Query("Ozon"), user=Depends(auth.require("catalog.open"))):
+    """Права: раздел «Товары», вкладки площадок и функции `codes`.
+
+    Площадки роли справочник не ограничивают — общий раздел, как «Цены» (решение владельца
+    12.10.2026, docs/access_roles.md)."""
+    def dependency(user=Depends(auth.require("catalog.open"))):
         auth.check(user, "catalog.table")
-        auth.check_marketplace(user, _norm_mp(marketplace))
         for code in codes:
             auth.check(user, code)
         return user
@@ -63,8 +65,7 @@ _STATUS_ONLY = {"seller_article", "marketplace", "status"}
 
 def _check_update(user, sa, mp, payload):
     """Новый артикул — «Добавить товар»; только статус — любая функция смены статуса
-    или правка карточки; остальное — правка карточки. Площадка — у роли."""
-    auth.check_marketplace(user, mp)
+    или правка карточки; остальное — правка карточки. Площадки роли не проверяются."""
     if not db.query_one("SELECT 1 AS x FROM catalog_items WHERE seller_article = %s", (sa,)):
         auth.check(user, "catalog.add")
     elif set(payload) <= _STATUS_ONLY:
