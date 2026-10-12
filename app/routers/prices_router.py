@@ -20,7 +20,9 @@
   • Правка ячеек: любой авторизованный пользователь. Значения — целые рубли,
     неотрицательные. UPSERT.
 """
+import collections
 import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -135,6 +137,7 @@ def pricelist(
                    po.base_price  AS price_ozon,
                    pw.base_price  AS price_wb,
                    py.base_price  AS price_ya,
+                   po.vf AS from_ozon, pw.vf AS from_wb, py.vf AS from_ya,
                    co.cost_calc   AS cost,
                    co.start_date  AS cost_date,
                    -- WB: всё из mp_price_daily (загружаемая, СПП, для покупателя).
@@ -155,29 +158,30 @@ def pricelist(
               LEFT JOIN statuses s
                      ON s.seller_article = u.seller_article
               -- Базовые цены — историчный срез из catalog_base_prices_hist:
-              -- берём запись с самым свежим valid_from <= конец периода.
+              -- запись, действующая на конец последнего дня периода по Москве
+              -- (то же правило, что у daily Pi).
               LEFT JOIN LATERAL (
-                  SELECT h.base_price
+                  SELECT h.base_price, (h.valid_from AT TIME ZONE 'Europe/Moscow')::date AS vf
                     FROM catalog_base_prices_hist h
                    WHERE h.seller_article = u.seller_article
                      AND h.marketplace = 'Ozon'
-                     AND h.valid_from <= (%s::date + INTERVAL '1 day')
+                     AND h.valid_from < ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Moscow')
                    ORDER BY h.valid_from DESC LIMIT 1
               ) po ON TRUE
               LEFT JOIN LATERAL (
-                  SELECT h.base_price
+                  SELECT h.base_price, (h.valid_from AT TIME ZONE 'Europe/Moscow')::date AS vf
                     FROM catalog_base_prices_hist h
                    WHERE h.seller_article = u.seller_article
                      AND h.marketplace = 'Wildberries'
-                     AND h.valid_from <= (%s::date + INTERVAL '1 day')
+                     AND h.valid_from < ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Moscow')
                    ORDER BY h.valid_from DESC LIMIT 1
               ) pw ON TRUE
               LEFT JOIN LATERAL (
-                  SELECT h.base_price
+                  SELECT h.base_price, (h.valid_from AT TIME ZONE 'Europe/Moscow')::date AS vf
                     FROM catalog_base_prices_hist h
                    WHERE h.seller_article = u.seller_article
                      AND h.marketplace = 'Yandex'
-                     AND h.valid_from <= (%s::date + INTERVAL '1 day')
+                     AND h.valid_from < ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Moscow')
                    ORDER BY h.valid_from DESC LIMIT 1
               ) py ON TRUE
               -- Себестоимость — историчный срез (item_cost_hist), как было.
@@ -240,6 +244,9 @@ def pricelist(
                    po.base_price  AS price_ozon,
                    pw.base_price  AS price_wb,
                    py.base_price  AS price_ya,
+                   (po.valid_from AT TIME ZONE 'Europe/Moscow')::date AS from_ozon,
+                   (pw.valid_from AT TIME ZONE 'Europe/Moscow')::date AS from_wb,
+                   (py.valid_from AT TIME ZONE 'Europe/Moscow')::date AS from_ya,
                    co.cost_calc   AS cost,
                    co.start_date  AS cost_date,
                    wbp.date              AS wb_last_date,
@@ -306,6 +313,10 @@ def pricelist(
             "price_ozon": (int(r["price_ozon"]) if r.get("price_ozon") is not None else None),
             "price_wb":   (int(r["price_wb"])   if r.get("price_wb")   is not None else None),
             "price_ya":   (int(r["price_ya"])   if r.get("price_ya")   is not None else None),
+            # Дата (по Москве), с которой действует эта базовая цена.
+            "from_ozon": (r["from_ozon"].isoformat() if r.get("price_ozon") is not None and r.get("from_ozon") else None),
+            "from_wb":   (r["from_wb"].isoformat()   if r.get("price_wb")   is not None and r.get("from_wb")   else None),
+            "from_ya":   (r["from_ya"].isoformat()   if r.get("price_ya")   is not None and r.get("from_ya")   else None),
             # Себестоимость среза + дата, с которой этот срез действует.
             "cost":      (float(r["cost"]) if r.get("cost") is not None else None),
             "cost_date": (r["cost_date"].isoformat() if r.get("cost_date") else None),
@@ -438,6 +449,12 @@ def _append_base_price_history(tx, sa: str, mp: str, base_price, uid):
 COL_OZON = "Базовая OZON"
 COL_WB = "Базовая WB"
 COL_YA = "Базовая Yandex"
+# Дата начала действия цены — своя колонка у каждого МП (с 12.10.2026). Пустая дата
+# при загрузке = «с текущего момента», как до появления колонок; будущие даты не принимаются.
+COL_OZON_FROM = "Действует с (OZON)"
+COL_WB_FROM = "Действует с (WB)"
+COL_YA_FROM = "Действует с (Yandex)"
+MSK = ZoneInfo("Europe/Moscow")
 
 
 def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=""):
@@ -506,31 +523,36 @@ def prices_export(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Базовые цены"
-    # Только артикул и три цены: справочные столбцы в файле не нужны.
-    header = ["Артикул", COL_OZON, COL_WB, COL_YA]
+    # Артикул, три цены и у каждой — дата, с которой она действует.
+    header = ["Артикул", COL_OZON, COL_OZON_FROM, COL_WB, COL_WB_FROM, COL_YA, COL_YA_FROM]
     if show_cost:
         header.append("Себестоимость")
     ws.append(header)
     for c in range(1, len(header) + 1):
         ws.cell(row=1, column=c).font = Font(bold=True)
-        ws.cell(row=1, column=c).alignment = Alignment(horizontal="center")
+        ws.cell(row=1, column=c).alignment = Alignment(horizontal="center", wrap_text=True)
+
+    def _d(v):
+        return datetime.date.fromisoformat(v) if v else None
     for r in items:
         ws.append([
             r.get("seller_article"),
-            r.get("price_ozon"), r.get("price_wb"), r.get("price_ya"),
+            r.get("price_ozon"), _d(r.get("from_ozon")),
+            r.get("price_wb"), _d(r.get("from_wb")),
+            r.get("price_ya"), _d(r.get("from_ya")),
         ] + ([r.get("cost")] if show_cost else []))
         text_cell(ws.cell(ws.max_row, 1), r.get("seller_article"))
         if show_cost:
-            ws.cell(ws.max_row, 5).number_format = "#,##0.00"
-    # Цены — целые рубли, выравнивание по правому краю (как в остальных отчётах).
-    for row in ws.iter_rows(min_row=2, min_col=2, max_col=4):
+            ws.cell(ws.max_row, 8).number_format = "#,##0.00"
+    # Цены — целые рубли, даты — ДД.ММ.ГГГГ.
+    for row in ws.iter_rows(min_row=2, min_col=2, max_col=7):
         for cell in row:
-            cell.number_format = "#,##0"
-    for col, w in zip("ABCD", (24, 16, 16, 16)):
+            cell.number_format = "DD.MM.YYYY" if cell.column in (3, 5, 7) else "#,##0"
+    for col, w in zip("ABCDEFG", (24, 14, 14, 14, 14, 14, 14)):
         ws.column_dimensions[col].width = w
     if show_cost:
-        ws.column_dimensions["E"].width = 18
-    ws.freeze_panes = "A2"
+        ws.column_dimensions["H"].width = 18
+    ws.freeze_panes = "B2"
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -552,6 +574,79 @@ def prices_export(
     )
 
 
+def _price_cell(v):
+    """'' / None → None (удалить). Иначе целое ≥ 0 или ValueError."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s in ("", "-", "—"):
+        return None
+    s = s.replace("\u00a0", "").replace(" ", "").replace(",", ".")
+    try:
+        f = float(s)
+    except (ValueError, TypeError):
+        raise ValueError(s)
+    if f < 0 or f != f:
+        raise ValueError(s)
+    return int(round(f))
+
+
+def _date_cell(v, today):
+    """Дата начала действия цены: дата Excel, «ДД.ММ.ГГГГ» или «ГГГГ-ММ-ДД».
+    Пусто → None («с текущего момента»). Будущая дата или мусор → ValueError."""
+    if v is None or (isinstance(v, str) and v.strip() in ("", "-", "—")):
+        return None
+    if isinstance(v, datetime.datetime):
+        d = v.date()
+    elif isinstance(v, datetime.date):
+        d = v
+    elif isinstance(v, (int, float)) and 20000 < v < 80000:   # дата Excel без формата
+        from openpyxl.utils.datetime import from_excel
+        d = from_excel(v).date()
+    else:
+        s = str(v).strip()
+        for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+            try:
+                d = datetime.datetime.strptime(s, fmt).date()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(s)
+    if d > today:
+        raise ValueError(f"{d:%d.%m.%Y} — дата в будущем")
+    if d.year < 2020:
+        raise ValueError(f"{d:%d.%m.%Y}")
+    return d
+
+
+def _apply_from(versions, price, start, uid):
+    """История одной пары (артикул, МП) после «цена price действует с момента start».
+
+    versions — версии по возрастанию valid_from: dict(base_price, valid_from, valid_to,
+    updated_by_user_id). Правило владельца (12.10.2026, вариант А): цена действует
+    с start и дальше — версии, начавшиеся в start или позже, заменяются; версия,
+    действовавшая до start, закрывается в start. Та же цена, что до start, —
+    продолжение этой версии (без новой строки). Цены не было и price пустая — ничего."""
+    out = [dict(v) for v in versions if v["valid_from"] < start]
+    if out:
+        last = out[-1]
+        if last["valid_to"] is None or last["valid_to"] > start:
+            last["valid_to"] = start
+        if last["base_price"] == price and last["valid_to"] == start:
+            last["valid_to"] = None
+            return out
+    elif price is None:
+        return []
+    out.append({"base_price": price, "valid_from": start, "valid_to": None,
+                "updated_by_user_id": uid})
+    return out
+
+
+def _hist_key(versions):
+    return [(v["base_price"], v["valid_from"], v["valid_to"]) for v in versions]
+
+
 @router.post("/import")
 def prices_import(
     file: UploadFile = File(...),
@@ -559,13 +654,15 @@ def prices_import(
 ):
     """Импорт базовых цен из Excel. Только администратор.
 
-    Столбцы цен определяются по шапке (первая строка): заголовок, содержащий
-    «ozon» → Ozon, «yandex» → Yandex, «wb»/«wildberries» → Wildberries.
-    Артикул — первый столбец. Прочие столбцы не читаются, поэтому файл с
-    дополнительными справочными колонками тоже грузится.
+    Столбцы определяются по шапке (первая строка): заголовок с «ozon» → Ozon,
+    «yandex» → Yandex, «wb»/«wildberries» → Wildberries; если в нём есть
+    «действует»/«дата» — это дата начала действия цены этого МП, иначе — цена.
+    Артикул — первый столбец. Прочие столбцы не читаются.
 
-    Пустая ячейка цены ⇒ цена по этому МП удаляется (base_price = NULL) —
-    та же семантика, что у пустой ячейки месяца в плане продаж.
+    Пустая ячейка цены ⇒ цена по этому МП удаляется (base_price = NULL).
+    Дата: пусто ⇒ с текущего момента (как раньше); иначе цена действует
+    с 00:00 по Москве этой даты и дальше (см. _apply_from). Будущие даты и
+    некорректные значения отклоняют файл целиком.
 
     Артикулы, которых нет в catalog_items/catalog_marketplace, не создаются:
     они возвращаются в поле skipped_unknown.
@@ -587,38 +684,29 @@ def prices_import(
         raise HTTPException(status_code=422, detail="Файл пустой")
 
     header = rows_iter[0] or ()
-    col_mp = {}          # индекс столбца -> 'Ozon' | 'Wildberries'
+    col_mp = {}          # индекс столбца цены -> 'Ozon' | 'Wildberries' | 'Yandex'
+    date_col = {}        # МП -> индекс столбца даты
     for ci, h in enumerate(header):
         if ci == 0 or h is None:
             continue
         s = str(h).strip().lower()
         if "ozon" in s or "озон" in s:
-            col_mp.setdefault(ci, "Ozon")
+            mp = "Ozon"
         elif "yandex" in s or "яндекс" in s:
-            col_mp.setdefault(ci, "Yandex")
+            mp = "Yandex"
         elif "wb" in s or "wildberries" in s or "вб" in s:
-            col_mp.setdefault(ci, "Wildberries")
+            mp = "Wildberries"
+        else:
+            continue
+        if "действ" in s or "дата" in s:
+            date_col.setdefault(mp, ci)
+        elif mp not in col_mp.values():
+            col_mp[ci] = mp
     if not col_mp:
         raise HTTPException(
             status_code=422,
             detail="В шапке файла не найдены столбцы цен «%s», «%s», «%s»" % (COL_OZON, COL_WB, COL_YA),
         )
-
-    def _price(v):
-        """'' / None → None (удалить). Иначе целое ≥ 0 или ошибка."""
-        if v is None:
-            return None
-        s = str(v).strip()
-        if s == "" or s == "-" or s == "—":
-            return None
-        s = s.replace("\u00a0", "").replace(" ", "").replace(",", ".")
-        try:
-            f = float(s)
-        except (ValueError, TypeError):
-            raise ValueError(s)
-        if f < 0 or f != f:
-            raise ValueError(s)
-        return int(round(f))
 
     # Известные артикулы: новые SKU через прайс-лист не создаём.
     known = {r["seller_article"] for r in db.query_all(
@@ -630,7 +718,9 @@ def prices_import(
     )}
 
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
-    upserts = []          # (art, mp, price, uid)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    today = now.astimezone(MSK).date()
+    entries = []          # (art, mp, price, date|None)
     errors = []           # 'артикул / МП: значение'
     unknown = []
     seen = set()
@@ -647,25 +737,34 @@ def prices_import(
         seen.add(art)
         for ci, mp in col_mp.items():
             raw = row[ci] if ci < len(row) else None
+            dci = date_col.get(mp)
+            raw_d = row[dci] if dci is not None and dci < len(row) else None
             try:
-                p = _price(raw)
+                p = _price_cell(raw)
             except ValueError as e:
                 if len(errors) < 50:
-                    errors.append("%s / %s: %s" % (art, mp, e))
+                    errors.append("%s / %s: цена «%s»" % (art, mp, e))
                 continue
-            upserts.append((art, mp, p, uid))
+            try:
+                d = _date_cell(raw_d, today)
+            except ValueError as e:
+                if len(errors) < 50:
+                    errors.append("%s / %s: дата «%s»" % (art, mp, e))
+                continue
+            entries.append((art, mp, p, d))
 
     if errors:
         raise HTTPException(
             status_code=422,
-            detail="Некорректные значения цен (%d): %s" % (len(errors), "; ".join(errors[:10])),
+            detail="Некорректные значения (%d): %s" % (len(errors), "; ".join(errors[:10])),
         )
 
-    if upserts:
-        # Всё в одной транзакции: витрина + история. История пополняется только
-        # для тех строк, где значение реально меняется (иначе — шум на тысячи повторов).
+    changed_keys = []
+    cleared = 0
+    if entries:
+        # Всё в одной транзакции: витрина + история.
         with db.transaction() as tx:
-            # 1) Витрина — пакетный UPSERT.
+            # 1) Витрина — текущая цена (дата не позже сегодня ⇒ загруженная цена и есть текущая).
             tx.execute_values(
                 """INSERT INTO catalog_base_prices
                        (seller_article, marketplace, base_price, updated_at, updated_by_user_id)
@@ -674,45 +773,59 @@ def prices_import(
                        base_price = EXCLUDED.base_price,
                        updated_at = now(),
                        updated_by_user_id = EXCLUDED.updated_by_user_id""",
-                upserts,
+                [(a, mp, p, uid) for a, mp, p, _ in entries],
                 template="(%s,%s,%s,now(),%s)",
             )
-            # 2) История. Сначала читаем активные ряды по (SKU, MP), чтобы отфильтровать
-            # неизменённые значения.
-            keys = list({(u[0], u[1]) for u in upserts})
-            active = tx.query_all(
-                """SELECT seller_article, marketplace, base_price
+            # 2) История: читаем версии затронутых пар, пересчитываем в памяти по
+            # правилу _apply_from и перезаписываем только изменившиеся пары —
+            # одним DELETE и одной пачкой INSERT (триггеры daily Pi — на оператор).
+            keys = sorted({(a, mp) for a, mp, _, _ in entries})
+            hist = collections.defaultdict(list)
+            for r in tx.query_all(
+                """SELECT seller_article, marketplace, base_price, valid_from, valid_to,
+                          updated_by_user_id
                      FROM catalog_base_prices_hist
-                    WHERE valid_to IS NULL
-                      AND (seller_article, marketplace) IN (SELECT unnest(%s::text[]), unnest(%s::text[]))""",
+                    WHERE (seller_article, marketplace) IN (
+                          SELECT unnest(%s::text[]), unnest(%s::text[]))
+                    ORDER BY valid_from""",
                 ([k[0] for k in keys], [k[1] for k in keys]),
-            )
-            active_map = {(r["seller_article"], r["marketplace"]): r["base_price"] for r in active}
-            changed = [u for u in upserts if active_map.get((u[0], u[1])) != u[2]]
-            if changed:
-                # Закрыть текущие ряды одним запросом.
+            ):
+                hist[(r["seller_article"], r["marketplace"])].append(dict(r))
+            # «Очищено» — только цены, которые реально были (пустая ячейка без цены — не очистка).
+            was_set = {k for k, v in hist.items() if v and v[-1]["valid_to"] is None
+                       and v[-1]["base_price"] is not None}
+            cleared = len({(a, mp) for a, mp, p, _ in entries if p is None and (a, mp) in was_set})
+            new_hist = {k: list(v) for k, v in hist.items()}
+            for a, mp, p, d in entries:
+                start = now if d is None else datetime.datetime(d.year, d.month, d.day, tzinfo=MSK)
+                new_hist[(a, mp)] = _apply_from(new_hist.get((a, mp), []), p, start, uid)
+            changed_keys = [k for k in keys if _hist_key(new_hist.get(k, [])) != _hist_key(hist.get(k, []))]
+            if changed_keys:
                 tx.execute(
-                    """UPDATE catalog_base_prices_hist SET valid_to = now()
-                        WHERE valid_to IS NULL
-                          AND (seller_article, marketplace) IN (
+                    """DELETE FROM catalog_base_prices_hist
+                        WHERE (seller_article, marketplace) IN (
                               SELECT unnest(%s::text[]), unnest(%s::text[]))""",
-                    ([c[0] for c in changed], [c[1] for c in changed]),
+                    ([k[0] for k in changed_keys], [k[1] for k in changed_keys]),
                 )
-                # Вставить новые ряды пачкой.
-                tx.execute_values(
-                    """INSERT INTO catalog_base_prices_hist
-                           (seller_article, marketplace, base_price, valid_from, valid_to, updated_by_user_id)
-                       VALUES %s""",
-                    [(c[0], c[1], c[2], c[3]) for c in changed],
-                    template="(%s,%s,%s,now(),NULL,%s)",
-                )
+                rows_new = [(k[0], k[1], v["base_price"], v["valid_from"], v["valid_to"],
+                             v["updated_by_user_id"])
+                            for k in changed_keys for v in new_hist[k]]
+                if rows_new:
+                    tx.execute_values(
+                        """INSERT INTO catalog_base_prices_hist
+                               (seller_article, marketplace, base_price, valid_from, valid_to, updated_by_user_id)
+                           VALUES %s""",
+                        rows_new,
+                    )
 
-    filled = sum(1 for u in upserts if u[2] is not None)
+    filled = sum(1 for e in entries if e[2] is not None)
     return {
         "ok": True,
         "articles": len(seen),
         "prices_set": filled,
-        "prices_cleared": len(upserts) - filled,
+        "prices_cleared": cleared,
+        "dated": sum(1 for e in entries if e[3] is not None),
+        "history_changed": len(changed_keys),
         "skipped_unknown": len(unknown),
         "unknown_sample": unknown[:10],
     }

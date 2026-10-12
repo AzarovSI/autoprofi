@@ -9524,9 +9524,9 @@ const Views = (() => {
         '<label class="sp-fc-check" style="cursor:pointer;" title="Показать себестоимость в прайс-листе и включить её в Excel-выгрузки прайс-листа и индекса цен">' +
           '<input type="checkbox" id="pl-show-cost"' + (pricesState.showCost ? ' checked' : '') + '> показать себестоимость' +
         '</label>' +
-        '<button class="btn" id="pl-export" type="button" title="Выгрузить базовые цены в Excel: артикул и три колонки цен (OZON, WB, Yandex)">⬇️ Выгрузить</button>' +
+        '<button class="btn" id="pl-export" type="button" title="Выгрузить базовые цены в Excel: артикул, цены OZON, WB, Yandex и у каждой дата, с которой она действует">⬇️ Выгрузить</button>' +
         (plIsAdmin
-          ? '<button class="btn" id="pl-import-btn" type="button" title="Загрузить базовые цены из Excel">⬆️ Загрузить</button>' +
+          ? '<button class="btn" id="pl-import-btn" type="button" title="Загрузить базовые цены из Excel. «Действует с» — день, с которого действует цена (и дальше); пусто — с текущего момента; будущие даты не принимаются">⬆️ Загрузить</button>' +
             '<input type="file" id="pl-import-file" accept=".xlsx,.xls" style="display:none">'
           : '') +
       '</div>';
@@ -9773,7 +9773,8 @@ const Views = (() => {
             : '';
           if (plImpRes) plImpRes.innerHTML = '<div class="note ok" style="margin:0 0 12px; padding:10px 14px; border-radius:8px; background:rgba(46,204,113,.12); border:1px solid rgba(46,204,113,.4);">' +
             '<b>Цены загружены.</b> Артикулов: <b>' + (r.articles || 0) + '</b>, задано цен: <b>' +
-            (r.prices_set || 0) + '</b>, очищено: <b>' + (r.prices_cleared || 0) + '</b>.' + unk + '</div>';
+            (r.prices_set || 0) + '</b>, очищено: <b>' + (r.prices_cleared || 0) + '</b>' +
+            (r.dated ? ', с датой начала действия: <b>' + r.dated + '</b>' : '') + '.' + unk + '</div>';
           App.toast('Цены загружены: ' + (r.prices_set || 0), 'ok');
           pricesState.data = null;
           await reloadData();

@@ -1,6 +1,6 @@
 # Реестр загружаемых отчётов
 
-Обновлено: 09.10.2026. Сверено с кодом: `app/routers/upload_router.py`, `prices_router.py`,
+Обновлено: 12.10.2026. Сверено с кодом: `app/routers/upload_router.py`, `prices_router.py`,
 `catalog_router.py`, `sales_router.py`, `app/*_loader.py`, `app/loader_core.py`,
 `app/price_upload.py`, `app/price_history.py`. Пути в кабинетах взяты из подсказок интерфейса
 (`static/js/views.js`) и выгрузки Perplexity, входом в кабинеты не проверялись.
@@ -130,7 +130,7 @@
 |---|---|---|---|---|---|---|---|---|
 | P1 | Прямые цены и СПП («Цены с СПП») | WB | Google Sheets владельца [СПП ВБ](https://docs.google.com/spreadsheets/d/10DOSqL_q639vD6--XscYWqwrDAWXFTSuCHHjB3-wUoI/edit?gid=781930537) → скачать Excel (всю книгу) | Ищется **один** лист с колонками: Дата, Артикул продавца, Цена со скидки (загружаемая), Цена на витрине (с СПП), СПП, %; необязательные «Время», «Регион». Даты в строках | **авториз.** | `price_upload.py:parse_wb` + `price_history.py:sync_direct_report` → `POST /api/prices/upload_wb` | `mp_price_daily` (`upload_source='upload_wb_spp'`), `mp_price_upload_log`; триггеры → `price_index_daily` | UPSERT (артикул, МП, дата); остальные даты не трогает |
 | P2 | Прямые цены и соинвест («Цены и соинвест») | Ozon | Google Sheets владельца [Озон, цены и соинвест](https://docs.google.com/spreadsheets/d/1y36a1MvDWbGeVx5oU_zAvEqHxANQJwLx2zrQnhazK90/edit?gid=1920079832) → скачать Excel | Один лист с колонками: Дата, Артикул, Цена продавца после акций, ₽, Цена продавца с соинвестом, ₽, СПП/соинвест, % | **авториз.** | `price_upload.py:parse_ozon` + `sync_direct_report` → `POST /api/prices/upload_ozon` | Те же (`upload_source='upload_ozon_coinvest'`) | То же |
-| P3 | Базовые цены (прайс-лист) | Ozon, WB, Яндекс | Сам сайт: Цены → Прайс-лист → Excel (`GET /api/prices/export`), заполнить | Активный лист; артикул — 1-й столбец; МП по слову в заголовке (ozon/озон, yandex/яндекс, wb/wildberries/вб) | admin | `routers/prices_router.py:prices_import` → `POST /api/prices/import` | `catalog_base_prices`, `catalog_base_prices_hist`; триггеры → `price_index_daily` | UPSERT; пустая ячейка удаляет цену (NULL). История пишется только при изменении |
+| P3 | Базовые цены (прайс-лист) | Ozon, WB, Яндекс | Сам сайт: Цены → Прайс-лист → Excel (`GET /api/prices/export`), заполнить | Активный лист; артикул — 1-й столбец; МП по слову в заголовке (ozon/озон, yandex/яндекс, wb/wildberries/вб); у каждой цены колонка «Действует с (МП)» (заголовок со словом «действует»/«дата») | admin | `routers/prices_router.py:prices_import` → `POST /api/prices/import` | `catalog_base_prices`, `catalog_base_prices_hist`; триггеры → `price_index_daily` | UPSERT; пустая ячейка цены удаляет цену (NULL). Дата пусто — с текущего момента; иначе цена действует с 00:00 МСК этой даты **и дальше** (более поздние версии заменяются, вариант А владельца 12.10.2026). История меняется только при изменении |
 | P4 | План продаж, шт. | Ozon, WB, Яндекс | Сайт: «Продажи, шт.» → шаблон плана (`GET /api/sales/plan_export`) | Активный лист; артикул — 1-й столбец; 12 месяцев по заголовку «Январь 2026»…; год и МП в форме | admin | `routers/sales_router.py:plan_import` → `POST /api/sales/plan_import` | `sales_plan` | По артикулам файла удаляет весь год/МП и вставляет заполненные месяцы; `is_manual=false`, `prev_qty` = значение из файла |
 | P5 | Справочник товаров | Выбранный МП | Экспорт сайта (`GET /api/catalog/export`) или ручной Excel | Активный лист, **по позициям**: A Артикул, B Наименование, C–E У1–У3, F Статус, G Менеджер, H URL; МП в параметре `marketplace` | **авториз.** | `routers/catalog_router.py:import_items` → `POST /api/catalog/import` | `catalog_items`, `catalog_marketplace` | UPSERT; пустые ячейки → NULL |
 
@@ -154,6 +154,11 @@
 - **P3:** создаёт только известные артикулы (`catalog_items` ∪ `catalog_marketplace`, точное
   совпадение без `canon_article`). Цена округляется до целого. Некорректные значения отклоняют
   файл целиком. Это базовые цены, а не загружаемые цены продавца.
+- **P3, даты (с 12.10.2026):** выгрузка ставит дату начала действия текущей цены. Принимаются дата
+  Excel, «ДД.ММ.ГГГГ», «ГГГГ-ММ-ДД»; дата в будущем или раньше 2020 года отклоняет файл. Файл без
+  колонок дат грузится как раньше (с текущего момента). Та же цена, что действовала до даты, —
+  продолжение прежней версии. Ручная правка ячейки на сайте — по-прежнему с момента правки.
+  Прайс-лист за период берёт цену на конец последнего дня периода **по Москве** (как daily Pi).
 - **P4:** справочные колонки (уровни, статус) не читаются. Если шапка не распознала 12 месяцев,
   берутся последние 12 колонок строки. Артикул не канонизируется. `DELETE` и `INSERT` идут
   отдельными вызовами, без общей транзакции. Для Яндекса план принимается кодом (`MP_MAP`).

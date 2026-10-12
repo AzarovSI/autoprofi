@@ -181,16 +181,18 @@ class PriceExportTests(unittest.TestCase):
         app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1}
         client = TestClient(app)
         with patch.object(prices, "pricelist", return_value={"items": fixture(), "period": None}):
-            for flag, cols in (("false", 4), ("true", 5)):
+            # С 12.10.2026 у каждой цены — колонка «Действует с (МП)»
+            for flag, cols in (("false", 7), ("true", 8)):
                 with self.subTest(flag=flag):
                     response = client.get("/api/prices/export?show_cost=" + flag + "&search=agr")
                     ws = workbook(io.BytesIO(response.content), True).active
                     self.assertEqual(ws.max_column, cols)
                     self.assertEqual(ws.max_row, 2)
-                    self.assertEqual([c.value for c in ws[1]][:4],
-                                     ["Артикул", "Базовая OZON", "Базовая WB", "Базовая Yandex"])
-                    if cols == 5:
-                        self.assertEqual(ws["E2"].value, 555.25)
+                    self.assertEqual([c.value for c in ws[1]][:7],
+                                     ["Артикул", "Базовая OZON", "Действует с (OZON)", "Базовая WB",
+                                      "Действует с (WB)", "Базовая Yandex", "Действует с (Yandex)"])
+                    if cols == 8:
+                        self.assertEqual(ws["H2"].value, 555.25)
 
     def test_validation(self):
         app = FastAPI()

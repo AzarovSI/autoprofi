@@ -11,8 +11,17 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 CREATE TABLE IF NOT EXISTS catalog_base_prices (
   seller_article text, marketplace text, base_price integer,
-  updated_at timestamptz, updated_by_user_id integer
+  updated_at timestamptz, updated_by_user_id integer,
+  PRIMARY KEY (seller_article, marketplace)
 );
+-- Как в рабочей БД (catalog_base_prices_pkey): нужен для UPSERT импорта прайс-листа.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conrelid = 'catalog_base_prices'::regclass AND contype = 'p') THEN
+    TRUNCATE catalog_base_prices;
+    ALTER TABLE catalog_base_prices ADD PRIMARY KEY (seller_article, marketplace);
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS catalog_base_prices_hist (
   seller_article text, marketplace text, base_price integer,
   valid_from timestamptz, valid_to timestamptz, updated_by_user_id integer,
