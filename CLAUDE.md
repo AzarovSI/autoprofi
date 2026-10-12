@@ -119,6 +119,8 @@ production продолжает работать на Perplexity, а код та
   - пока жив хостинг Perplexity — `python3 rebuild_index.py` пересобирает `dist/public`.
 - **Схема БД:** новая версионная миграция по образцу `daily_pi.migrate()`
   (advisory lock + запись в `app_schema_migrations`). Применение к рабочей БД — только по согласованию.
+  В TimeWeb сайт работает под `autoprofi_app`, а владелец таблиц — `gen_user`: миграцию, которая
+  меняет существующие таблицы (ALTER), применять под `gen_user` до выкладки, иначе сайт не стартует.
 - **Зависимости:** при изменении `requirements.txt` обновить `recovery/requirements.lock`,
   `recovery/wheels` и `recovery/requirements-source.sha256`, иначе сборка бэкапа остановится.
 
