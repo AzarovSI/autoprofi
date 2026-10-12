@@ -104,7 +104,7 @@
 |---|---|---|---:|
 | `app_schema_migrations` | Учёт версионных миграций | PK `name` | 1 |
 
-Всего 31 таблица. Самые большие по объёму с индексами: `ozon_daily_sales` (~24 МиБ),
+Всего 31 таблица на 07.10.2026; с 12.10.2026 — 33 (`app_roles`, `app_role_permissions`). Самые большие по объёму с индексами: `ozon_daily_sales` (~24 МиБ),
 `ozon_stock_daily` (~20 МиБ), `wb_stock_daily` (~16 МиБ), `fact_monthly` (~15 МиБ).
 
 ## Триггеры daily Pi

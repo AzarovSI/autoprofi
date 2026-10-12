@@ -32,8 +32,9 @@
    INSERT INTO price_index_revision (singleton, revision) VALUES (true, 0);
    ```
 4. Первый администратор: строка в `app_users` с bcrypt-хешем пароля и ролью `admin`.
-   Хеш — `app.auth.hash_password`.
-5. Права пользователю сайта: SELECT/INSERT/UPDATE/DELETE на 31 таблицу, USAGE/SELECT
+   Хеш — `app.auth.hash_password`. Роль из справочника (`role_id`) владельцу ставит миграция ролей
+   (`app/permissions.py:migrate`), остальным — администратор в «Пользователях».
+5. Права пользователю сайта: SELECT/INSERT/UPDATE/DELETE на все таблицы `public` (33 с 12.10.2026), USAGE/SELECT
    на 14 счётчиков, USAGE/CREATE на схему. Список — в `docs/operations.md`.
 6. Данные:
    - **из ежедневной копии**, если она есть: `pg_restore` в эту структуру;
