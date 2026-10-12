@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Query, UploadFile, File, Form, HTTPExcep
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .. import db, auth
+from .. import db, auth, permissions
 from ..util import l1_sort_key, cat_sort_key
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
@@ -40,6 +40,20 @@ def _f(v):
         return float(v) if v is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+def _check_access(user, marketplace, *codes):
+    """Права: раздел, вкладка площадки (у площадки — и площадка роли) или «Сводная», функции."""
+    auth.check(user, "sales.open")
+    if (marketplace or "").strip().lower() == "cross":
+        auth.check(user, "sales.tab.summary")
+    else:
+        mp = permissions.mp_name(marketplace)
+        auth.check(user, permissions.tab("sales", mp))
+        auth.check_marketplace(user, mp)
+    for code in codes:
+        auth.check(user, code)
+    return user
 
 
 def _mps_for(marketplace: str):
@@ -69,6 +83,7 @@ def plan_fact(
     user=Depends(auth.get_current_user),
 ):
     """Дерево план/факт по месяцам выбранного года для одного МП или «Сводной»."""
+    _check_access(user, marketplace)
     return _compute_plan_fact(marketplace, year, status, manager)
 
 
@@ -470,6 +485,7 @@ def plan_cell(body: PlanCellIn, user=Depends(auth.get_current_user)):
     plan_qty + is_manual=true (prev_qty НЕ трогаем, оно хранит значение из
     последнего Excel-импорта); если нет — INSERT с is_manual=true, prev_qty=NULL.
     """
+    _check_access(user, body.marketplace, "sales.plan.edit")
     m = (body.marketplace or "").strip().lower()
     if m == "cross" or m not in MP_MAP:
         raise HTTPException(status_code=400, detail="План редактируется по одному маркетплейсу (ozon или wb)")
@@ -569,6 +585,7 @@ def plan_export(
     user=Depends(auth.get_current_user),
 ):
     """Excel-шаблон плана продаж (шт) одного МП на выбранный год."""
+    _check_access(user, marketplace, "sales.plan.export")
     import openpyxl
     from openpyxl.styles import Font
     m = (marketplace or "").strip().lower()
@@ -658,6 +675,7 @@ def report_export(
     текущего месяца. Предназначен для вкладки «Сводная», но работает и для
     одиночного МП.
     """
+    _check_access(user, marketplace, "sales.summary.export")
     import datetime as _dt
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -950,7 +968,7 @@ def plan_import(
     file: UploadFile = File(...),
     marketplace: str = Form(...),
     year: int = Form(...),
-    user=Depends(auth.require_admin),
+    user=Depends(auth.get_current_user),
 ):
     """Импорт плана продаж (шт) из Excel. UPSERT по (art, mp, year, month).
 
@@ -964,6 +982,7 @@ def plan_import(
     совместимы и старые, и новые шаблоны. Справочные столбцы (иерархия,
     статус) НЕ читаются и ничего в системе не перезаписывают.
     """
+    _check_access(user, marketplace, "sales.plan.import")
     import openpyxl
     m = (marketplace or "").strip().lower()
     if m == "cross" or m not in MP_MAP:

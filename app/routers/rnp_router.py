@@ -380,7 +380,7 @@ def negative_margin_articles(mp: str) -> set:
 
 
 @router.get("/weeks")
-def rnp_weeks(marketplace: str = Query("ozon"), user=Depends(auth.get_current_user)):
+def rnp_weeks(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("unit"))):
     """Список недель маркетплейса (для шапки)."""
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     rows = db.query_all(
@@ -424,7 +424,7 @@ def rnp_product_ue(
     marketplace: str = Query("ozon"),
     article: str = Query(...),
     weeks: int = Query(3, ge=1, le=12),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("rnp.unit_popup")),
 ):
     """Лёгкая юнит-экономика ОДНОГО артикула за последние N недель.
 
@@ -512,7 +512,7 @@ def rnp_product_ue(
 
 
 @router.get("/metrics")
-def rnp_metrics(user=Depends(auth.get_current_user)):
+def rnp_metrics(user=Depends(auth.require("unit.open"))):
     """Каталог метрик (ключ, подпись, тип, направление)."""
     return [
         {"key": k, "label": lbl, "kind": kind, "direction": direction}
@@ -521,7 +521,7 @@ def rnp_metrics(user=Depends(auth.get_current_user)):
 
 
 @router.get("/tree")
-def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.get_current_user)):
+def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("unit"))):
     """Иерархическое дерево юнит-экономики со всеми неделями-колонками."""
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
 
@@ -1139,7 +1139,7 @@ def _plan_by_node_week(weeks, marketplace=None):
 
 
 @router.get("/tree_cross")
-def rnp_tree_cross(user=Depends(auth.get_current_user)):
+def rnp_tree_cross(user=Depends(auth.require_tabs("unit", "Ozon", "Wildberries"))):
     """Сводное дерево юнит-экономики: агрегация Ozon + Wildberries.
 
     Рублёвые/штучные суммируются по двум МП; проценты пересчитываются от общей

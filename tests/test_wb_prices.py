@@ -55,7 +55,7 @@ def parse_rows(rows, **kw):
 def make_app():
     app = FastAPI()
     app.include_router(pr.router)
-    app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1, "role": "manager"}
+    app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1, "role": "manager", "is_admin": True}
     return app
 
 

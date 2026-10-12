@@ -176,7 +176,7 @@ def _shape(row, mp):
 
 
 @router.get("/data")
-def abc_data(user=Depends(auth.get_current_user)):
+def abc_data(user=Depends(auth.require("abc.open"))):
     """Все месячные товарные строки обоих МП + список доступных месяцев."""
     # 4 независимых запроса (Ozon, Wildberries, Yandex, общие удержания) — последовательно на тёплом пуле.
     oz = db.query_all(SQL_OZON)

@@ -86,7 +86,7 @@ def _row_to_dict(r):
 def list_comments(
     date_from: date_cls = Query(..., description="начало периода (вкл.)"),
     date_to: date_cls = Query(..., description="конец периода (вкл.)"),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("rnp.comments.view")),
 ):
     """Комментарии за видимый диапазон дат. Сортировка: сначала по ячейке,
     внутри ячейки — новые сверху (created_at DESC)."""
@@ -103,7 +103,7 @@ def list_comments(
 
 
 @router.post("")
-def create_comment(payload: CommentCreate, user=Depends(auth.get_current_user)):
+def create_comment(payload: CommentCreate, user=Depends(auth.require("rnp.comments.add"))):
     """Создать комментарий. Автор = текущий пользователь из сессии."""
     row = db.query_one(
         "INSERT INTO rnp_comments (seller_article, date, body, author_id) "
@@ -127,14 +127,11 @@ def _get_or_404(comment_id: int):
 
 
 def _assert_can_modify(comment_row, user):
-    """Изменять/удалять может автор ИЛИ администратор."""
-    is_admin = (user.get("role") or "").lower() == "admin"
-    is_author = comment_row["author_id"] == user["id"]
-    if not (is_admin or is_author):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Можно изменять только свои комментарии",
-        )
+    """Свой комментарий — функция «свой», чужой — «чужой» (docs/access_roles.md)."""
+    if comment_row["author_id"] == user["id"]:
+        auth.check(user, "rnp.comments.edit_own")
+    else:
+        auth.check(user, "rnp.comments.edit_any")
 
 
 @router.patch("/{comment_id}")

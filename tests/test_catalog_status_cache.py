@@ -33,7 +33,7 @@ class CatalogStatusCacheTests(unittest.TestCase):
                 self.seed()
                 result = catalog.update_item(
                     {"seller_article": "SKU/1", "marketplace": mp, "status": "Closeout"},
-                    user={"id": 1})
+                    user={"id": 1, "is_admin": True})
                 updates = [c for c in execute.call_args_list
                            if "UPDATE catalog_marketplace" in c.args[0]]
                 self.assertEqual(len(updates), 1)
@@ -45,7 +45,7 @@ class CatalogStatusCacheTests(unittest.TestCase):
         self.seed()
         with patch.object(db, "execute"):
             catalog.update_item({"seller_article": "SKU/1", "marketplace": "wb",
-                                 "category_l1": "Category"}, user={"id": 1})
+                                 "category_l1": "Category"}, user={"id": 1, "is_admin": True})
         self.assert_invalidated()
 
     def test_catalog_import_invalidates_all_marketplaces(self):
@@ -58,7 +58,7 @@ class CatalogStatusCacheTests(unittest.TestCase):
         self.seed()
         with patch.object(db, "execute_values") as execute:
             result = catalog.import_items(UploadFile(filename="fixture.xlsx", file=data),
-                                          marketplace="Wildberries", user={"id": 1})
+                                          marketplace="Wildberries", user={"id": 1, "is_admin": True})
         self.assertEqual(result["marketplace"], "Wildberries")
         self.assertEqual(execute.call_args_list[1].args[1][0][1], "Wildberries")
         self.assert_invalidated()
@@ -68,7 +68,7 @@ class CatalogStatusCacheTests(unittest.TestCase):
         with patch.object(db, "execute", side_effect=RuntimeError("test failure")):
             with self.assertRaises(RuntimeError):
                 catalog.update_item({"seller_article": "SKU/1", "marketplace": "wb",
-                                     "status": "CORE"}, user={"id": 1})
+                                     "status": "CORE"}, user={"id": 1, "is_admin": True})
         self.assertEqual(cache.get(NAMESPACES[1], "status-test:" + NAMESPACES[1]), "old")
 
     def test_update_endpoint_rejects_anonymous_user(self):

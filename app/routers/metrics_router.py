@@ -8,6 +8,9 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
 MP_MAP = {"ozon": "Ozon", "wildberries": "Wildberries", "wb": "Wildberries"}
 
+# Права (docs/access_roles.md): данные юнит-экономики; площадка — по MP_MAP этого роутера.
+_unit_tab = auth.require_tab("unit", resolve=lambda v: MP_MAP.get((v or "").lower(), "Ozon"))
+
 
 def _f(v):
     return float(v) if v is not None else 0.0
@@ -69,14 +72,14 @@ def _summary_row(mp, year, week):
 
 @router.get("/summary")
 def summary(marketplace: str = Query("ozon"), year: int = Query(...), week: int = Query(...),
-            user=Depends(auth.get_current_user)):
+            user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     return _summary_row(mp, year, week) or {}
 
 
 @router.get("/by_category")
 def by_category(marketplace: str = Query("ozon"), year: int = Query(...), week: int = Query(...),
-                level: int = Query(1), user=Depends(auth.get_current_user)):
+                level: int = Query(1), user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     col = {1: "ci.category_l1", 2: "ci.category_l2", 3: "ci.category_l3"}.get(level, "ci.category_l1")
     rows = db.query_all(
@@ -100,7 +103,7 @@ def by_category(marketplace: str = Query("ozon"), year: int = Query(...), week: 
 
 @router.get("/by_sku")
 def by_sku(marketplace: str = Query("ozon"), year: int = Query(...), week: int = Query(...),
-           user=Depends(auth.get_current_user)):
+           user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     rows = db.query_all(
         """
@@ -121,7 +124,7 @@ def by_sku(marketplace: str = Query("ozon"), year: int = Query(...), week: int =
 
 
 @router.get("/mp_compare")
-def mp_compare(year: int = Query(...), week: int = Query(...), user=Depends(auth.get_current_user)):
+def mp_compare(year: int = Query(...), week: int = Query(...), user=Depends(auth.require_tabs("unit", "Ozon", "Wildberries"))):
     # 2 независимых запроса (Ozon и Wildberries) — последовательно на тёплом пуле.
     mps = ("Ozon", "Wildberries")
     summaries = [_summary_row(mp, year, week) for mp in mps]

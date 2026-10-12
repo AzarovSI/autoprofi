@@ -64,7 +64,7 @@ def _load_rules():
 
 
 @router.get("/anomaly_rules")
-def get_rules(user=Depends(auth.get_current_user)):
+def get_rules(user=Depends(auth.require("rnp.anomalies.view", "rnp.anomalies.rules"))):
     return {"rules": _load_rules()}
 
 
@@ -80,7 +80,7 @@ class RulesUpdate(BaseModel):
 
 
 @router.put("/anomaly_rules")
-def update_rules(payload: RulesUpdate, user=Depends(auth.get_current_user)):
+def update_rules(payload: RulesUpdate, user=Depends(auth.require("rnp.anomalies.rules"))):
     for p in payload.rules:
         sets, params = [], []
         if p.threshold is not None:
@@ -228,7 +228,7 @@ def anomalies(
     cur_from: str = Query(None),
     cur_to: str = Query(None),
     rules: str = Query(""),                 # csv из rule_key; пусто = все включённые
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("rnp.anomalies.view")),
 ):
     mp = MP_MAP.get((marketplace or "").lower(), "Ozon")
     all_rules = {r["rule_key"]: r for r in _load_rules()}

@@ -152,7 +152,7 @@ class PriceExportTests(unittest.TestCase):
     def test_endpoint_period_search_and_no_cache(self):
         app = FastAPI()
         app.include_router(prices.router)
-        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1}
+        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1, "is_admin": True}
         client = TestClient(app)
         data = {"items": fixture(), "period": {"date_from": "2026-09-01", "date_to": "2026-09-19"}}
         exported_at = dt.datetime(2026, 9, 24, 0, 15, tzinfo=ZoneInfo("Europe/Moscow"))
@@ -160,7 +160,7 @@ class PriceExportTests(unittest.TestCase):
                 patch("app.price_export.export_time", return_value=exported_at):
             response = client.get("/api/prices/index_export?date_from=2026-09-01&date_to=2026-09-19&search=компр&show_cost=true")
         self.assertEqual(response.status_code, 200)
-        read.assert_called_once_with(date_from="2026-09-01", date_to="2026-09-19", user={"id": 1})
+        read.assert_called_once_with(date_from="2026-09-01", date_to="2026-09-19", user={"id": 1, "is_admin": True})
         ws = workbook(io.BytesIO(response.content), True).active
         self.assertIn("AGR-35", rows(ws))
         self.assertNotIn("00123", rows(ws))
@@ -178,7 +178,7 @@ class PriceExportTests(unittest.TestCase):
     def test_base_export_cost_optional_import_layout_preserved(self):
         app = FastAPI()
         app.include_router(prices.router)
-        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1}
+        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1, "is_admin": True}
         client = TestClient(app)
         with patch.object(prices, "pricelist", return_value={"items": fixture(), "period": None}):
             # С 12.10.2026 у каждой цены — колонка «Действует с (МП)»
@@ -197,7 +197,7 @@ class PriceExportTests(unittest.TestCase):
     def test_validation(self):
         app = FastAPI()
         app.include_router(prices.router)
-        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1}
+        app.dependency_overrides[auth.get_current_user] = lambda: {"id": 1, "is_admin": True}
         client = TestClient(app)
         for path in ("index_export", "export"):
             self.assertEqual(client.get(f"/api/prices/{path}?show_cost=invalid").status_code, 422)

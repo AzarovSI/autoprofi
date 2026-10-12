@@ -8,6 +8,9 @@ router = APIRouter(prefix="/api/trend", tags=["trend"])
 
 MP_MAP = {"ozon": "Ozon", "wildberries": "Wildberries", "wb": "Wildberries"}
 
+# Права (docs/access_roles.md): данные юнит-экономики; площадка — по MP_MAP этого роутера.
+_unit_tab = auth.require_tab("unit", resolve=lambda v: MP_MAP.get((v or "").lower(), "Ozon"))
+
 
 def _f(v):
     return float(v) if v is not None else 0.0
@@ -40,7 +43,7 @@ def _weeks_for(mp):
 
 
 @router.get("/summary_series")
-def summary_series(marketplace: str = Query("ozon"), user=Depends(auth.get_current_user)):
+def summary_series(marketplace: str = Query("ozon"), user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     weeks = _weeks_for(mp)
 
@@ -81,7 +84,7 @@ def summary_series(marketplace: str = Query("ozon"), user=Depends(auth.get_curre
 
 @router.get("/category_matrix")
 def category_matrix(marketplace: str = Query("ozon"), metric: str = Query("revenue"),
-                    user=Depends(auth.get_current_user)):
+                    user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     metric = metric if metric in ("revenue", "profit", "sales_qty") else "revenue"
     weeks = _weeks_for(mp)
@@ -115,7 +118,7 @@ def category_matrix(marketplace: str = Query("ozon"), metric: str = Query("reven
 
 @router.get("/sku_matrix")
 def sku_matrix(marketplace: str = Query("ozon"), metric: str = Query("revenue"),
-               user=Depends(auth.get_current_user)):
+               user=Depends(_unit_tab)):
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     metric = metric if metric in ("revenue", "profit", "sales_qty") else "revenue"
     weeks = _weeks_for(mp)

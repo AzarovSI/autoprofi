@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Роутер управления пользователями системы (только для администратора).
+"""Роутер управления пользователями системы.
 
 CRUD по таблице app_users:
   GET    /api/users        — список пользователей
   POST   /api/users        — создать пользователя (ФИО, email, пароль, роль)
   DELETE /api/users/{id}    — жёсткое удаление пользователя
 
-Все эндпоинты защищены зависимостью require_admin (роль admin).
+Права — функции раздела «Пользователи» (docs/access_roles.md). Роль «Администратор»
+назначает и роль сотрудника меняет только администратор; владельца нельзя понизить и удалить.
 Пароли хранятся только в виде bcrypt-хэша. Логин = email.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,10 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 # Допустимые роли системы.
 ALLOWED_ROLES = {"admin", "user"}
+
+
+def _is_owner_email(email):
+    return (email or "").strip().lower() in {e.lower() for e in auth.OWNER_EMAILS}
 
 
 class UserCreate(BaseModel):
@@ -35,7 +40,7 @@ class UserUpdate(BaseModel):
 
 
 @router.get("")
-def list_users(admin=Depends(auth.require_admin)):
+def list_users(admin=Depends(auth.require("users.open"))):
     """Список всех пользователей (без хэшей паролей)."""
     rows = db.query_all(
         """
@@ -58,7 +63,7 @@ def list_users(admin=Depends(auth.require_admin)):
 
 
 @router.post("")
-def create_user(payload: UserCreate, admin=Depends(auth.require_admin)):
+def create_user(payload: UserCreate, admin=Depends(auth.require("users.add"))):
     """Создать пользователя. Email уникален, пароль хэшируется bcrypt."""
     email = (payload.email or "").strip().lower()
     name = (payload.display_name or "").strip()
@@ -77,6 +82,9 @@ def create_user(payload: UserCreate, admin=Depends(auth.require_admin)):
     if role not in ALLOWED_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Недопустимая роль.")
+    if role == "admin" and not admin["is_admin"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Роль «Администратор» назначает только администратор.")
 
     # Проверка уникальности email.
     existing = db.query_one("SELECT id FROM app_users WHERE email = %s", (email,))
@@ -103,7 +111,7 @@ def create_user(payload: UserCreate, admin=Depends(auth.require_admin)):
 
 
 @router.patch("/{user_id}")
-def update_user(user_id: int, payload: UserUpdate, admin=Depends(auth.require_admin)):
+def update_user(user_id: int, payload: UserUpdate, admin=Depends(auth.require("users.edit"))):
     """Редактировать пользователя (ФИО, email, роль, опционально пароль)."""
     email = (payload.email or "").strip().lower()
     name = (payload.display_name or "").strip()
@@ -120,10 +128,16 @@ def update_user(user_id: int, payload: UserUpdate, admin=Depends(auth.require_ad
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Недопустимая роль.")
 
-    target = db.query_one("SELECT id FROM app_users WHERE id = %s", (user_id,))
+    target = db.query_one("SELECT id, email, role FROM app_users WHERE id = %s", (user_id,))
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Пользователь не найден.")
+    if role != (target.get("role") or "").lower() and not admin["is_admin"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Роль сотрудника меняет только администратор.")
+    if _is_owner_email(target["email"]) and (role != "admin" or not _is_owner_email(email)):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Владельца нельзя снять с роли «Администратор» или сменить ему e-mail.")
 
     # Email должен быть уникален среди ДРУГИХ пользователей.
     existing = db.query_one(
@@ -162,14 +176,17 @@ def update_user(user_id: int, payload: UserUpdate, admin=Depends(auth.require_ad
 
 
 @router.delete("/{user_id}")
-def delete_user(user_id: int, admin=Depends(auth.require_admin)):
+def delete_user(user_id: int, admin=Depends(auth.require("users.delete"))):
     """Жёсткое удаление пользователя. Нельзя удалить самого себя."""
     if int(user_id) == int(admin["id"]):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Нельзя удалить собственную учётную запись.")
-    target = db.query_one("SELECT id FROM app_users WHERE id = %s", (user_id,))
+    target = db.query_one("SELECT id, email FROM app_users WHERE id = %s", (user_id,))
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Пользователь не найден.")
+    if _is_owner_email(target["email"]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Учётную запись владельца удалить нельзя.")
     db.execute("DELETE FROM app_users WHERE id = %s", (user_id,))
     return {"deleted": user_id}

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Склады — визуализация остатков Wildberries по складам и дням.
 
-Доступ: все авторизованные пользователи (просмотр + редактирование).
-Раздел открыт всем 30.07.2026 (ранее был owner-only).
+Доступ: функции раздела «Склады» и площадка Wildberries у роли (_require,
+docs/access_roles.md).
 
 Модель данных:
   • wb_stock_daily(date, seller_article, warehouse_id, qty) — штуки по складу/дню.
@@ -26,9 +26,23 @@ import datetime
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
-from .. import db, auth
+from .. import db, auth, permissions
 
 router = APIRouter(prefix="/api/warehouses", tags=["warehouses"])
+
+# Права доступа (docs/access_roles.md): функция роли + площадка Wildberries у роли.
+MP = "Wildberries"
+
+
+def _require(*codes):
+    """Зависимость: раздел «Склады», вкладка Wildberries, площадка Wildberries и функции `codes`."""
+    def dependency(user=Depends(auth.require("stock.open"))):
+        auth.check(user, permissions.tab("stock", MP))
+        auth.check_marketplace(user, MP)
+        for code in codes:
+            auth.check(user, code)
+        return user
+    return dependency
 
 
 def _f(v):
@@ -62,7 +76,7 @@ def by_wh(
     days: int = Query(30, ge=1, le=400),
     date_from: str = Query("", description="YYYY-MM-DD — начало диапазона (приоритетнее days)"),
     date_to: str = Query("", description="YYYY-MM-DD — конец диапазона"),
-    user=Depends(auth.get_current_user),
+    user=Depends(_require()),
 ):
     """Стоимостная оценка остатков по складам и дням.
 
@@ -203,7 +217,7 @@ def by_wh(
 @router.get("/data_quality")
 def data_quality(
     date: str = Query("", description="YYYY-MM-DD — дата остатков; пусто = последняя"),
-    user=Depends(auth.get_current_user),
+    user=Depends(_require("stock.quality")),
 ):
     """Достоверность стоимостной оценки остатков WB на дату.
 
@@ -296,7 +310,7 @@ def data_quality(
 
 # ============================ Справочник складов ============================
 @router.get("/catalog")
-def catalog(user=Depends(auth.get_current_user)):
+def catalog(user=Depends(_require())):
     """Справочник складов: все склады с сопоставлением и статусами.
 
     Для каждого склада:
@@ -347,7 +361,7 @@ class RenameBody(BaseModel):
 
 
 @router.post("/rename")
-def rename(body: RenameBody, user=Depends(auth.get_current_user)):
+def rename(body: RenameBody, user=Depends(_require("stock.wh.rename"))):
     """Переименование отображаемого имени склада (история по id сохраняется)."""
     name = (body.name or "").strip()
     if not name:
@@ -366,7 +380,7 @@ class MergeBody(BaseModel):
 
 
 @router.post("/merge")
-def merge(body: MergeBody, user=Depends(auth.get_current_user)):
+def merge(body: MergeBody, user=Depends(_require("stock.wh.merge"))):
     """Склейка синонима к каноничному складу (canonical_id).
 
     В отчётах строки группируются по COALESCE(canonical_id, id), поэтому
@@ -393,7 +407,7 @@ class IdBody(BaseModel):
 
 
 @router.post("/unmerge")
-def unmerge(body: IdBody, user=Depends(auth.get_current_user)):
+def unmerge(body: IdBody, user=Depends(_require("stock.wh.merge"))):
     """Расклейка: склад снова становится самостоятельным (canonical_id=NULL)."""
     db.execute("UPDATE wb_warehouses SET canonical_id=NULL WHERE id=%s", (body.id,))
     return {"ok": True}
@@ -405,7 +419,7 @@ class ActiveBody(BaseModel):
 
 
 @router.post("/active")
-def set_active(body: ActiveBody, user=Depends(auth.get_current_user)):
+def set_active(body: ActiveBody, user=Depends(_require("stock.wh.status"))):
     """Пометить склад активным/архивным."""
     db.execute("UPDATE wb_warehouses SET is_active=%s WHERE id=%s", (body.is_active, body.id))
     return {"ok": True}
@@ -442,7 +456,7 @@ class IncidentOpenBody(BaseModel):
 
 
 @router.post("/incident/open")
-def incident_open(body: IncidentOpenBody, user=Depends(auth.get_current_user)):
+def incident_open(body: IncidentOpenBody, user=Depends(_require("stock.incidents.edit"))):
     """Открыть инцидент на складе с указанной даты (новый интервал, end=NULL).
 
     Защита от дублей (на 1 склад — максимум 1 ОТКРЫТЫЙ интервал):
@@ -480,7 +494,7 @@ class IncidentCloseBody(BaseModel):
 
 
 @router.post("/incident/close")
-def incident_close(body: IncidentCloseBody, user=Depends(auth.get_current_user)):
+def incident_close(body: IncidentCloseBody, user=Depends(_require("stock.incidents.edit"))):
     """Закрыть активный инцидент с указанной даты.
 
     Пользователь кликает по ячейке-дате и выбирает «Закрыть с этой даты»: значит
@@ -514,7 +528,7 @@ class IncidentDeleteBody(BaseModel):
 
 
 @router.post("/incident/delete")
-def incident_delete(body: IncidentDeleteBody, user=Depends(auth.get_current_user)):
+def incident_delete(body: IncidentDeleteBody, user=Depends(_require("stock.incidents.delete"))):
     """Полное удаление интервала инцидента по id (отмена ошибочной записи)."""
     db.execute("DELETE FROM wb_wh_incidents WHERE id=%s", (body.incident_id,))
     return {"ok": True}
@@ -540,7 +554,7 @@ class DistrictBody(BaseModel):
 
 
 @router.post("/district")
-def set_district(body: DistrictBody, user=Depends(auth.get_current_user)):
+def set_district(body: DistrictBody, user=Depends(_require("stock.wh.district"))):
     """Установить/снять федеральный округ склада.
 
     federal_district пусто/None → снят (NULL): склад попадает в группу

@@ -272,7 +272,7 @@ def rnp_sales_tree(
     date_to: str = Query(None),
     status: str = Query(None),
     manager: str = Query(None),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require_tab("rnp", restrict_mp=False)),
     request: Request = None,
 ):
     """Дерево дневных продаж Ozon по месяцам (с кэшем ответа).

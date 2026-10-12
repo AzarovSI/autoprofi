@@ -14,7 +14,7 @@ from app import db, daily_pi
 from app.routers import prices_router as pr
 
 MSK = ZoneInfo("Europe/Moscow")
-ADMIN = {"id": 1, "role": "admin"}
+ADMIN = {"id": 1, "role": "admin", "is_admin": True}
 
 
 def ts(y, m, d):

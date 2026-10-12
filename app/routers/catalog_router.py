@@ -46,13 +46,40 @@ def _norm_mp(marketplace: str) -> str:
     return "Ozon"
 
 
+def _require(*codes):
+    """Права: раздел «Товары», вкладки площадок, площадка роли и функции `codes`."""
+    def dependency(marketplace: str = Query("Ozon"), user=Depends(auth.require("catalog.open"))):
+        auth.check(user, "catalog.table")
+        auth.check_marketplace(user, _norm_mp(marketplace))
+        for code in codes:
+            auth.check(user, code)
+        return user
+    return dependency
+
+
+# Поля, которые шлют отчёты (РНП, юнит-экономика, ABC) при смене статуса товара.
+_STATUS_ONLY = {"seller_article", "marketplace", "status"}
+
+
+def _check_update(user, sa, mp, payload):
+    """Новый артикул — «Добавить товар»; только статус — любая функция смены статуса
+    или правка карточки; остальное — правка карточки. Площадка — у роли."""
+    auth.check_marketplace(user, mp)
+    if not db.query_one("SELECT 1 AS x FROM catalog_items WHERE seller_article = %s", (sa,)):
+        auth.check(user, "catalog.add")
+    elif set(payload) <= _STATUS_ONLY:
+        auth.check(user, "catalog.edit", "rnp.status.edit", "unit.status.edit", "abc.status.edit")
+    else:
+        auth.check(user, "catalog.edit")
+
+
 @router.get("/items")
 def items(
     marketplace: str = Query("Ozon"),
     search: str = Query(None),
     only_uncategorized: bool = Query(False),
     limit: int = Query(2000),
-    user=Depends(auth.get_current_user),
+    user=Depends(_require()),
 ):
     """Строки справочника для выбранного маркетплейса.
 
@@ -130,6 +157,7 @@ def update_item(payload: dict = Body(...), user=Depends(auth.get_current_user)):
     if not sa:
         raise HTTPException(status_code=400, detail="Не указан артикул")
     mp = _norm_mp(payload.get("marketplace"))
+    _check_update(user, sa, mp, payload)
 
     # 1) Общие поля (категории + наименование) → catalog_items
     common_fields, common_params = [], []
@@ -178,7 +206,7 @@ def update_item(payload: dict = Body(...), user=Depends(auth.get_current_user)):
 
 
 @router.get("/export")
-def export_items(marketplace: str = Query("Ozon"), user=Depends(auth.get_current_user)):
+def export_items(marketplace: str = Query("Ozon"), user=Depends(_require("catalog.export"))):
     """Выгрузка справочника выбранного маркетплейса в Excel."""
     import openpyxl
     mp = _norm_mp(marketplace)
@@ -221,7 +249,7 @@ def export_items(marketplace: str = Query("Ozon"), user=Depends(auth.get_current
 def import_items(
     file: UploadFile = File(...),
     marketplace: str = Query("Ozon"),
-    user=Depends(auth.get_current_user),
+    user=Depends(_require("catalog.import")),
 ):
     """Импорт справочника из Excel для выбранного маркетплейса.
 

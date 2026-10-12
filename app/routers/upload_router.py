@@ -72,6 +72,15 @@ def _set_uploader(conn, user):
 
 
 
+# Набор журнала → функция «Журналы загрузок» своего раздела.
+_HISTORY_CODES = {
+    **dict.fromkeys(("unit_econ", "weekly", "monthly"), "unit.uploads.log"),
+    **dict.fromkeys(("wb_stock", "cost"), "stock.uploads.log"),
+    **dict.fromkeys(("daily", "ads", "stock", "reviews", "competitors", "rnps", "rnps_ozon",
+                     "rnps_common", "rnps_wb", "rnps_ya"), "rnp.uploads.log"),
+}
+
+
 @router.get("/history")
 def history(kind: str = "all", user=Depends(auth.get_current_user)):
     """Журнал загрузок (бывший лист «Лог»).
@@ -84,11 +93,11 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
           | 'rnps_common' — общие отчёты (stock — остатки АВТОПРОФИ, общие по Ozon и WB)
           | 'rnps_wb'     — отчёты для РНП заказы Wildberries (wb_daily, wb_ads, wb_reviews, wb_stock, wb_pi)
           | 'rnps'        — старый объединённый набор (оставлен для совместимости)."""
-    # Журналы раздела «Склады» (kind='wb_stock' и kind='cost') — доступны ВСЕМ
-    # авторизованным (user+admin), т.к. раздел «Склады» открыт всем.
-    # ВСЕ ОСТАЛЬНЫЕ kind (Журналы РНП, недельные/месячные и т.д.) — только admin.
-    if kind not in ("wb_stock", "cost"):
-        auth.require_admin(user)
+    # Право на журнал — по разделу, к которому относится набор (docs/access_roles.md).
+    # Неизвестный набор и 'all' (все загрузки) — нужны журналы всех трёх разделов.
+    log_codes = _HISTORY_CODES.get(kind)
+    for code in (log_codes,) if log_codes else set(_HISTORY_CODES.values()):
+        auth.check(user, code)
     where = ""
     params = ()
     # Набор period_kind для РНП заказы WB (Воронка/Реклама/Рейтинг/Pi).
@@ -155,7 +164,7 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
 @router.post("/report")
 def upload_report(marketplace: str = Form(...), file: UploadFile = File(...),
                   fact_through_date: str = Form(None),
-                  user=Depends(auth.require_admin)):
+                  user=Depends(auth.require("unit.uploads.open"))):
     """Приём Excel-отчёта, нормализация и запись в fact_weekly (перезапись недели).
 
     fact_through_date («Факт по дату», YYYY-MM-DD) — необязательное поле, имеет
@@ -166,6 +175,8 @@ def upload_report(marketplace: str = Form(...), file: UploadFile = File(...),
     mp_key = MP_KEY.get(marketplace.lower())
     if not mp_key:
         raise HTTPException(status_code=400, detail="Неизвестный маркетплейс")
+    auth.check(user, {"ozon": "unit.upload.ozon", "wb": "unit.upload.wb",
+                      "yandex": "unit.upload.ya"}[mp_key])
 
     # Сохраняем во временный файл (loader читает по пути).
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
@@ -230,7 +241,7 @@ def upload_report(marketplace: str = Form(...), file: UploadFile = File(...),
 
 @router.post("/ozon_daily")
 def upload_ozon_daily(file: UploadFile = File(...),
-                      user=Depends(auth.require_admin)):
+                      user=Depends(auth.require("rnp.upload.ozon_daily"))):
     """Приём дневного API-файла Ozon (лист «Данные», 16 колонок) и запись в
     ozon_daily_sales (перезапись диапазона дат из файла).
 
@@ -284,7 +295,7 @@ def upload_ozon_daily(file: UploadFile = File(...),
 @router.post("/ozon_stock")
 def upload_ozon_stock(file: UploadFile = File(...),
                       stock_date: str = Form(...),
-                      user=Depends(auth.require_admin)):
+                      user=Depends(auth.require("rnp.upload.stock_1c"))):
     """Приём ОБЩЕГО отчёта ОСТАТКОВ склада АВТОПРОФИ (МСК)
     из 1С (лист «TDSheet»: Артикул / Наименование / Остаток).
 
@@ -340,14 +351,14 @@ def upload_ozon_stock(file: UploadFile = File(...),
 @router.post("/ozon_wh_stock")
 def upload_ozon_wh_stock(file: UploadFile = File(...),
                          stock_date: str = Form(...),
-                         user=Depends(auth.get_current_user)):
+                         user=Depends(auth.require("stock.upload.ozon"))):
     """Приём отчёта ОСТАТКОВ Ozon ПО СКЛАДАМ (лист «Товар-склад»)
     для раздела «Склады → Озон» (СТОИМОСТНАЯ ОЦЕНКА).
 
     ОТДЕЛЬНО от общего склада 1С: пишет в ozon_stock_daily / ozon_stock_meta
     и справочник ozon_warehouses. Даты в файле нет — она передаётся полем
     stock_date. НЕ трогает stock_daily и РНП (stock_ap_qty).
-    Доступ: все авторизованные (раздел «Склады» открыт всем).
+    Доступ: функция «Остатки Ozon по складам».
     """
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
@@ -388,10 +399,10 @@ def upload_ozon_wh_stock(file: UploadFile = File(...),
 @router.post("/wb_stock")
 def upload_wb_stock(file: UploadFile = File(...),
                     stock_date: str = Form(...),
-                    user=Depends(auth.get_current_user)):
+                    user=Depends(auth.require("stock.upload.wb"))):
     """Приём отчёта ОСТАТКОВ Wildberries по складам (.xlsx, лист Sheet1).
 
-    Доступ: все авторизованные (раздел «Склады» открыт всем: user+admin).
+    Доступ: функция «Остатки WB по складам».
 
     Даты в файле нет — она передаётся полем stock_date (YYYY-MM-DD).
     Пишет в «длинную» модель wb_stock_daily (date, seller_article,
@@ -439,7 +450,7 @@ def upload_wb_stock(file: UploadFile = File(...),
 @router.post("/ya_stock")
 def upload_ya_stock(file: UploadFile = File(...),
                     stock_date: str = Form(...),
-                    user=Depends(auth.require_admin)):
+                    user=Depends(auth.require("rnp.upload.ya_stock"))):
     """Приём ежедневных ОСТАТКОВ склада Яндекс.Маркет (FBY).
 
     Источник — выгрузка «Остатки на складе» (stocks_on_warehouses_*.xlsx).
@@ -489,7 +500,7 @@ def upload_ya_stock(file: UploadFile = File(...),
 @router.post("/ozon_reviews")
 def upload_ozon_reviews(file: UploadFile = File(...),
                         report_date: str = Form(...),
-                        user=Depends(auth.require_admin)):
+                        user=Depends(auth.require("rnp.upload.ozon_reviews"))):
     """Прием отчета ОЗОН «Список товаров» (CSV): рейтинг + отзывы.
 
     Даты в файле нет — она передается полем report_date (YYYY-MM-DD).
@@ -534,7 +545,7 @@ def upload_ozon_reviews(file: UploadFile = File(...),
 @router.post("/ozon_priceva")
 def upload_ozon_priceva(file: UploadFile = File(...),
                         report_date: str = Form(...),
-                        user=Depends(auth.require_admin)):
+                        user=Depends(auth.require("rnp.upload.ozon_priceva"))):
     """Приём отчёта МОНИТОРИНГА ЦЕН КОНКУРЕНТОВ (PriceVA) для Ozon (.xlsx).
 
     Даты в файле нет — она передаётся полем report_date (YYYY-MM-DD).
@@ -580,7 +591,7 @@ def upload_ozon_priceva(file: UploadFile = File(...),
 
 @router.post("/ozon_ads")
 def upload_ozon_ads(file: UploadFile = File(...),
-                    user=Depends(auth.require_admin)):
+                    user=Depends(auth.require("rnp.upload.ozon_ads"))):
     """Приём отчёта РЕКЛАМЫ Ozon («Аналитика продвижения», лист
     «Statistics») и обновление ads_expense_rub/ctr_pct в ozon_daily_sales
     по ключу (date, sku_ozon).
@@ -632,7 +643,7 @@ def upload_ozon_ads(file: UploadFile = File(...),
 
 @router.post("/wb_daily")
 def upload_wb_daily(file: UploadFile = File(...),
-                    user=Depends(auth.require_admin)):
+                    user=Depends(auth.require("rnp.upload.wb_daily"))):
     """Приём отчёта «Воронка» Wildberries (лист «TDSheet», 16 колонок)
     и запись в wb_daily_sales (перезапись диапазона дат из файла).
 
@@ -682,7 +693,7 @@ def upload_wb_daily(file: UploadFile = File(...),
 
 @router.post("/wb_reviews")
 def upload_wb_reviews(file: UploadFile = File(...),
-                      user=Depends(auth.require_admin)):
+                      user=Depends(auth.require("rnp.upload.wb_reviews"))):
     """Приём отчёта «Рейтинг» Wildberries (лист «TDSheet») → Количество отзывов.
 
     Дата берётся из колонки «Дата» самого отчёта (она есть в каждой
@@ -727,7 +738,7 @@ def upload_wb_reviews(file: UploadFile = File(...),
 
 @router.post("/wb_ads")
 def upload_wb_ads(file: UploadFile = File(...),
-                  user=Depends(auth.require_admin)):
+                  user=Depends(auth.require("rnp.upload.wb_ads"))):
     """Приём отчёта «Статистика рекламных кампаний» Wildberries.
 
     Несколько строк на (дата+артикул) = разные кампании; агрегируем по дню:
@@ -771,7 +782,7 @@ def upload_wb_ads(file: UploadFile = File(...),
 @router.post("/wb_priceva")
 def upload_wb_priceva(file: UploadFile = File(...),
                       report_date: str = Form(...),
-                      user=Depends(auth.require_admin)):
+                      user=Depends(auth.require("rnp.upload.wb_priceva"))):
     """Приём отчёта МОНИТОРИНГА ЦЕН КОНКУРЕНТОВ (PriceVA) для Wildberries (.xlsx).
 
     Отчёт по формату ТОТ ЖЕ, что и у Ozon, но ДАННЫЕ (цены конкурентов) —
@@ -819,7 +830,7 @@ def upload_wb_priceva(file: UploadFile = File(...),
 @router.post("/wb_pi")
 def upload_wb_pi(file: UploadFile = File(...),
                  report_date: str = Form(...),
-                 user=Depends(auth.require_admin)):
+                 user=Depends(auth.require("rnp.upload.wb_pi"))):
     """Приём отчёта «ИНДЕКС ЦЕН» для Wildberries (.xlsx).
 
     Раздел ЛК WB «Товары и цены → Индекс цен». За день выгружаются ДВА
@@ -874,7 +885,7 @@ def upload_wb_pi(file: UploadFile = File(...),
 
 @router.post("/ya_daily")
 def upload_ya_daily(file: UploadFile = File(...),
-                    user=Depends(auth.require_admin)):
+                    user=Depends(auth.require("rnp.upload.ya_daily"))):
     """Приём отчёта «Аналитика продаж» Яндекс.Маркета (лист
     «Аналитика продаж», 29 колонок) и запись в ya_daily_sales
     (перезапись диапазона дат из файла).
@@ -918,7 +929,7 @@ def upload_ya_daily(file: UploadFile = File(...),
 @router.post("/cost")
 def upload_cost(file: UploadFile = File(...),
                 start_date: str = Form(None),
-                user=Depends(auth.get_current_user)):
+                user=Depends(auth.require("stock.upload.cost"))):
     """Приём справочника СЕБЕСТОИМОСТИ товаров (.xlsx, лист TDSheet).
 
     Выгрузка из учётной системы: колонки «Артикул» и «с/с расчетная»

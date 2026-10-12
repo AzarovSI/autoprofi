@@ -220,6 +220,24 @@ FUNCTIONS = (
 
 CODES = frozenset(f[1] for f in FUNCTIONS)
 
+# «Раздел → функция» — для сообщений об отказе в доступе.
+TITLES = {f[1]: f"{f[2]} → {f[4]}" for f in FUNCTIONS}
+
+_MP_SUFFIX = {"Wildberries": "wb", "Ozon": "ozon", "Yandex": "ya"}
+
+_MP_ALIASES = {"ozon": "Ozon", "wb": "Wildberries", "wildberries": "Wildberries",
+               "ya": "Yandex", "yandex": "Yandex"}
+
+
+def mp_name(value):
+    """Площадка из параметра запроса — как в роутерах: неизвестное значение = Ozon."""
+    return _MP_ALIASES.get((value or "").strip().lower(), "Ozon")
+
+
+def tab(section, mp):
+    """Код вкладки площадки раздела: tab("unit", "Ozon") -> "unit.tab.ozon"."""
+    return f"{section}.tab.{_MP_SUFFIX[mp]}"
+
 
 def migrate():
     """Таблицы ролей и 8 ролей из xlsx: один раз, атомарно, безопасно для нескольких воркеров."""

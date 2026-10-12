@@ -17,7 +17,7 @@
     «updated_at <= date_to» (актуальность на конец периода). Если цена была
     заведена/изменена ПОСЛЕ конца периода — на конец периода её ещё не было,
     отдаём NULL (фронт покажет «—»).
-  • Правка ячеек: любой авторизованный пользователь. Значения — целые рубли,
+  • Правка ячеек: функция «Изменить базовую цену в ячейке». Значения — целые рубли,
     неотрицательные. UPSERT.
 """
 import collections
@@ -59,7 +59,7 @@ def _parse_iso_date(s: Optional[str]) -> Optional[datetime.date]:
 def pricelist(
     date_from: Optional[str] = Query(None, description="ISO YYYY-MM-DD, начало периода"),
     date_to:   Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода"),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.list.view", "prices.index.view")),
 ):
     """Возвращает плоский список товаров с ценами и иерархией.
 
@@ -337,6 +337,12 @@ def pricelist(
             "oz_buyer_price":      (float(r["oz_buyer_price"])   if r.get("oz_buyer_price")   is not None else None),
         })
 
+    # Себестоимость — только ролям с функцией «Показать себестоимость» (и в выгрузках:
+    # они берут строки отсюда).
+    if not auth.can(user, "prices.list.cost"):
+        for it in items:
+            it["cost"] = it["cost_date"] = None
+
     upd = db.query_one("SELECT max(updated_at) AS mx FROM catalog_base_prices")
     upd_max = upd.get("mx") if upd else None
 
@@ -358,9 +364,9 @@ class PriceCellIn(BaseModel):
 
 
 @router.post("/cell")
-def price_cell(body: PriceCellIn, user=Depends(auth.get_current_user)):
-    """Инлайн-правка одной ячейки прайс-листа. Любой авторизованный
-    пользователь. UPSERT: если строка есть — UPDATE, иначе INSERT.
+def price_cell(body: PriceCellIn, user=Depends(auth.require("prices.list.edit"))):
+    """Инлайн-правка одной ячейки прайс-листа (функция «Изменить базовую цену
+    в ячейке»). UPSERT: если строка есть — UPDATE, иначе INSERT.
 
     base_price:
       • неотрицательное целое → сохранить;
@@ -485,9 +491,11 @@ def prices_index_export(
     date_to: Optional[str] = Query(None),
     show_cost: bool = Query(False),
     search: str = Query("", max_length=500),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.index.export")),
 ):
     """Read-only Excel report; same dates, article search and source as the UI."""
+    if show_cost:
+        auth.check(user, "prices.list.cost")
     from fastapi.responses import StreamingResponse
     from urllib.parse import quote
     from ..price_export import REPORT_TITLE, export_time, index_workbook
@@ -509,9 +517,11 @@ def prices_export(
     date_to: Optional[str] = Query(None),
     show_cost: bool = Query(False),
     search: str = Query("", max_length=500),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.list.export")),
 ):
     """Excel-шаблон базовых цен по товарам прайс-листа за период."""
+    if show_cost:
+        auth.check(user, "prices.list.cost")
     import io
     import openpyxl
     from openpyxl.styles import Font, Alignment
@@ -650,7 +660,7 @@ def _hist_key(versions):
 @router.post("/import")
 def prices_import(
     file: UploadFile = File(...),
-    user=Depends(auth.require_admin),
+    user=Depends(auth.require("prices.list.import")),
 ):
     """Импорт базовых цен из Excel. Только администратор.
 
@@ -856,7 +866,7 @@ def _known_articles_for(marketplace: str) -> set:
 @router.post("/upload_ozon")
 def upload_ozon_prices(
     file: UploadFile = File(...),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.upload.ozon")),
 ):
     """Отчёт Ozon: даты, цена после акций, соинвест и покупатель из файла."""
     return _do_dated_price_upload("Ozon", file, user)
@@ -865,7 +875,7 @@ def upload_ozon_prices(
 @router.post("/upload_wb")
 def upload_wb_prices(
     file: UploadFile = File(...),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.upload.wb")),
 ):
     """Отчёт WB «Цены с СПП»: даты из файла, одна атомарная загрузка."""
     return _do_dated_price_upload("Wildberries", file, user)
@@ -952,7 +962,7 @@ def _do_dated_price_upload(marketplace: str, file: UploadFile, user):
 @router.get("/upload_log")
 def price_upload_log(
     limit: int = Query(50, ge=1, le=500),
-    user=Depends(auth.get_current_user),
+    user=Depends(auth.require("prices.uploads.log")),
 ):
     """Журнал загрузок цен (последние N записей). Формат зеркалит стиль журнала
     РНП-загрузок: дата, кто, тип, МП, дата отчёта, строк, статус, сообщение."""

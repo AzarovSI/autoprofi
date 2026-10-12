@@ -67,7 +67,7 @@ production продолжает работать на Perplexity, а код та
 |---|---|
 | `app/main.py` | Точка входа: роутеры, статика, `/health`, миграции daily Pi и ролей на старте |
 | `app/db.py` | Пул psycopg, `query_all/query_one/execute/execute_values`, `transaction()` |
-| `app/auth.py` | JWT + bcrypt; роли `admin`/`user`; `OWNER_EMAILS` — константа в коде |
+| `app/auth.py` | JWT + bcrypt; пользователь с ролью и правами (`load_user`), проверки `require`/`require_tab`/`check_marketplace`; `OWNER_EMAILS` — константа в коде |
 | `app/permissions.py` | Права доступа: каталог 99 функций (коды), миграция таблиц ролей |
 | `app/cache.py` | Кэш ответов в памяти процесса: namespace + `bump()` + TTL |
 | `app/routers/*_router.py` | API по разделам (РНП, юнит-экономика, цены, продажи, ABC, склады, товары, пользователи, загрузки) |
@@ -171,7 +171,7 @@ bash deploy/mac/restore-db.sh <файл.dump> "<подключение>"
 - `docs/backlog.md` — открытые вопросы и отложенные задачи.
 - `docs/operations.md` — переезд, запуск, тесты, бэкап, выкладка.
 - `docs/access_roles.md` — права доступа: 8 ролей, матрица 99 функций (заполнена владельцем
-  12.10.2026, `docs/access/roles_matrix_20261012.xlsx`), решения, план по этапам. Этап 1
-  (хранение ролей) сделан, не выложен.
+  12.10.2026, `docs/access/roles_matrix_20261012.xlsx`), решения, план по этапам. Этапы 1–2
+  (хранение ролей, проверка на сервере) сделаны, не выложены.
 - `docs/archive/` — отчёты о проверках Perplexity (`qa/`) и локальная копия
   полной выгрузки знаний Perplexity (не в git: внутри есть пароль открытым текстом).
