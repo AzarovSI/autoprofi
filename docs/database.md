@@ -30,7 +30,7 @@
 
 | Таблица | Назначение | Ключ / грануляция | Строк |
 |---|---|---|---:|
-| `app_users` | Учётные записи: e-mail, bcrypt-хеш, имя, роль `admin`/`user`, `last_seen_at` | `id`; вход по e-mail | 9 |
+| `app_users` | Учётные записи: e-mail, bcrypt-хеш, имя, `role_id` (роль из `app_roles`, с 12.10.2026), старая `role` `admin`/`user` (ведётся для отката), `last_seen_at` | `id`; вход по e-mail | 8 (12.10, TimeWeb) |
 | `app_roles` | Роли доступа: название, `is_admin`, площадки `marketplaces` (миграция `2026_10_12_access_roles`, рабочая БД — 12.10.2026) | `id`, UNIQUE `name`; одна роль с `is_admin` | 8 (12.10) |
 | `app_role_permissions` | Разрешённые функции ролей (коды — `app/permissions.py`). Там же `app_users.role_id` | PK `(role_id, permission)` | 374 (12.10) |
 
