@@ -2160,14 +2160,14 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
   grid-column: 1; text-align: center;
 }
 
-/* ── «Индекс цен»: 5 колонок под шапкой Wildberries ─────────────────────
+/* ── «Индекс цен» и его копия «Ценовая модель»: 5 колонок под шапкой Wildberries ──
    Индивидуальные ширины по колонкам, чтобы длинные подписи «Загружаемая» и
    «Для покупателя» помещались, а «СПП» была уже (значения ~«27,9%»).
    Порядок колонок в tbody (после td.sp-name):
      1 Базовая · 2 Pi · 3 Загружаемая · 4 СПП · 5 Для покупателя. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl { min-width: 760px; }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-name,
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl td.sp-name { width: 340px; min-width: 340px; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl { min-width: 760px; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-name,
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl td.sp-name { width: 340px; min-width: 340px; }
 
 /* Nth считается от td: перед .sp-mth идёт td.sp-name (nth-of-type=1),
    поэтому «Базовая» = nth-of-type(2), «Pi»(sp-pi) = 3, «Загружаемая» = 4,
@@ -2175,46 +2175,46 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    где N=1..5 (в этой строке нет sp-name). */
 
 /* 1 «Базовая» */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(1),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) {
   width: 82px; min-width: 82px; max-width: 82px;
 }
 /* 3 «Загружаемая» */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(3),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(3),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) {
   width: 108px; min-width: 108px; max-width: 108px;
 }
 /* 4 «СПП» — узкая */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(4),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(4),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) {
   width: 62px; min-width: 62px; max-width: 62px;
 }
 /* 5 «Для покупателя» — самая длинная подпись */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(5),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(6) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(5),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(6) {
   width: 118px; min-width: 118px; max-width: 118px;
 }
 
 /* Цвет «Wildberries» и «Базовая» в шапке — пурпур. Значения Базовой — тоже.
    `.mp-cross #pl-body .sp-cell .sp-plan` уже задаёт color; повышаем удельный
    вес селектора, привязываясь к [data-sub="index"] и td.sp-mth. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-wb { color: var(--wb-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1) { color: var(--wb-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) .sp-cell .sp-plan { color: var(--wb-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-hgrp.sp-th-wb { color: var(--wb-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(1) { color: var(--wb-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) .sp-cell .sp-plan { color: var(--wb-soft); }
 
 /* Значения «Загружаемая» — жирные. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) .sp-cell .sp-plan { font-weight: 700; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) .sp-cell .sp-plan { font-weight: 700; }
 
 /* Значения «СПП» — зелёный, как в РНП заказы (#38761D). */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) .sp-cell .sp-plan { color: #38761D; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) .sp-cell .sp-plan { color: #38761D; }
 
 /* «Индекс цен» — Pi WB: цветовые пороги (bad — красный, primary — синий).
    Правило общее для любого td.sp-pi — автоматически работает и для Ozon.
    Парное правило для td.sp-pibuy («Pi покупатель»): красный при <1,03,
    порога сверху нет (см. _idxPiPlain в views.js). */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-lo { color: var(--bad); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-hi { color: #0000ff; }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-lo { color: var(--bad); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-hi { color: #0000ff; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
 
 /* ─── Блок Ozon (справа) ───
    После 5 колонок WB (nth-of-type 2..6) идёт столбец «Pi покупатель»
@@ -2226,33 +2226,33 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
      nth-of-type(12) — Для покупателя Ozon (118px).
    В шапке tr.sp-hrow2 th:nth-child(6..10). */
 
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(6),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) {
   width: 82px; min-width: 82px; max-width: 82px;
 }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(8),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(8),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) {
   width: 108px; min-width: 108px; max-width: 108px;
 }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(9),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(9),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) {
   width: 62px; min-width: 62px; max-width: 62px;
 }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(10),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(12) {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(10),
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(12) {
   width: 118px; min-width: 118px; max-width: 118px;
 }
 
 /* Цвет «Ozon» и «Базовая Ozon» в шапке — синий (--ozon-soft). Значения Базовой — тоже. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-oz { color: var(--ozon-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6) { color: var(--ozon-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) .sp-cell .sp-plan { color: var(--ozon-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-hgrp.sp-th-oz { color: var(--ozon-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl thead tr.sp-hrow2 th:nth-child(6) { color: var(--ozon-soft); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) .sp-cell .sp-plan { color: var(--ozon-soft); }
 
 /* Значения «Загружаемая Ozon» — жирные. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) .sp-cell .sp-plan { font-weight: 700; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) .sp-cell .sp-plan { font-weight: 700; }
 
 /* Значения «СПП Ozon» — зелёный, как в РНП заказы (#38761D). */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) .sp-cell .sp-plan { color: #38761D; }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) .sp-cell .sp-plan { color: #38761D; }
 
 /* ─── Отдельный блок «Pi покупатель» между WB и Ozon ───
    Отделяется от соседних блоков визуальным зазором с двух сторон.
@@ -2266,8 +2266,8 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    (border не подходит: border-collapse схлопывает его с border-left соседа).
    Заливка читается как самостоятельный блок, линии его обводят — вместе дают
    лаконичный сегмент без внешних зазоров. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy,
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-pibuy,
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pibuy {
   width: 96px; min-width: 96px; max-width: 96px;
   text-align: center;
   background-color: var(--bg-elev2);
@@ -2275,10 +2275,10 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 }
 /* Строки-группы: колонка слегка темнее группового фона, чтобы секция
    оставалась цельной, а не сливалась с групповой заливкой. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr.sp-group td.sp-pibuy {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr.sp-group td.sp-pibuy {
   background: linear-gradient(#e7ecf2, #e7ecf2), var(--bg-elev);
 }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy.sp-pibuy-h {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-pibuy.sp-pibuy-h {
   vertical-align: middle;
   white-space: normal;
   line-height: 1.25;

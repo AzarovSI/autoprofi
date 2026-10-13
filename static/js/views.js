@@ -9643,6 +9643,100 @@ const Views = (() => {
     pricesSyncToolbarHeight();
   }
 
+  // ── Подраздел «Ценовая модель» ────────────────────────────────────────
+  // Тестовый лист владельца для новой модели ценообразования (доступ —
+  // функция prices.model.view, по умолчанию только администратор). Пока это
+  // копия «Индекса цен»: те же данные и формулы Pi (_idx*). Строки и шапка —
+  // свои функции, чтобы доработки модели не меняли рабочий «Индекс цен».
+  function pricesModelRenderGroupRow(node) {
+    const expanded = !!pricesState.expanded[node.key];
+    const arrow = '<span class="sp-exp">' + (expanded ? '▾' : '▸') + '</span>';
+    const indent = (node.level - 1) * 15;
+    return (
+      '<tr class="sp-row sp-group lvl' + node.level + ' sp-has" data-key="' + U.esc(node.key) + '" style="cursor:pointer">' +
+        '<td class="sp-name sp-grp lvl' + node.level + '" style="padding-left:' + indent + 'px">' +
+          arrow + U.esc(node.label) +
+        '</td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth sp-pi"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth sp-pibuy"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth sp-pi"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth"></td>' +
+        '<td class="sp-mth"></td>' +
+      '</tr>'
+    );
+  }
+  function pricesModelRenderLeafRow(it, parentLevel) {
+    const indent = parentLevel * 15 + 16;
+    return (
+      '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
+        '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
+        // ── Wildberries (слева) ──
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_wb) + '</div></td>' +
+        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxWbPi(it)) : _idxPi(_idxWbPi(it))) + '</td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbAup(it)) + '</div></td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.wb_spp_pct, it.wb_spp_is_estimated) + '</div></td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbBuyer(it)) + '</div></td>' +
+        // ── Pi покупатель: отдельный блок-разделитель между WB и Ozon ──
+        '<td class="sp-mth sp-pibuy">' + _idxPiPlain(_idxBuyerPi(it)) + '</td>' +
+        // ── Ozon (справа) ──
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_ozon) + '</div></td>' +
+        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxOzPi(it)) : _idxPi(_idxOzPi(it))) + '</td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzAup(it)) + '</div></td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.oz_spp_pct, it.oz_spp_is_estimated) + '</div></td>' +
+        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzBuyer(it)) + '</div></td>' +
+      '</tr>'
+    );
+  }
+  function pricesModelPaintTable(host) {
+    if (!pricesState.data) return;
+    const q = pricesState.search || '';
+    const filtered = pricesFilterItems(pricesState.data.items || [], q);
+    const { root, unassigned } = pricesBuildTree(filtered);
+    const opts = {
+      forceExpanded: !!q.trim(),
+      renderGroup: pricesModelRenderGroupRow,
+      renderLeaf:  pricesModelRenderLeafRow,
+    };
+    const out = [];
+    pricesRenderNode(root, opts, out);
+    if (pricesCountLeaves(unassigned) > 0) pricesRenderNode(unassigned, opts, out);
+    if (!out.length) {
+      host.innerHTML = '<div class="empty">Ничего не найдено' + (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
+      return;
+    }
+    host.innerHTML =
+      '<div class="tbl-wrap sp-wrap">' +
+        '<table class="tbl sp-tbl">' +
+          '<thead><tr>' +
+            '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
+            '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" title="Pi покупатель = Цена для покупателя Ozon / Цена для покупателя Wildberries">Pi покупатель</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-oz" colspan="5">Ozon</th>' +
+          '</tr>' +
+          '<tr class="sp-hrow2">' +
+            '<th class="sp-mth" title="Базовая цена Wildberries из подраздела «Прайс-лист»">Базовая</th>' +
+            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Wildberries / Базовая Wildberries; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth" title="Цена со скидкой (загружаемая) из последнего отчёта WB на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
+            '<th class="sp-mth sp-th-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
+            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Ozon / Базовая Ozon; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth" title="Цена продавца после акций из последнего отчёта Ozon на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth" title="СПП/соинвест из отчёта Ozon; при нулевом или отсутствующем соинвесте товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth" title="Цена продавца с соинвестом из отчёта Ozon; при нулевом или отсутствующем соинвесте показывается прочерк">Для покупателя</th>' +
+          '</tr></thead>' +
+          '<tbody>' + out.join('') + '</tbody>' +
+        '</table>' +
+      '</div>';
+    pricesSyncToolbarHeight();
+  }
+
   // «Загрузка данных» в разделе «Цены»: две карточки загрузки (Ozon/WB) + журнал.
   // Стиль — точно как в «РНП заказы → Загрузка данных»: .card + .upload-zone,
   // драг&дроп, ссылка «выберите файл», журнал — .tbl-wrap > .tbl, mpPill.
@@ -9852,6 +9946,7 @@ const Views = (() => {
     const subs = [
       ['pricelist', 'Прайс-лист', '', App.can('prices.list.view')],
       ['index', 'Индекс цен', '', App.can('prices.index.view')],
+      ['model', 'Ценовая модель', '', App.can('prices.model.view')],
       ['upload', 'Загрузка данных', ' subtab-right',
        App.can('prices.upload.ozon') || App.can('prices.upload.wb') || App.can('prices.uploads.log')],
     ].filter(s => s[3]);
@@ -9908,7 +10003,7 @@ const Views = (() => {
           : '') +
       '</div>';
 
-    const filtersHtml = (sub === 'pricelist' || sub === 'index')
+    const filtersHtml = (sub === 'pricelist' || sub === 'index' || sub === 'model')
       ? ('<div class="rnp-filters-host">' +
            '<input class="input-sm" id="pl-search" placeholder="Поиск по артикулу или названию…" value="' + U.esc(pricesState.search || '') + '">' +
            '<button class="btn-sm" id="pl-expand" type="button" title="Развернуть все группировки">Развернуть всё</button>' +
@@ -9926,9 +10021,9 @@ const Views = (() => {
              plActionsHtml +
            '</span>' +
          '</div>')
-      : (sub === 'index')
+      : (sub === 'index' || sub === 'model')
       ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
-           '<span>Индекс цен</span>' +
+           '<span>' + (sub === 'model' ? 'Ценовая модель' : 'Индекс цен') + '</span>' +
            '<span style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">' +
              // Актуальность данных: последний день с заказами (макс. по всем
              // товарам). Берётся из wb_last_date / oz_last_date, приходящих
@@ -9972,7 +10067,9 @@ const Views = (() => {
 
     body.innerHTML = '<div id="pl-tbl"><div class="loader"><span class="spinner"></span></div></div>';
     const tblHost = body.querySelector('#pl-tbl');
-    const paintFn = (sub === 'index') ? pricesIdxPaintTable : pricesPaintTable;
+    const paintFn = (sub === 'index') ? pricesIdxPaintTable
+                  : (sub === 'model') ? pricesModelPaintTable
+                  : pricesPaintTable;
 
     // Загружаем данные (если ещё не загружены в сессии). С учётом периода.
     async function reloadData() {
@@ -10177,7 +10274,7 @@ const Views = (() => {
       if (!tr) return;
       const key = tr.dataset.key;
       pricesState.expanded[key] = !pricesState.expanded[key];
-      pricesPaintTable(tblHost);
+      paintFn(tblHost);
     });
 
     // --- Двойной клик по ячейке цены (span.sp-plan-edit) → инлайн-input.

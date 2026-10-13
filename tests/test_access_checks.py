@@ -80,7 +80,7 @@ CASES = [
      ["unit.open", tab("unit", OZ), tab("unit", WB)], [OZ, WB]),
     ("GET", "/api/trend/sku_matrix?marketplace=wb", {}, ["unit.open", tab("unit", WB)], [WB]),
     # Цены: площадки роли не ограничивают
-    ("GET", "/api/prices/pricelist", {}, [("prices.list.view", "prices.index.view")], []),
+    ("GET", "/api/prices/pricelist", {}, [("prices.list.view", "prices.index.view", "prices.model.view")], []),
     ("POST", "/api/prices/cell", {"json": {"seller_article": "SKU-1", "marketplace": "ozon",
                                            "base_price": None}}, ["prices.list.edit"], []),
     ("GET", "/api/prices/export", {}, ["prices.list.export"], []),

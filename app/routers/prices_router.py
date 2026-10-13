@@ -59,7 +59,7 @@ def _parse_iso_date(s: Optional[str]) -> Optional[datetime.date]:
 def pricelist(
     date_from: Optional[str] = Query(None, description="ISO YYYY-MM-DD, начало периода"),
     date_to:   Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода"),
-    user=Depends(auth.require("prices.list.view", "prices.index.view")),
+    user=Depends(auth.require("prices.list.view", "prices.index.view", "prices.model.view")),
 ):
     """Возвращает плоский список товаров с ценами и иерархией.
 

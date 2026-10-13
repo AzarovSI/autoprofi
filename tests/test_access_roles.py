@@ -37,8 +37,11 @@ def reset_roles():
 class CatalogTest(unittest.TestCase):
     def test_catalog_matches_xlsx(self):
         _, rows, _ = matrix()
-        self.assertEqual(len(permissions.FUNCTIONS), 99)
-        self.assertEqual(len(permissions.CODES), 99)
+        # Первые 99 функций — матрица xlsx от 12.10.2026; новые идут после неё.
+        self.assertEqual(len(rows), 99)
+        self.assertEqual(len(permissions.CODES), len(permissions.FUNCTIONS))
+        self.assertEqual([f[0] for f in permissions.FUNCTIONS],
+                         list(range(1, len(permissions.FUNCTIONS) + 1)))
         for f, r in zip(permissions.FUNCTIONS, rows):
             with self.subTest(n=f[0]):
                 self.assertEqual((f[0], *f[2:]), tuple(r[:6]))
