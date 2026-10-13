@@ -9036,6 +9036,7 @@ const Views = (() => {
     from: '', to: '',
     _periodInit: false,
     loading: false,
+    modelCat: null,             // «Ценовая модель»: 'артикул|площадка' → цена категории
   };
 
   // ===== Компонент выбора периода прайс-листа (клон bindRnpsPeriod) =====
@@ -9644,52 +9645,101 @@ const Views = (() => {
   }
 
   // ── Подраздел «Ценовая модель» ────────────────────────────────────────
-  // Тестовый лист владельца для новой модели ценообразования (доступ —
-  // функция prices.model.view, по умолчанию только администратор). Пока это
-  // копия «Индекса цен»: те же данные и формулы Pi (_idx*). Строки и шапка —
-  // свои функции, чтобы доработки модели не меняли рабочий «Индекс цен».
+  // Тестовый лист владельца для новой модели ценообразования (просмотр —
+  // prices.model.view, правка цены категории — prices.model.edit; по умолчанию
+  // только администратор). Основа — «Индекс цен» (те же данные и формулы Pi
+  // _idx*), в каждом блоке площадки ещё две колонки:
+  //   «Цена категории» — вводит продакт (price_model_category);
+  //   «Загружаемая расчётная» = Цена категории / (1 − СПП), вверх до рубля:
+  //   после вычета СПП площадки цена для покупателя ≈ цене категории.
+  // Колонки помечены классами pm-* (стили — app.css, [data-sub="model"]).
+  const PM_MP = { wb: 'Wildberries', oz: 'Ozon' };
+
+  function _pmCatKey(art, mp) { return art + '|' + mp; }
+  function _pmCat(art, mp) {
+    const m = pricesState.modelCat;
+    return (m && m[_pmCatKey(art, mp)]) || null;
+  }
+  // Загружаемая расчётная. Без СПП (товара нет в продаже) — не считается.
+  // −1e-6 — защита от погрешности дробей: 1000 / 0,5 не должно стать 2001.
+  function _pmCalcUpload(cat, spp) {
+    if (cat == null || !(cat > 0) || spp == null || !(spp > 0) || !(spp < 1)) return null;
+    return Math.ceil(cat / (1 - spp) - 1e-6);
+  }
+  function _pmCatCell(art, mp) {
+    const c = _pmCat(art, mp);
+    const val = c ? c.category_price : null;
+    const edit = App.can('prices.model.edit');
+    const who = c ? ('Изменил: ' + (c.updated_by || '—') + (c.updated_at ? ', ' + new Date(c.updated_at).toLocaleString('ru-RU') : '')) : '';
+    const tip = edit ? ((val == null ? 'Двойной клик — задать цену категории' : 'Двойной клик — изменить цену категории') + (who ? '\n' + who : '')) : who;
+    return '<span class="sp-plan' + (edit ? ' pm-cat-edit' : '') + (val == null ? ' sp-plan-empty' : '') + '"' +
+      ' data-art="' + U.esc(art) + '" data-mp="' + mp + '" data-val="' + (val == null ? '' : val) + '"' +
+      (tip ? ' title="' + U.esc(tip) + '"' : '') + '>' +
+      (val == null ? '–' : U.fmtNum(val)) + '</span>';
+  }
+  function _pmCalcCell(art, mp, spp, isEst) {
+    const c = _pmCat(art, mp);
+    const v = _pmCalcUpload(c ? c.category_price : null, spp);
+    if (v == null) {
+      const why = !c ? '' : ' title="Нет СПП — товара нет в продаже, расчёт невозможен"';
+      return '<span class="sp-plan sp-plan-empty"' + why + '>–</span>';
+    }
+    if (isEst) {
+      return '<span class="sp-plan sp-plan-est" title="СПП оценочная: взята из ближайшего известного дня">' +
+        '<span class="sp-spp-est" aria-hidden="true">≈</span>' + U.fmtNum(v) + '</span>';
+    }
+    return '<span class="sp-plan">' + U.fmtNum(v) + '</span>';
+  }
+
   function pricesModelRenderGroupRow(node) {
     const expanded = !!pricesState.expanded[node.key];
     const arrow = '<span class="sp-exp">' + (expanded ? '▾' : '▸') + '</span>';
     const indent = (node.level - 1) * 15;
+    const block = (m) =>
+      '<td class="sp-mth pm-base pm-' + m + '"></td>' +
+      '<td class="sp-mth sp-pi"></td>' +
+      '<td class="sp-mth pm-aup"></td>' +
+      '<td class="sp-mth pm-spp"></td>' +
+      '<td class="sp-mth pm-buy"></td>' +
+      '<td class="sp-mth pm-cat"></td>' +
+      '<td class="sp-mth pm-calc"></td>';
     return (
       '<tr class="sp-row sp-group lvl' + node.level + ' sp-has" data-key="' + U.esc(node.key) + '" style="cursor:pointer">' +
         '<td class="sp-name sp-grp lvl' + node.level + '" style="padding-left:' + indent + 'px">' +
           arrow + U.esc(node.label) +
         '</td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth sp-pi"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
+        block('wb') +
         '<td class="sp-mth sp-pibuy"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth sp-pi"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
+        block('oz') +
       '</tr>'
     );
   }
   function pricesModelRenderLeafRow(it, parentLevel) {
     const indent = parentLevel * 15 + 16;
+    const art = it.seller_article;
+    const cell = (cls, html) => '<td class="sp-mth ' + cls + '"><div class="sp-cell sp-cell-single">' + html + '</div></td>';
+    const piHtml = (v) => _idxIsAvtoprofi(it) ? _idxPiAvtoprofi(v) : _idxPi(v);
     return (
-      '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
-        '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
+      '<tr class="sp-row sp-leaf" data-art="' + U.esc(art) + '">' +
+        '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(art) + '</td>' +
         // ── Wildberries (слева) ──
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_wb) + '</div></td>' +
-        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxWbPi(it)) : _idxPi(_idxWbPi(it))) + '</td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbAup(it)) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.wb_spp_pct, it.wb_spp_is_estimated) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbBuyer(it)) + '</div></td>' +
+        cell('pm-base pm-wb', _idxRub(it.price_wb)) +
+        '<td class="sp-mth sp-pi">' + piHtml(_idxWbPi(it)) + '</td>' +
+        cell('pm-aup', _idxRub(_idxWbAup(it))) +
+        cell('pm-spp', _idxPctSpp(it.wb_spp_pct, it.wb_spp_is_estimated)) +
+        cell('pm-buy', _idxRub(_idxWbBuyer(it))) +
+        cell('pm-cat', _pmCatCell(art, PM_MP.wb)) +
+        cell('pm-calc', _pmCalcCell(art, PM_MP.wb, it.wb_spp_pct, it.wb_spp_is_estimated)) +
         // ── Pi покупатель: отдельный блок-разделитель между WB и Ozon ──
         '<td class="sp-mth sp-pibuy">' + _idxPiPlain(_idxBuyerPi(it)) + '</td>' +
         // ── Ozon (справа) ──
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_ozon) + '</div></td>' +
-        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxOzPi(it)) : _idxPi(_idxOzPi(it))) + '</td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzAup(it)) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.oz_spp_pct, it.oz_spp_is_estimated) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzBuyer(it)) + '</div></td>' +
+        cell('pm-base pm-oz', _idxRub(it.price_ozon)) +
+        '<td class="sp-mth sp-pi">' + piHtml(_idxOzPi(it)) + '</td>' +
+        cell('pm-aup', _idxRub(_idxOzAup(it))) +
+        cell('pm-spp', _idxPctSpp(it.oz_spp_pct, it.oz_spp_is_estimated)) +
+        cell('pm-buy', _idxRub(_idxOzBuyer(it))) +
+        cell('pm-cat', _pmCatCell(art, PM_MP.oz)) +
+        cell('pm-calc', _pmCalcCell(art, PM_MP.oz, it.oz_spp_pct, it.oz_spp_is_estimated)) +
       '</tr>'
     );
   }
@@ -9710,27 +9760,24 @@ const Views = (() => {
       host.innerHTML = '<div class="empty">Ничего не найдено' + (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
       return;
     }
+    const head2 = (m, name, mpCls) =>
+      '<th class="sp-mth pm-base pm-' + m + '" title="Базовая цена ' + name + ' из подраздела «Прайс-лист»">Базовая</th>' +
+      '<th class="sp-mth sp-pi" title="Pi = Загружаемая ' + name + ' / Базовая ' + name + '; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+      '<th class="sp-mth pm-aup" title="Загружаемая цена из последнего отчёта ' + name + ' на конец периода">Загружаемая</th>' +
+      '<th class="sp-mth pm-spp" title="СПП из отчёта ' + name + '; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
+      '<th class="sp-mth pm-buy" title="Цена для покупателя из отчёта ' + name + '; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
+      '<th class="sp-mth pm-cat" title="Средняя цена категории для покупателя — вводит продакт-менеджер (двойной клик по ячейке)">Цена категории</th>' +
+      '<th class="sp-mth pm-calc" title="Загружаемая расчётная = Цена категории / (1 − СПП), вверх до рубля. Её загрузить в ЛК ' + name + ', чтобы после СПП цена для покупателя была равна цене категории">Загружаемая расчётная</th>';
     host.innerHTML =
       '<div class="tbl-wrap sp-wrap">' +
         '<table class="tbl sp-tbl">' +
           '<thead><tr>' +
             '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
-            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="7">Wildberries</th>' +
             '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" title="Pi покупатель = Цена для покупателя Ozon / Цена для покупателя Wildberries">Pi покупатель</th>' +
-            '<th class="sp-mth sp-hgrp sp-th-oz" colspan="5">Ozon</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-oz" colspan="7">Ozon</th>' +
           '</tr>' +
-          '<tr class="sp-hrow2">' +
-            '<th class="sp-mth" title="Базовая цена Wildberries из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Wildberries / Базовая Wildberries; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
-            '<th class="sp-mth" title="Цена со скидкой (загружаемая) из последнего отчёта WB на конец периода">Загружаемая</th>' +
-            '<th class="sp-mth" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
-            '<th class="sp-mth" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
-            '<th class="sp-mth sp-th-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Ozon / Базовая Ozon; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
-            '<th class="sp-mth" title="Цена продавца после акций из последнего отчёта Ozon на конец периода">Загружаемая</th>' +
-            '<th class="sp-mth" title="СПП/соинвест из отчёта Ozon; при нулевом или отсутствующем соинвесте товар отсутствует, показывается прочерк">СПП</th>' +
-            '<th class="sp-mth" title="Цена продавца с соинвестом из отчёта Ozon; при нулевом или отсутствующем соинвесте показывается прочерк">Для покупателя</th>' +
-          '</tr></thead>' +
+          '<tr class="sp-hrow2">' + head2('wb', 'Wildberries') + head2('oz', 'Ozon') + '</tr></thead>' +
           '<tbody>' + out.join('') + '</tbody>' +
         '</table>' +
       '</div>';
@@ -10091,7 +10138,14 @@ const Views = (() => {
       if (!pricesState.data) {
         await reloadData();
       }
+      // Цены категории перечитываются при каждом входе в «Ценовую модель».
+      if (sub === 'model') {
+        const r = await API.pricesModelCategory();
+        pricesState.modelCat = {};
+        for (const c of (r.items || [])) pricesState.modelCat[_pmCatKey(c.seller_article, c.marketplace)] = c;
+      }
     } catch (err) {
+      if (sub === 'model') tblHost.innerHTML = '<div class="empty">Ошибка загрузки: ' + U.esc(err.message) + '</div>';
       return;
     }
 
@@ -10326,6 +10380,61 @@ const Views = (() => {
         } catch (err) {
           if (App && App.toast) App.toast(err.message || 'Не удалось сохранить цену', 'err');
           span.innerHTML = oldHtml; span.className = oldCls;
+        }
+      };
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); restore(); }
+      });
+      inp.addEventListener('blur', save);
+    });
+
+    // --- «Ценовая модель»: двойной клик по «Цене категории» → ввод.
+    //     Пусто — удалить цену. После сохранения таблица перерисовывается
+    //     (пересчитывается «Загружаемая расчётная»).
+    if (sub === 'model') tblHost.addEventListener('dblclick', (e) => {
+      const span = e.target.closest('.pm-cat-edit');
+      if (!span || span.querySelector('input')) return;
+      const art = span.dataset.art, mp = span.dataset.mp, cur = span.dataset.val;
+      const oldHtml = span.innerHTML;
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '1'; inp.step = '1';
+      inp.className = 'sp-plan-input';
+      inp.value = cur;
+      span.innerHTML = '';
+      span.appendChild(inp);
+      inp.focus(); inp.select();
+
+      let done = false;
+      const restore = () => { if (done) return; done = true; span.innerHTML = oldHtml; };
+      const save = async () => {
+        if (done) return;
+        const raw = (inp.value || '').trim();
+        let val = null;
+        if (raw !== '') {
+          const n = Number(raw);
+          if (!isFinite(n) || n <= 0 || Math.floor(n) !== n) {
+            App.toast('Цена категории — целое число больше нуля (рубли)', 'err');
+            restore(); return;
+          }
+          val = n;
+        }
+        if (val === (cur === '' ? null : Number(cur))) { restore(); return; }
+        done = true;
+        try {
+          const res = await API.pricesModelCategorySet({ seller_article: art, marketplace: mp, category_price: val });
+          const key = _pmCatKey(res.seller_article, res.marketplace);
+          if (res.category_price == null) delete pricesState.modelCat[key];
+          else pricesState.modelCat[key] = {
+            seller_article: res.seller_article, marketplace: res.marketplace,
+            category_price: res.category_price, updated_at: new Date().toISOString(),
+            updated_by: ((u) => (u && (u.display_name || u.email)) || '')(API.getUser()),
+          };
+          paintFn(tblHost);
+          App.toast(res.category_price == null ? 'Цена категории удалена' : 'Цена категории сохранена', 'ok');
+        } catch (err) {
+          App.toast(err.message || 'Не удалось сохранить цену категории', 'err');
+          span.innerHTML = oldHtml;
         }
       };
       inp.addEventListener('keydown', (ev) => {

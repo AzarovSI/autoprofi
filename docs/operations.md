@@ -212,7 +212,7 @@
   (uvicorn **один процесс** — кэш в памяти), пользователь службы `autoprofi-app`.
 - Секреты: `/etc/autoprofi/env` (DB_DSN без пароля, SECRET_KEY — свой, новый), пароль БД
   в `/etc/autoprofi/pgpass` (0600, задаётся `sudo /srv/autoprofi/bin/set-db-password`).
-  Пользователь БД сайта — `autoprofi_app`: SELECT/INSERT/UPDATE/DELETE на таблицы `public` (33 с 12.10.2026),
+  Пользователь БД сайта — `autoprofi_app`: SELECT/INSERT/UPDATE/DELETE на таблицы `public` (34 с 13.10.2026),
   их счётчики, CREATE в `public`; не владелец таблиц — миграции с ALTER применять под `gen_user`; схема `azarov_capital` ему недоступна.
 - Логи: `sudo journalctl -u autoprofi -f`.
 

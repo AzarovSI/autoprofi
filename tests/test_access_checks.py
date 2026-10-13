@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from test_wb_prices import prepare_local_db
 from test_access_roles import reset_roles
-from app import auth, db, permissions
+from app import auth, db, permissions, price_model
 from app.main import app
 from app.routers import prices_router, rnp_comments_router, users_router
 
@@ -86,6 +86,9 @@ CASES = [
     ("GET", "/api/prices/export", {}, ["prices.list.export"], []),
     ("GET", "/api/prices/export?show_cost=true", {}, ["prices.list.export", "prices.list.cost"], []),
     ("GET", "/api/prices/index_export", {}, ["prices.index.export"], []),
+    ("GET", "/api/prices/model_category", {}, ["prices.model.view"], []),
+    ("POST", "/api/prices/model_category", {"json": {"seller_article": "SKU-1", "marketplace": "wb",
+                                                     "category_price": None}}, ["prices.model.edit"], []),
     ("GET", "/api/prices/index_export?show_cost=true", {},
      ["prices.index.export", "prices.list.cost"], []),
     ("POST", "/api/prices/import", {"files": FILE}, ["prices.list.import"], []),
@@ -177,6 +180,7 @@ class AccessChecksTest(unittest.TestCase):
         prepare_local_db()
         reset_roles()
         permissions.migrate()
+        price_model.migrate()
         cls.roles = db.query_all(
             """SELECT r.id, r.name, r.is_admin, r.marketplaces,
                       ARRAY(SELECT permission FROM app_role_permissions p WHERE p.role_id = r.id)

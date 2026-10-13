@@ -28,7 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
-from .. import db, auth
+from .. import db, auth, util
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -483,6 +483,58 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=
         (r.get("seller_article") or ""),
     ))
     return items, data.get("period")
+
+
+# ── «Ценовая модель»: цена категории (price_model_category) ──────────────
+MODEL_MPS = ("Wildberries", "Ozon")
+
+
+@router.get("/model_category")
+def model_category(user=Depends(auth.require("prices.model.view"))):
+    """Все введённые цены категории: артикул, площадка, цена, кто и когда менял."""
+    rows = db.query_all(
+        """SELECT m.seller_article, m.marketplace, m.category_price, m.updated_at,
+                  COALESCE(u.display_name, u.email) AS updated_by
+             FROM price_model_category m
+             LEFT JOIN app_users u ON u.id = m.updated_by_user_id
+            ORDER BY m.seller_article, m.marketplace""")
+    for r in rows:
+        r["updated_at"] = r["updated_at"].isoformat() if r["updated_at"] else None
+    return {"items": rows}
+
+
+class ModelCategoryIn(BaseModel):
+    seller_article: str
+    marketplace: str                  # 'wb' | 'wildberries' | 'ozon'
+    category_price: Optional[int]     # None → удалить цену
+
+
+@router.post("/model_category")
+def model_category_set(body: ModelCategoryIn, user=Depends(auth.require("prices.model.edit"))):
+    """Задать или удалить (None) цену категории одного артикула на площадке."""
+    mp = MP_MAP.get((body.marketplace or "").strip().lower())
+    if mp not in MODEL_MPS:
+        raise HTTPException(status_code=400, detail=f"Неизвестный маркетплейс: {body.marketplace!r}")
+    sa = util.canon_article(body.seller_article or "")
+    if not sa:
+        raise HTTPException(status_code=400, detail="Пустой артикул")
+    price = body.category_price
+    if price is not None and price <= 0:
+        raise HTTPException(status_code=400, detail="Цена категории — целое число больше нуля")
+    if price is None:
+        db.execute("DELETE FROM price_model_category WHERE seller_article=%s AND marketplace=%s",
+                   (sa, mp))
+    else:
+        db.execute(
+            """INSERT INTO price_model_category (seller_article, marketplace, category_price,
+                                                 updated_at, updated_by_user_id)
+                    VALUES (%s, %s, %s, now(), %s)
+               ON CONFLICT (seller_article, marketplace) DO UPDATE SET
+                    category_price = EXCLUDED.category_price,
+                    updated_at = now(),
+                    updated_by_user_id = EXCLUDED.updated_by_user_id""",
+            (sa, mp, price, user.get("id")))
+    return {"ok": True, "seller_article": sa, "marketplace": mp, "category_price": price}
 
 
 @router.get("/index_export")

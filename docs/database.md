@@ -84,6 +84,7 @@
 | `mp_price_daily` | Дневные цены МП: загружаемая цена, СПП/соинвест, цена покупателя, `upload_source` | PK `(seller_article, marketplace, date)` | 15 077 |
 | `price_index_daily` | Вычисленные дневные Pi: `wb_base_pi`, `ozon_base_pi`, `buyer_pi` | PK `(seller_article, date)` | 9 923 |
 | `price_index_revision` | Счётчик пересчётов Pi (одна строка) | `singleton` | 1 |
+| `price_model_category` | «Ценовая модель»: цена категории (целое, ₽), кто и когда менял; пусто = строки нет (миграция `2026_10_13_price_model`, рабочая БД — 13.10.2026) | PK `(seller_article, marketplace)`, только Wildberries / Ozon | 0 (13.10) |
 
 ### Планы
 
@@ -136,6 +137,7 @@
 | `migrations/2026_09_14_price_history.sql` | Создаёт `catalog_base_prices_hist` (с переносом текущих цен), `mp_price_daily`, `mp_price_upload_log` | Применена вручную одной транзакцией (по комментарию в файле). В `app_schema_migrations` **нет** |
 | `migrations/2026_09_21_daily_pi.sql` | `price_index_daily`, `price_index_revision`, функции и триггеры daily Pi, backfill | Выполняется `daily_pi.migrate()` на старте (advisory lock + проверка записи). В `app_schema_migrations`: `2026_09_21_daily_pi`, 21.09.2026 18:31 МСК — **единственная запись** |
 | `migrations/2026_10_12_access_roles.sql` | `app_roles`, `app_role_permissions`, `app_users.role_id`; 8 ролей и права из xlsx (`docs/access_roles.md`) | Выполняется `permissions.migrate()` на старте, как daily Pi. В рабочей БД TimeWeb применена 12.10.2026 под `gen_user` до выкладки (запись в `app_schema_migrations`) |
+| `migrations/2026_10_13_price_model.sql` | `price_model_category` — цена категории «Ценовой модели» | `price_model.migrate()` на старте. В рабочей БД TimeWeb применена 13.10.2026 под `gen_user` до выкладки: права `autoprofi_app`/`autoprofi_ro` выдают default privileges |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
 | `migrate_incidents.py` | `wb_wh_incidents` + перенос старых статусов `incident` из `wb_warehouses` | Уже выполнена, повторно не запускать; не учтена |
 

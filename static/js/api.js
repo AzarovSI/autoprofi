@@ -353,6 +353,13 @@ const API = (() => {
     // заполненного файла (только администратор).
     pricesExportUrl: (p) => API_BASE + '/api/prices/export' + qs(p || {}),
     pricesIndexExportUrl: (p) => API_BASE + '/api/prices/index_export' + qs(p || {}),
+    // «Ценовая модель»: цены категории (без кэша — их правят прямо на листе).
+    pricesModelCategory: () => request('/api/prices/model_category'),
+    // category_price=null удаляет цену.
+    pricesModelCategorySet: (body) => request('/api/prices/model_category', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
     pricesImport: (file) => {
       const fd = new FormData();
       fd.append('file', file);
