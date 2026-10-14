@@ -18,6 +18,8 @@
 - для Ozon прибыль/маржа — обычные revenue/profit/margin_pct;
   для WB берём показатели С УЧЁТОМ рекламы (wb_profit_with_ads,
   wb_margin_with_ads_pct), т.к. реклама WB вычитается отдельно.
+  Исключение — месяцы WB без рекламы по товарам (WB_NO_ADS_MONTHS): там
+  MPPROFIT «(с рекл.)» не вычитает рекламу вовсе, берём profit/margin_pct.
 
 Также отдаём список доступных месяцев с границами дат — клиентский
 фильтр периода (календарный диапазон) переводит выбранный диапазон
@@ -89,14 +91,28 @@ SQL_OZON = """
           AND COALESCE(f.seller_article, '') <> ''
 """
 
+# Месяцы WB, где в отчёте MPPROFIT нет рекламы ни по одному товару (Σ «Вся
+# реклама» = 0: 06.2024–01.2025, 03–06.2025). WB рекламу удерживал (она в строке
+# «Удержания WB»), а «(с рекл.)» MPPROFIT считает так: удержанную рекламу
+# возвращает из общей строки, по товарам вычитает «Баланс» = 0 — реклама
+# выпадает целиком, прибыль «с рекламой» выше прибыли без неё (04.2025: 14,4 млн
+# против 9,7 млн). В такие месяцы берём profit/margin_pct (реклама остаётся в
+# строке общих удержаний). Решение владельца 14.10.2026.
+WB_NO_ADS_MONTHS = """
+    SELECT year, month FROM fact_monthly
+    WHERE marketplace = 'Wildberries' AND row_type = 'Товар'
+    GROUP BY year, month
+    HAVING COALESCE(SUM(wb_ads_total), 0) = 0
+"""
+
 SQL_WB = """
     SELECT
         f.year, f.month,
         UPPER(COALESCE(f.seller_article, '')) AS sku,
         f.item_name           AS name,
         f.revenue,
-        f.wb_profit_with_ads      AS profit,
-        f.wb_margin_with_ads_pct  AS margin,
+        CASE WHEN na.year IS NULL THEN f.wb_profit_with_ads ELSE f.profit END AS profit,
+        CASE WHEN na.year IS NULL THEN f.wb_margin_with_ads_pct ELSE f.margin_pct END AS margin,
         f.sales_qty, f.orders_qty, f.returns_qty,
         f.wb_ads_total        AS ad_spend,
         cm.status             AS status
@@ -108,6 +124,7 @@ SQL_WB = """
         WHERE marketplace = 'Wildberries'
         ORDER BY UPPER(seller_article), seller_article
     ) cm ON cm.k = UPPER(f.seller_article)
+    LEFT JOIN (""" + WB_NO_ADS_MONTHS + """) na ON na.year = f.year AND na.month = f.month
     WHERE f.row_type = 'Товар' AND f.marketplace = 'Wildberries'
           AND COALESCE(f.seller_article, '') <> ''
 """
@@ -146,11 +163,13 @@ SQL_YA = """
 # Яндекс — как Ozon (обычный profit); WB — с учётом рекламы.
 SQL_HOLDS = """
     SELECT
-        year, month, marketplace,
-        CASE WHEN marketplace = 'Wildberries'
-             THEN wb_profit_with_ads ELSE profit END AS profit
-    FROM fact_monthly
-    WHERE row_type <> 'Товар'
+        f.year, f.month, f.marketplace,
+        CASE WHEN f.marketplace = 'Wildberries' AND na.year IS NULL
+             THEN f.wb_profit_with_ads ELSE f.profit END AS profit
+    FROM fact_monthly f
+    LEFT JOIN (""" + WB_NO_ADS_MONTHS + """) na
+           ON f.marketplace = 'Wildberries' AND na.year = f.year AND na.month = f.month
+    WHERE f.row_type <> 'Товар'
 """
 
 
