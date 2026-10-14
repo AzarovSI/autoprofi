@@ -358,6 +358,10 @@ ID_COLS  = [m[0] for m in ID_MAP]
 METRIC_COLS = [m[0] for m in METRIC_MAP]
 # Без периода-колонки и без upload_id (они добавляются в load_report)
 BASE_COLS = DIM_COLS + ID_COLS + CAT_COLS + METRIC_COLS
+# WB: суммируемые колонки (шт./руб.) для доразнесения строк без артикула.
+# Проценты, средние и удельные не трогаем.
+WB_MERGE_COLS = [db for db, _, wb in METRIC_MAP
+                 if wb in WB_SUM_CHECK or wb in ("Налоговая база", "Налог")]
 
 # Названия месяцев (рус.) для человекочитаемого вывода типа отчёта
 RU_MONTHS = ["", "Январь","Февраль","Март","Апрель","Май","Июнь",
@@ -440,6 +444,42 @@ def build_colidx(ws, metric_row_first=False):
 def _fmt_num(v):
     return f"{v:,.2f}".replace(",", " ").replace(".", ",")
 
+def is_wb_orphan_row(ws, idx, r):
+    """Строка WB без артикула и названия, но со штрихкодом. MPPROFIT так выводит
+    дополнительные суммы по товару (08.2024: второй штраф 15 ₽ по SP-5026BK(XL))."""
+    art, name = ws.cell(r, idx["Артикул продавца"]).value, ws.cell(r, idx["Наименование"]).value
+    c = idx.get("Штрихкод")
+    bc = ws.cell(r, c).value if c else None
+    return is_empty_row(art, name) and str(bc or "").strip() not in ("", "-")
+
+def merge_wb_orphans(rows, orphans, insert_cols, new_hold_row):
+    """Прибавить суммы строк без артикула к товару с тем же штрихкодом в отчёте,
+    а если его нет — к «Общим удержаниям» (создав строку). Отдельно их не вставляем:
+    артикул + штрихкод в периоде уникальны. Возвращает (rows, warnings)."""
+    ix = {c: i for i, c in enumerate(insert_cols)}
+    rows = [list(r) for r in rows]
+    warnings = []
+    for r_no, rec in orphans:
+        bc = rec["barcode_wb"]
+        target = next((t for t in rows if t[ix["row_type"]] == "Товар"
+                       and t[ix["barcode_wb"]] == bc), None)
+        if target is not None:
+            where = f"к товару {target[ix['seller_article']] or bc}"
+        else:
+            target = next((t for t in rows if t[ix["row_type"]] == "Общие удержания"), None)
+            if target is None:
+                target = list(new_hold_row())
+                rows.append(target)
+            where = "к общим удержаниям"
+        for col in WB_MERGE_COLS:
+            v = rec.get(col)
+            if v:
+                target[ix[col]] = (target[ix[col]] or 0) + v
+        warnings.append(f"строка {r_no} без артикула (штрихкод {bc}): удержания "
+                        f"{_fmt_num(rec.get('holds_total') or 0)} ₽, выплата "
+                        f"{_fmt_num(rec.get('payout') or 0)} ₽ добавлены {where}")
+    return [tuple(r) for r in rows], warnings
+
 def check_wb_report(ws, idx):
     """Сверка отчёта WB до записи в БД. Возвращает (errors, warnings).
 
@@ -459,7 +499,7 @@ def check_wb_report(ws, idx):
     for r in range(7, ws.max_row + 1):
         art, name = ws.cell(r, art_col).value, ws.cell(r, name_col).value
         hold = is_hold_row(art, name)
-        if hold or not is_empty_row(art, name):
+        if hold or not is_empty_row(art, name) or is_wb_orphan_row(ws, idx, r):
             data_rows.append((r, hold))
 
     def num(r, name):
@@ -769,12 +809,14 @@ def load_report(conn, path, mp_key):
     id_field = "SKU" if oz else "Штрихкод"
     id_col   = None if ya else idx.get(id_field)
     rows = []
+    orphans = []  # WB: строки без артикула и названия, но со штрихкодом — (№ строки, rec)
     skipped_no_id = 0  # пропущено строк без артикула и без штрихкода/SKU
     for r in range(7, ws.max_row + 1):  # данные с 7 строки
         art  = ws.cell(r, art_col).value
         name = ws.cell(r, name_col).value
         hold = is_hold_row(art, name)
-        if not hold and is_empty_row(art, name):
+        orphan = mp_key == "wb" and not hold and is_wb_orphan_row(ws, idx, r)
+        if not hold and not orphan and is_empty_row(art, name):
             continue
         # Канонизируем артикул ДО записи в fact-таблицу и до подстановки
         # категорий/статуса из справочника (ключ cat[] тоже канонический).
@@ -855,7 +897,19 @@ def load_report(conn, path, mp_key):
                 v = ws.cell(r, c).value if c else None
                 rec[db_col] = v if db_col in TEXT_COLS else to_num(v)
 
+        if orphan:
+            orphans.append((r, rec))
+            continue
         rows.append(tuple(rec[col] for col in insert_cols))
+
+    if orphans:
+        def new_hold_row():
+            base = {period_col: period_val, "year": year, "period_text": period,
+                    "period_start": start, "period_end": end, "marketplace": mp_name,
+                    "row_type": "Общие удержания", "upload_id": upload_id}
+            return tuple(base.get(col) for col in insert_cols)
+        rows, merge_warnings = merge_wb_orphans(rows, orphans, insert_cols, new_hold_row)
+        check_warnings = check_warnings + merge_warnings
 
     # --- Корректировка ОБЩИХ удержаний Ozon (универсальная) -------------------
     # Ozon частично РАЗНОСИТ «общие удержания» по товарным строкам (их holds_total

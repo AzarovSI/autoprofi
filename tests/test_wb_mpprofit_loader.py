@@ -123,6 +123,48 @@ class WbCheckTest(unittest.TestCase):
         self.assertIn("«Баланс»", warnings[0])
 
 
+class WbOrphanRowTest(unittest.TestCase):
+    # Как в отчёте за 08.2024: строка только со штрихкодом и вторым штрафом по товару.
+    ORPHAN = {"Штрихкод": "46B-2", "Комиссия": 15, "Все удержания": 15,
+              "Выплата на р/с": -15, "Прибыль": -15, "Выплата на р/с (с рекл.)": -15,
+              "Прибыль (с рекл.)": -15}
+
+    def test_check_counts_orphan_row(self):
+        _, ws = make_ws(ROWS + [self.ORPHAN])
+        self.assertEqual(lc.check_wb_report(ws, lc.build_colidx(ws, metric_row_first=True)), ([], []))
+
+    COLS = ["row_type", "seller_article", "barcode_wb"] + lc.WB_MERGE_COLS
+
+    def row(self, rt, art, bc, **v):
+        return tuple({"row_type": rt, "seller_article": art, "barcode_wb": bc, **v}.get(c)
+                     for c in self.COLS)
+
+    def get(self, row, col):
+        return row[self.COLS.index(col)]
+
+    def test_merged_into_item_with_same_barcode(self):
+        rows = [self.row("Товар", "A-1", "46A-1", holds_total=300, payout=700),
+                self.row("Товар", "B-2", "46B-2", holds_total=500, payout=1500, wb_fines=None)]
+        orphan = {"barcode_wb": "46B-2", "holds_total": 15, "payout": -15, "wb_fines": 15}
+        out, warnings = lc.merge_wb_orphans(rows, [(205, orphan)], self.COLS, lambda: None)
+        self.assertEqual(len(out), 2)
+        self.assertEqual((self.get(out[1], "holds_total"), self.get(out[1], "payout"),
+                          self.get(out[1], "wb_fines")), (515, 1485, 15))
+        self.assertEqual(self.get(out[0], "holds_total"), 300)
+        self.assertIn("строка 205", warnings[0])
+        self.assertIn("к товару B-2", warnings[0])
+
+    def test_unknown_barcode_goes_to_common_holds(self):
+        rows = [self.row("Товар", "A-1", "46A-1", holds_total=300)]
+        orphan = {"barcode_wb": "46Z-9", "holds_total": 15, "payout": -15}
+        out, warnings = lc.merge_wb_orphans(
+            rows, [(9, orphan)], self.COLS, lambda: self.row("Общие удержания", None, None))
+        self.assertEqual(len(out), 2)
+        self.assertEqual(self.get(out[1], "row_type"), "Общие удержания")
+        self.assertEqual((self.get(out[1], "holds_total"), self.get(out[1], "payout")), (15, -15))
+        self.assertIn("к общим удержаниям", warnings[0])
+
+
 class WbLoadRejectTest(unittest.TestCase):
     def test_failed_check_writes_only_journal(self):
         wb, _ = make_ws(ROWS, total_override={"Выплата на р/с": 1})
