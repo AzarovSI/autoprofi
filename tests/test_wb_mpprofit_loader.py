@@ -99,6 +99,13 @@ class WbCheckTest(unittest.TestCase):
         self.assertIn("«Выручка»", errors[0])
         self.assertIn("2 990,00", errors[0])
 
+    def test_orders_total_mismatch_only_warns(self):
+        # Как в отчёте за 06.2026: ИТОГО заказов MPPROFIT неверен, строки верны.
+        errors, warnings = self.check(total_override={"Заказы шт.": 3})
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("«Заказы шт.»: в ИТОГО 3,00, сумма строк 20,00", warnings[0])
+
     def test_payout_identity_rejected(self):
         rows = [dict(ROWS[0], **{"Выплата на р/с": 1}), ROWS[1], ROWS[2]]
         errors, _ = self.check(rows)

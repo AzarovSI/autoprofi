@@ -104,6 +104,10 @@ WB_SUM_CHECK = [
     "Компенсация брака", "Штрафы", "Все удержания", "Внешние расходы/доходы",
     "Выплата на р/с", "Прибыль", "Вся реклама", "Прибыль (с рекл.)",
 ] + WB_OPTIONAL
+# Заказы: расхождение с ИТОГО — только предупреждение. В месячном отчёте за 06.2026
+# ИТОГО заказов MPPROFIT (5 945 шт.) меньше даже продаж (27 606), а сумма строк
+# (28 418) сходится с недельными отчётами — ошибается ИТОГО, строки верны.
+WB_SUM_WARN_ONLY = {"Заказы шт.", "Заказы, руб."}
 SUM_TOLERANCE = 1.0  # руб./шт.: допуск на округление сумм
 
 def apply_oz_aliases(idx):
@@ -443,7 +447,7 @@ def check_wb_report(ws, idx):
       • Σ колонки по строкам ≠ ИТОГО (строка 6) для колонок WB_SUM_CHECK;
       • в строке «Выплата на р/с» ≠ «Выручка» − «Все удержания»;
       • в строке товара «Выплата на р/с (с рекл.)» ≠ «Выплата на р/с» − «Баланс».
-    warnings: в отчёте нет колонок из WB_OPTIONAL."""
+    warnings: в отчёте нет колонок из WB_OPTIONAL; Σ ≠ ИТОГО в колонках WB_SUM_WARN_ONLY."""
     errors, warnings = [], []
     missing_opt = [n for n in WB_OPTIONAL if n not in idx]
     if missing_opt:
@@ -462,7 +466,7 @@ def check_wb_report(ws, idx):
         c = idx.get(name)
         return (to_num(ws.cell(r, c).value) or 0) if c else 0
 
-    sum_errs = []
+    sum_errs, sum_warns = [], []
     for name in WB_SUM_CHECK:
         c = idx.get(name)
         if not c:
@@ -472,10 +476,14 @@ def check_wb_report(ws, idx):
             continue
         s = sum((to_num(ws.cell(r, c).value) or 0) for r, _ in data_rows)
         if abs(total - s) > SUM_TOLERANCE:
-            sum_errs.append(f"«{name}»: в ИТОГО {_fmt_num(total)}, сумма строк {_fmt_num(s)}")
+            msg = f"«{name}»: в ИТОГО {_fmt_num(total)}, сумма строк {_fmt_num(s)}"
+            (sum_warns if name in WB_SUM_WARN_ONLY else sum_errs).append(msg)
     if sum_errs:
         errors.append("сумма строк не совпадает с ИТОГО — " + "; ".join(sum_errs[:5])
                       + (f" и ещё {len(sum_errs) - 5}" if len(sum_errs) > 5 else ""))
+    if sum_warns:
+        warnings.append("ИТОГО отчёта по заказам не совпадает с суммой строк, загружены строки — "
+                        + "; ".join(sum_warns))
 
     def row_label(r):
         a = ws.cell(r, art_col).value or ws.cell(r, name_col).value
