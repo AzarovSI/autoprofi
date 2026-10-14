@@ -154,9 +154,9 @@
 - **Запас в днях** (`node_turnover`, считается только для последнего месяца данных):
   - Окно — 30 дней до опорной даты. Опорная дата — последняя дата с фактом заказов (для Яндекса — любая дата), не позже сегодня.
   - Знаменатель — число дней окна с данными (не календарные дни).
-  - Остаток: Ozon/Яндекс — месячный снимок остатка МП; WB — остаток строго на опорную дату (день только с отзывами/СПП базу не сдвигает).
+  - Остаток: Яндекс — месячный снимок остатка МП; WB и Ozon — остаток строго на опорную дату (частичный день — только отзывы, СПП, цены или склад 1С — базу не сдвигает).
   - Результат: остаток NULL → NULL; остаток ≤ 0 → 0; есть остаток, нет заказов → `inf` (∞); иначе остаток / (заказы окна / дни окна).
-  - Тест: `tests/test_rnp_partial_days.py` (test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock, test_wb_turnover_*, test_snapshot_day_does_not_reduce_forecast_or_raise_turnover).
+  - Тест: `tests/test_rnp_partial_days.py` (test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock, test_wb_turnover_*, test_ozon_partial_day_keeps_turnover_but_not_daily_stock, test_ozon_turnover_*, test_snapshot_day_does_not_reduce_forecast_or_raise_turnover).
 - **Светофор запаса** (`views.js:rnpsTurnBadge`): только товар, итог последнего месяца; < порога 1 — красный (недостаточно), > порога 2 или ∞ — синий (излишек), между — зелёный. Пороги и вкл/выкл — строка `turnover_days` в `anomaly_rules` (по умолчанию в коде 20/60). Значение округляется до целого.
 - **План и прогноз** (`node_plan`, `node_forecast`):
   - План месяца — сумма `sales_plan` по артикулам узла.

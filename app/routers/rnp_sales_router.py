@@ -721,11 +721,12 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
     def node_turnover(node, mk, snap):
         """Оборачиваемость узла за месяц mk в ДНЯХ ЗАПАСА.
 
-        turnover_days = Остаток Ozon (snapshot, посл. непустое значение)
+        turnover_days = Остаток МП
                         / (Σ заказов за ПОСЛЕДНИЕ 30 ДНЕЙ
                            / число дней с данными в этом 30-дневном окне).
 
-        • Остаток берём Ozon (stock_ozon_qty) из month_snapshot.
+        • Остаток МП (stock_ozon_qty): Ozon/WB — строго на turn_anchor
+          (последний день с заказами), Яндекс — из month_snapshot.
         • Среднедневные заказы считаем НЕ за календарный месяц mk, а за
           СКОЛЬЗЯЩЕЕ ОКНО последних 30 дней (turn_window_days) относительно
           последней даты с данными (turn_anchor). Это убирает искажение в
@@ -742,12 +743,12 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         • Нет данных вовсе → None (не показываем).
         """
         stock = snap.get("stock_ozon_qty") if snap else None
-        if is_wb:
-            # Отзывы/СПП следующего дня не должны обнулять базу расчёта.
-            # Остаток берём СТРОГО на дату базы заказов, без поиска более
-            # старого ненулевого остатка. Ноль и отсутствие различаются.
-            values = [wb_turnover_stock[a] for a in node["arts"]
-                      if wb_turnover_stock.get(a) is not None]
+        if not is_ya:
+            # WB и Ozon: частичный день (отзывы, СПП, цены, склад 1С) не должен
+            # обнулять базу расчёта. Остаток берём СТРОГО на дату базы заказов,
+            # без поиска более старого ненулевого остатка. Ноль и отсутствие различаются.
+            values = [anchor_turnover_stock[a] for a in node["arts"]
+                      if anchor_turnover_stock.get(a) is not None]
             stock = sum(_f(v) for v in values) if values else None
         # Σ заказов узла за скользящее окно 30 дней (turn_window — set дат-isoformat).
         orders_sum = 0.0
@@ -834,11 +835,11 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         turn_window_days_n = len(_win_dates)
         turn_anchor = max(_win_dates) if _win_dates else None
 
-    wb_turnover_stock = {}
-    if is_wb and turn_anchor is not None:
+    anchor_turnover_stock = {}
+    if not is_ya and turn_anchor is not None:
         for r in rows:
             if r["date"] == turn_anchor:
-                wb_turnover_stock[r["seller_article"].upper()] = r.get("stock_ozon_qty")
+                anchor_turnover_stock[r["seller_article"].upper()] = r.get("stock_ozon_qty")
 
     pi_by_day, pi_month_dates = {}, {}
     if not is_ya and months:
@@ -945,7 +946,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         "top_metric": {"key": "orders_qty", "label": "Заказы, шт", "kind": "qty"},
         "turnover_cfg": {"red": turn_red, "blue": turn_blue, "enabled": turn_on,
                          **({"as_of": turn_anchor.isoformat() if turn_anchor else None}
-                            if is_wb else {})},
+                            if not is_ya else {})},
         "tree": tree,
         "undistributed": {"count": len(undist_list), "articles": undist_list},
         "managers": sorted(managers),

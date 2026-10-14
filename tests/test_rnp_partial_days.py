@@ -79,6 +79,35 @@ class TreeTests(unittest.TestCase):
         self.assertIsNone(products["SKU-1"]["turnover"]["2026-09"])
         self.assertEqual(products["SKU-2"]["turnover"]["2026-09"], 4)
 
+    def test_ozon_partial_day_keeps_turnover_but_not_daily_stock(self):
+        # Частичный сегодняшний день: только отзывы / цены / склад 1С, без остатка МП.
+        for partial, stocks in (({"delivery_time_hours": 42, "rating": 4.8}, None),
+                                ({"comp_price_avg": 1200}, None),
+                                ({}, [row(stock_ap_qty=80)])):
+            with self.subTest(partial=partial, stocks=bool(stocks)):
+                result = tree("ozon", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                                       row(**partial)], stocks)
+                product = next(leaves(result["tree"]))
+                self.assertEqual(product["turnover"]["2026-09"], 10)
+                self.assertEqual(result["tree"]["turnover"]["2026-09"], 10)
+                self.assertIsNone(product["cells"]["2026-09"]["stock_ozon_qty"])
+                self.assertEqual(result["turnover_cfg"]["as_of"], PREV.isoformat())
+
+    def test_ozon_turnover_does_not_resurrect_missing_or_zero_stock(self):
+        for stock in (None, 0):
+            with self.subTest(stock=stock):
+                result = tree("ozon", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                                       row(orders_qty=10, stock_ozon_qty=stock)])
+                self.assertEqual(result["tree"]["turnover"]["2026-09"], stock)
+                self.assertEqual(result["turnover_cfg"]["as_of"], DAY.isoformat())
+
+    def test_ozon_turnover_uses_common_reference_day_not_stale_article_stock(self):
+        result = tree("ozon", [row(PREV, orders_qty=10, stock_ozon_qty=100),
+                               row(art="SKU-2", orders_qty=10, stock_ozon_qty=20)])
+        products = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
+        self.assertIsNone(products["SKU-1"]["turnover"]["2026-09"])
+        self.assertEqual(products["SKU-2"]["turnover"]["2026-09"], 4)
+
     def test_wb_blank_status_inactive_reviews_do_not_require_distribution(self):
         for status in (None, "", "  "):
             with self.subTest(status=status):
