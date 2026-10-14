@@ -551,6 +551,9 @@ const Views = (() => {
       const rawPlan = (m.plan != null && !isNaN(m.plan)) ? Math.round(m.plan) : 0;
       if (m.is_manual) {
         planCls += ' sales-plan-manual';
+        // Ручной ноль показываем «0»: пустой span нулевой ширины не давал
+        // ни увидеть правку, ни открыть ячейку двойным кликом.
+        if (!planTxt) planInner = '0';
         const prevTxt = (m.prev_qty === null || m.prev_qty === undefined) ? '—' : U.fmtNum(Math.round(m.prev_qty));
         planAttr = ` title="Было: ${prevTxt}"`;
       } else if (!planTxt) {
@@ -984,8 +987,21 @@ const Views = (() => {
       const save = async () => {
         if (done) return;
         const raw = inp.value.trim();
-        const val = raw === '' ? 0 : Number(raw);
-        if (isNaN(val) || val < 0) { cancel(); return; }
+        // Пустое поле или некорректный ввод («1 372», «25,3» — у type=number
+        // value тогда пустой) НЕ сохраняем: раньше это молча записывало 0.
+        // Обнулить план можно только явным «0».
+        if (raw === '' || inp.validity.badInput) {
+          const hint = !wasEmpty || inp.validity.badInput;
+          cancel();
+          if (hint && App && App.toast) App.toast('План не изменён: введите целое число. Чтобы обнулить план, введите 0', 'warn');
+          return;
+        }
+        const val = Number(raw);
+        if (isNaN(val) || val < 0 || !Number.isInteger(val)) {
+          cancel();
+          if (App && App.toast) App.toast('План не изменён: введите целое число не меньше 0', 'warn');
+          return;
+        }
         if (val === cur) { cancel(); return; }
         done = true;
         try {
