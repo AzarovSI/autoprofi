@@ -87,6 +87,25 @@ WB_REQUIRED = [
     "Все удержания", "Выплата на р/с", "Прибыль",
 ]
 
+# Колонки WB, появившиеся в MPPROFIT позже (сентябрь 2026). В старых отчётах их нет:
+# загрузку не отклоняем, поле остаётся NULL, в ответе — предупреждение.
+WB_OPTIONAL = ["Выплата на р/с (с рекл.)", "Баланс", "Промо бонусы"]
+
+# Сверка WB перед записью: в каждой колонке списка Σ строк товаров и удержаний
+# должна совпасть со строкой ИТОГО (проверено на месячном отчёте за 09.2026 — до
+# копейки). Расхождение значит, что колонка прочитана не та или формат сменился.
+# Средние, удельные, проценты, «Налоговая база» и «Налог» не сверяем: в ИТОГО
+# MPPROFIT их не суммирует (налоговая база по товарам 46 млн, в ИТОГО 0).
+WB_SUM_CHECK = [
+    "Заказы шт.", "Заказы, руб.", "Продажи, шт.", "Возвраты шт.", "Отмены шт.",
+    "Продажи", "Возвраты", "Выручка", "Итого продаж шт.", "Себестоимость",
+    "Комиссия", "Прямая логистика", "Обратная логистика", "Полная логистика",
+    "Хранение", "Прочие удержания", "Включая продвижение", "Приемка",
+    "Компенсация брака", "Штрафы", "Все удержания", "Внешние расходы/доходы",
+    "Выплата на р/с", "Прибыль", "Вся реклама", "Прибыль (с рекл.)",
+] + WB_OPTIONAL
+SUM_TOLERANCE = 1.0  # руб./шт.: допуск на округление сумм
+
 def apply_oz_aliases(idx):
     """Обогащает idx (заголовок->колонка): для каждого канонического имени из
     OZ_NAME_ALIASES, если его ещё нет в idx, но есть один из его алиасов —
@@ -181,6 +200,12 @@ METRIC_MAP = [
     ("wb_profit_with_ads",    None,                    "Прибыль (с рекл.)"),
     ("wb_margin_with_ads_pct",None,                    "Марж-ность (с рекл.)"),
     ("wb_roi_with_ads",       None,                    "ROI (с рекл.)"),
+    # Выплата с рекламой, разнесённой по товарам: = «Выплата на р/с» − «Баланс».
+    # В строке «Удержания WB» реклама, удержанная WB, возвращена обратно —
+    # там остаются только прочие удержания без рекламы.
+    ("wb_payout_with_ads",    None,                    "Выплата на р/с (с рекл.)"),
+    ("wb_ads_balance",        None,                    "Баланс"),       # реклама деньгами
+    ("wb_ads_bonus",          None,                    "Промо бонусы"), # реклама бонусами WB
     ("abc_revenue",           "По выручке",            "ABC по выручке"),
     ("abc_sales_qty",         "По продажам, шт.",      "ABC по продажам, шт."),
     ("abc_profit",            "По прибыли",            "ABC по прибыли"),
@@ -385,14 +410,94 @@ def get_period_and_week(ws):
         "month": start.month, "cal_year": start.year,
     }
 
-def build_colidx(ws):
+def build_colidx(ws, metric_row_first=False):
+    """Имя заголовка -> № колонки (первое вхождение).
+
+    metric_row_first=True (WB): сначала вся строка 5 (метрики), потом строка 4
+    (секции и id-колонки). Иначе секция строки 4 перехватывает одноимённую
+    метрику: у WB секция «Продажи» (над «Заказы шт.») и секция «Налог» (над
+    «Налоговая база») давали sales_gross = заказы в шт. и tax = налоговая база.
+    Ozon пока читается по-старому: его алиасы опираются на имена секций."""
     idx = {}
+    if metric_row_first:
+        for hr in (5, 4):
+            for c in range(1, ws.max_column+1):
+                v = ws.cell(hr, c).value
+                if v and str(v).strip():
+                    idx.setdefault(str(v).strip(), c)
+        return idx
     for c in range(1, ws.max_column+1):
         for hr in (4, 5):
             v = ws.cell(hr, c).value
             if v and str(v).strip():
                 idx.setdefault(str(v).strip(), c)
     return idx
+
+def _fmt_num(v):
+    return f"{v:,.2f}".replace(",", " ").replace(".", ",")
+
+def check_wb_report(ws, idx):
+    """Сверка отчёта WB до записи в БД. Возвращает (errors, warnings).
+
+    errors (загрузка отклоняется):
+      • Σ колонки по строкам ≠ ИТОГО (строка 6) для колонок WB_SUM_CHECK;
+      • в строке «Выплата на р/с» ≠ «Выручка» − «Все удержания»;
+      • в строке товара «Выплата на р/с (с рекл.)» ≠ «Выплата на р/с» − «Баланс».
+    warnings: в отчёте нет колонок из WB_OPTIONAL."""
+    errors, warnings = [], []
+    missing_opt = [n for n in WB_OPTIONAL if n not in idx]
+    if missing_opt:
+        warnings.append("в отчёте нет колонок " + ", ".join(f"«{n}»" for n in missing_opt)
+                        + " — эти поля не заполнены")
+
+    art_col, name_col = idx["Артикул продавца"], idx["Наименование"]
+    data_rows = []  # (№ строки, это строка удержаний)
+    for r in range(7, ws.max_row + 1):
+        art, name = ws.cell(r, art_col).value, ws.cell(r, name_col).value
+        hold = is_hold_row(art, name)
+        if hold or not is_empty_row(art, name):
+            data_rows.append((r, hold))
+
+    def num(r, name):
+        c = idx.get(name)
+        return (to_num(ws.cell(r, c).value) or 0) if c else 0
+
+    sum_errs = []
+    for name in WB_SUM_CHECK:
+        c = idx.get(name)
+        if not c:
+            continue
+        total = to_num(ws.cell(6, c).value)
+        if total is None:
+            continue
+        s = sum((to_num(ws.cell(r, c).value) or 0) for r, _ in data_rows)
+        if abs(total - s) > SUM_TOLERANCE:
+            sum_errs.append(f"«{name}»: в ИТОГО {_fmt_num(total)}, сумма строк {_fmt_num(s)}")
+    if sum_errs:
+        errors.append("сумма строк не совпадает с ИТОГО — " + "; ".join(sum_errs[:5])
+                      + (f" и ещё {len(sum_errs) - 5}" if len(sum_errs) > 5 else ""))
+
+    def row_label(r):
+        a = ws.cell(r, art_col).value or ws.cell(r, name_col).value
+        return f"стр. {r} ({str(a).strip()})"
+
+    bad_payout, bad_ads = [], []
+    has_ads = "Выплата на р/с (с рекл.)" in idx and "Баланс" in idx
+    for r, hold in data_rows:
+        if abs(num(r, "Выплата на р/с") - (num(r, "Выручка") - num(r, "Все удержания"))) > SUM_TOLERANCE:
+            bad_payout.append(row_label(r))
+        # В строке «Удержания WB» MPPROFIT возвращает удержанную рекламу — тождество не действует.
+        if has_ads and not hold and abs(
+                num(r, "Выплата на р/с (с рекл.)")
+                - (num(r, "Выплата на р/с") - num(r, "Баланс"))) > SUM_TOLERANCE:
+            bad_ads.append(row_label(r))
+    if bad_payout:
+        errors.append(f"«Выплата на р/с» ≠ «Выручка» − «Все удержания» в {len(bad_payout)} стр.: "
+                      + ", ".join(bad_payout[:3]))
+    if bad_ads:
+        errors.append(f"«Выплата на р/с (с рекл.)» ≠ «Выплата на р/с» − «Баланс» в {len(bad_ads)} стр.: "
+                      + ", ".join(bad_ads[:3]))
+    return errors, warnings
 
 def is_hold_row(art, name):
     a = ("" if art is None else str(art).strip()).lower()
@@ -502,7 +607,7 @@ def load_report(conn, path, mp_key):
     # --- индекс заголовков (по ИМЕНАМ) ---
     # Яндекс: СОСТАВНОЙ индекс «Секция :: Метрика» (двухуровневая шапка).
     # Ozon/WB: обычный индекс по одному имени.
-    idx = build_ya_colidx(ws) if ya else build_colidx(ws)
+    idx = build_ya_colidx(ws) if ya else build_colidx(ws, metric_row_first=(mp_key == "wb"))
     # И Ozon, И WB проверяются ПО НАЛИЧИЮ ключевых заголовков (по именам), а не по
     # жёстким позициям. Это устойчиво к добавлению/перестановке колонок MPPROFIT
     # (напр. новая колонка «Заказы, руб.» у WB сдвигала позиции — прежняя
@@ -539,6 +644,28 @@ def load_report(conn, path, mp_key):
         for e in errs: print("   -", e)
         return {"ok": False, "error": msg, "period_kind": period_kind,
                 "marketplace": mp_name, "period_text": period}
+
+    # --- WB: сверка сумм до любой записи (в т.ч. до пополнения справочника) ---
+    check_warnings = []
+    if mp_key == "wb":
+        check_errs, check_warnings = check_wb_report(ws, idx)
+        if check_errs:
+            msg = "ОШИБКА СВЕРКИ: " + "; ".join(check_errs)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO report_uploads (marketplace, week, month, year, period_text, "
+                    "period_start, period_end, source_file, rows_loaded, status, message, period_kind) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (mp_name,
+                     period_val if period_kind == "weekly" else None,
+                     period_val if period_kind == "monthly" else None,
+                     year, period, start, end,
+                     os.path.basename(path), 0, "ОШИБКА СВЕРКИ", msg, period_kind))
+            conn.commit()
+            print("!!! СВЕРКА ОТЧЁТА НЕ СОШЛАСЬ — загрузка отклонена:")
+            for e in check_errs: print("   -", e)
+            return {"ok": False, "error": msg, "period_kind": period_kind,
+                    "marketplace": mp_name, "period_text": period}
 
     cat = load_catalog(conn)
 
@@ -834,6 +961,8 @@ def load_report(conn, path, mp_key):
                 msg += f"; пропущено без артикула/штрихкода: {skipped_no_id}"
             if holds_dup_warning:
                 msg += f"; ⚠ {holds_dup_warning}"
+            for w in check_warnings:
+                msg += f"; ⚠ {w}"
             cur.execute(
                 "UPDATE report_uploads SET rows_loaded=%s, status='OK', "
                 "message=%s WHERE id=%s",
@@ -871,10 +1000,12 @@ def load_report(conn, path, mp_key):
     print(f"{mp_name}: {period_human} | {period} | "
           f"удалено {deleted}, вставлено {len(rows)} строк, "
           f"пропущено {skipped_no_id} (upload_id={upload_id})")
-    warning = None
+    warnings = []
     if skipped_no_id:
-        warning = (f"Пропущено строк без артикула и штрихкода: {skipped_no_id}. "
-                   f"Такие строки невозможно однозначно идентифицировать, они не загружены.")
+        warnings.append(f"Пропущено строк без артикула и штрихкода: {skipped_no_id}. "
+                        f"Такие строки невозможно однозначно идентифицировать, они не загружены.")
+    warnings += [w[:1].upper() + w[1:] + "." for w in check_warnings]
+    warning = " ".join(warnings) or None
     return {
         "ok": True, "period_kind": period_kind, "kind_label": kind_label,
         "marketplace": mp_name, "period_text": period, "period_human": period_human,
