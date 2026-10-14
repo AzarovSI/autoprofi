@@ -110,6 +110,32 @@ WB_SUM_CHECK = [
 WB_SUM_WARN_ONLY = {"Заказы шт.", "Заказы, руб."}
 SUM_TOLERANCE = 1.0  # руб./шт.: допуск на округление сумм
 
+# --- Ozon: сверка с ИТОГО (по образцу WB, 14.10.2026) ---
+# Колонки, появившиеся в MPPROFIT позже: нет в файле — NULL и предупреждение.
+OZ_OPTIONAL = ["Временное размещение"]
+# Строгая сверка Σ строк = ИТОГО (сверено на 12.2024, 09.2026, нед. 41/2026).
+# Не сверяем: средние/удельные/проценты; «Выдача товара» (в ИТОГО MPPROFIT
+# знак обратный строкам); «Сумма реализации» (не грузится, в 12.2024 ИТОГО ≠ Σ).
+OZ_SUM_CHECK = [
+    "Выкупы шт.", "Возвраты шт.", "Невыкупы/отмены шт.", "Продажи шт.",
+    "Себестоимость", "Комиссия", "Эквайринг", "Прямая логистика",
+    "Доставка до места выдачи", "Обработка возвратов и невыкупов",
+    "Обратная логистика", "Вся логистика", "Оплата за заказ", "Оплата за клики",
+    "Спецразмещение", "Продвижение всего", "Хранение", "Утилизация",
+    "Внешние расходы/доходы",
+] + OZ_OPTIONAL
+OZ_SUM_WARN_ONLY = ["Заказы шт."]  # как у WB: ИТОГО заказов MPPROFIT бывает неверным
+# Колонки, разницу которых с ИТОГО MPPROFIT относит к строке «Удержания OZON»:
+# 12.2024 — 222 008,50 ₽ выручки есть только в ИТОГО, а выплата строки удержаний
+# уже их учитывает; нед. 25/2026 — разнесённые удержания дублировались в строке.
+# Разница (ИТОГО − Σ строк) прибавляется к строке общих удержаний; после этого
+# строка обязана сходиться: «Выплата» = «Продажи руб.» − «Все удержания».
+OZ_HOLD_ABSORB = {
+    "Выкупы, руб.": "sales_gross", "Возвраты руб.": "returns_rub",
+    "Продажи руб.": "revenue", "Все удержания OZON": "holds_total",
+    "Выплата на р/с": "payout", "Прибыль": "profit",
+}
+
 def apply_oz_aliases(idx):
     """Обогащает idx (заголовок->колонка): для каждого канонического имени из
     OZ_NAME_ALIASES, если его ещё нет в idx, но есть один из его алиасов —
@@ -180,6 +206,7 @@ METRIC_MAP = [
     ("storage_pct",           None,                    "% хранения"),
     ("wb_acceptance",         None,                    "Приемка"),
     ("oz_disposal",           "Утилизация",            None),
+    ("oz_temp_placement",     "Временное размещение",  None),  # в UE — «Хранение и проч.»
     ("promo_total",           "Продвижение всего",     "Включая продвижение"),
     ("promo_pct",             "% Всего продвижения",   None),
     ("wb_ads_total",          None,                    "Вся реклама"),
@@ -362,6 +389,9 @@ BASE_COLS = DIM_COLS + ID_COLS + CAT_COLS + METRIC_COLS
 # Проценты, средние и удельные не трогаем.
 WB_MERGE_COLS = [db for db, _, wb in METRIC_MAP
                  if wb in WB_SUM_CHECK or wb in ("Налоговая база", "Налог")]
+OZ_MERGE_COLS = [db for db, oz, _ in METRIC_MAP
+                 if oz in OZ_SUM_CHECK or oz in OZ_SUM_WARN_ONLY or oz in OZ_HOLD_ABSORB
+                 or oz in ("Выдача товара", "Налоговая база", "Налог")]
 
 # Названия месяцев (рус.) для человекочитаемого вывода типа отчёта
 RU_MONTHS = ["", "Январь","Февраль","Март","Апрель","Май","Июнь",
@@ -421,11 +451,12 @@ def get_period_and_week(ws):
 def build_colidx(ws, metric_row_first=False):
     """Имя заголовка -> № колонки (первое вхождение).
 
-    metric_row_first=True (WB): сначала вся строка 5 (метрики), потом строка 4
-    (секции и id-колонки). Иначе секция строки 4 перехватывает одноимённую
-    метрику: у WB секция «Продажи» (над «Заказы шт.») и секция «Налог» (над
-    «Налоговая база») давали sales_gross = заказы в шт. и tax = налоговая база.
-    Ozon пока читается по-старому: его алиасы опираются на имена секций."""
+    metric_row_first=True (WB, Ozon): сначала вся строка 5 (метрики), потом
+    строка 4 (секции и id-колонки). Иначе секция строки 4 перехватывает
+    одноимённую метрику: секция «Налог» (над «Налоговой базой») давала
+    tax = налоговая база, у WB секция «Продажи» — sales_gross = заказы в шт.
+    Алиасы Ozon (apply_oz_aliases) работают поверх: имена секций остаются
+    в индексе запасными ключами."""
     idx = {}
     if metric_row_first:
         for hr in (5, 4):
@@ -444,41 +475,126 @@ def build_colidx(ws, metric_row_first=False):
 def _fmt_num(v):
     return f"{v:,.2f}".replace(",", " ").replace(".", ",")
 
-def is_wb_orphan_row(ws, idx, r):
-    """Строка WB без артикула и названия, но со штрихкодом. MPPROFIT так выводит
-    дополнительные суммы по товару (08.2024: второй штраф 15 ₽ по SP-5026BK(XL))."""
-    art, name = ws.cell(r, idx["Артикул продавца"]).value, ws.cell(r, idx["Наименование"]).value
-    c = idx.get("Штрихкод")
-    bc = ws.cell(r, c).value if c else None
-    return is_empty_row(art, name) and str(bc or "").strip() not in ("", "-")
+# Строки без артикула и названия, но с id площадки: MPPROFIT так выводит
+# дополнительные суммы по товару (WB 08.2024: второй штраф 15 ₽ по SP-5026BK(XL);
+# Ozon нед. 41/2026: выкуп с возвратом и логистика 189,07 ₽ по SKU 5648890771).
+# mp_key -> (заголовок id в отчёте, колонка БД, суммируемые колонки)
+ORPHAN_KEYS = {"wb": ("Штрихкод", "barcode_wb"), "ozon": ("SKU", "sku_ozon")}
 
-def merge_wb_orphans(rows, orphans, insert_cols, new_hold_row):
-    """Прибавить суммы строк без артикула к товару с тем же штрихкодом в отчёте,
+def is_orphan_row(ws, idx, r, mp_key):
+    art, name = ws.cell(r, idx["Артикул продавца"]).value, ws.cell(r, idx["Наименование"]).value
+    c = idx.get(ORPHAN_KEYS[mp_key][0])
+    v = ws.cell(r, c).value if c else None
+    return is_empty_row(art, name) and str(v or "").strip() not in ("", "-")
+
+def merge_orphans(rows, orphans, insert_cols, new_hold_row, mp_key):
+    """Прибавить суммы строк без артикула к товару с тем же id площадки в отчёте,
     а если его нет — к «Общим удержаниям» (создав строку). Отдельно их не вставляем:
-    артикул + штрихкод в периоде уникальны. Возвращает (rows, warnings)."""
+    артикул + id в периоде уникальны. Возвращает (rows, warnings)."""
+    id_name, key_col = ORPHAN_KEYS[mp_key]
+    merge_cols = WB_MERGE_COLS if mp_key == "wb" else OZ_MERGE_COLS
     ix = {c: i for i, c in enumerate(insert_cols)}
     rows = [list(r) for r in rows]
     warnings = []
     for r_no, rec in orphans:
-        bc = rec["barcode_wb"]
+        key = rec[key_col]
         target = next((t for t in rows if t[ix["row_type"]] == "Товар"
-                       and t[ix["barcode_wb"]] == bc), None)
+                       and t[ix[key_col]] == key), None)
         if target is not None:
-            where = f"к товару {target[ix['seller_article']] or bc}"
+            where = f"к товару {target[ix['seller_article']] or key}"
         else:
             target = next((t for t in rows if t[ix["row_type"]] == "Общие удержания"), None)
             if target is None:
                 target = list(new_hold_row())
                 rows.append(target)
             where = "к общим удержаниям"
-        for col in WB_MERGE_COLS:
+        for col in merge_cols:
             v = rec.get(col)
             if v:
                 target[ix[col]] = (target[ix[col]] or 0) + v
-        warnings.append(f"строка {r_no} без артикула (штрихкод {bc}): удержания "
+        warnings.append(f"строка {r_no} без артикула ({id_name.lower()} {key}): удержания "
                         f"{_fmt_num(rec.get('holds_total') or 0)} ₽, выплата "
                         f"{_fmt_num(rec.get('payout') or 0)} ₽ добавлены {where}")
     return [tuple(r) for r in rows], warnings
+
+def _data_rows(ws, idx, mp_key):
+    """Строки данных отчёта: товары, строки без артикула с id, строка удержаний."""
+    art_col, name_col = idx["Артикул продавца"], idx["Наименование"]
+    out = []  # (№ строки, это строка удержаний)
+    for r in range(7, ws.max_row + 1):
+        art, name = ws.cell(r, art_col).value, ws.cell(r, name_col).value
+        hold = is_hold_row(art, name)
+        if hold or not is_empty_row(art, name) or is_orphan_row(ws, idx, r, mp_key):
+            out.append((r, hold))
+    return out
+
+def _sum_check(ws, idx, data_rows, names, warn_only):
+    """Σ строк против ИТОГО по списку колонок -> (ошибки, предупреждения)."""
+    errs, warns = [], []
+    for name in names:
+        c = idx.get(name)
+        if not c:
+            continue
+        total = to_num(ws.cell(6, c).value)
+        if total is None:
+            continue
+        s = sum((to_num(ws.cell(r, c).value) or 0) for r, _ in data_rows)
+        if abs(total - s) > SUM_TOLERANCE:
+            msg = f"«{name}»: в ИТОГО {_fmt_num(total)}, сумма строк {_fmt_num(s)}"
+            (warns if name in warn_only else errs).append(msg)
+    errors = (["сумма строк не совпадает с ИТОГО — " + "; ".join(errs[:5])
+               + (f" и ещё {len(errs) - 5}" if len(errs) > 5 else "")] if errs else [])
+    warnings = (["ИТОГО отчёта по заказам не совпадает с суммой строк, загружены строки — "
+                 + "; ".join(warns)] if warns else [])
+    return errors, warnings
+
+def _row_label(ws, idx, r):
+    a = ws.cell(r, idx["Артикул продавца"]).value or ws.cell(r, idx["Наименование"]).value
+    return f"стр. {r} ({str(a or '').strip()})"
+
+def check_oz_report(ws, idx):
+    """Сверка отчёта Ozon до записи в БД. Возвращает (errors, warnings, hold_deltas).
+
+    errors (загрузка отклоняется):
+      • Σ строк ≠ ИТОГО в колонках OZ_SUM_CHECK;
+      • в строке товара «Выплата на р/с» ≠ «Продажи руб.» − «Все удержания OZON»;
+      • строка общих удержаний после поправки на ИТОГО не сходится по тому же тождеству.
+    hold_deltas: {колонка БД: ИТОГО − Σ строк} по OZ_HOLD_ABSORB — их загрузчик
+    прибавляет к строке «Общие удержания»."""
+    errors, warnings = [], []
+    missing_opt = [n for n in OZ_OPTIONAL if n not in idx]
+    if missing_opt:
+        warnings.append("в отчёте нет колонок " + ", ".join(f"«{n}»" for n in missing_opt)
+                        + " — эти поля не заполнены")
+    rows = _data_rows(ws, idx, "ozon")
+    e, w = _sum_check(ws, idx, rows, OZ_SUM_CHECK + OZ_SUM_WARN_ONLY, OZ_SUM_WARN_ONLY)
+    errors += e; warnings += w
+
+    def num(r, name):
+        c = idx.get(name)
+        return (to_num(ws.cell(r, c).value) or 0) if c else 0
+
+    bad = [_row_label(ws, idx, r) for r, hold in rows if not hold and abs(
+        num(r, "Выплата на р/с") - (num(r, "Продажи руб.") - num(r, "Все удержания OZON"))) > SUM_TOLERANCE]
+    if bad:
+        errors.append(f"«Выплата на р/с» ≠ «Продажи руб.» − «Все удержания OZON» в {len(bad)} стр.: "
+                      + ", ".join(bad[:3]))
+
+    deltas, hold_vals = {}, {}
+    hold_rows = [r for r, hold in rows if hold]
+    for name, col in OZ_HOLD_ABSORB.items():
+        c = idx.get(name)
+        total = to_num(ws.cell(6, c).value) if c else None
+        s = sum((to_num(ws.cell(r, c).value) or 0) for r, _ in rows) if c else 0
+        d = round(total - s, 2) if total is not None else 0.0
+        if abs(d) > SUM_TOLERANCE:
+            deltas[col] = d
+        hold_vals[col] = sum(num(r, name) for r in hold_rows) + deltas.get(col, 0)
+    if abs(hold_vals["payout"] - (hold_vals["revenue"] - hold_vals["holds_total"])) > SUM_TOLERANCE:
+        errors.append("строка «Удержания OZON» не сходится с ИТОГО: выплата "
+                      f"{_fmt_num(hold_vals['payout'])} ≠ выручка {_fmt_num(hold_vals['revenue'])} − "
+                      f"удержания {_fmt_num(hold_vals['holds_total'])}")
+    return errors, warnings, deltas
 
 def check_wb_report(ws, idx):
     """Сверка отчёта WB до записи в БД. Возвращает (errors, warnings).
@@ -493,52 +609,24 @@ def check_wb_report(ws, idx):
     if missing_opt:
         warnings.append("в отчёте нет колонок " + ", ".join(f"«{n}»" for n in missing_opt)
                         + " — эти поля не заполнены")
-
-    art_col, name_col = idx["Артикул продавца"], idx["Наименование"]
-    data_rows = []  # (№ строки, это строка удержаний)
-    for r in range(7, ws.max_row + 1):
-        art, name = ws.cell(r, art_col).value, ws.cell(r, name_col).value
-        hold = is_hold_row(art, name)
-        if hold or not is_empty_row(art, name) or is_wb_orphan_row(ws, idx, r):
-            data_rows.append((r, hold))
+    data_rows = _data_rows(ws, idx, "wb")
+    e, w = _sum_check(ws, idx, data_rows, WB_SUM_CHECK, WB_SUM_WARN_ONLY)
+    errors += e; warnings += w
 
     def num(r, name):
         c = idx.get(name)
         return (to_num(ws.cell(r, c).value) or 0) if c else 0
 
-    sum_errs, sum_warns = [], []
-    for name in WB_SUM_CHECK:
-        c = idx.get(name)
-        if not c:
-            continue
-        total = to_num(ws.cell(6, c).value)
-        if total is None:
-            continue
-        s = sum((to_num(ws.cell(r, c).value) or 0) for r, _ in data_rows)
-        if abs(total - s) > SUM_TOLERANCE:
-            msg = f"«{name}»: в ИТОГО {_fmt_num(total)}, сумма строк {_fmt_num(s)}"
-            (sum_warns if name in WB_SUM_WARN_ONLY else sum_errs).append(msg)
-    if sum_errs:
-        errors.append("сумма строк не совпадает с ИТОГО — " + "; ".join(sum_errs[:5])
-                      + (f" и ещё {len(sum_errs) - 5}" if len(sum_errs) > 5 else ""))
-    if sum_warns:
-        warnings.append("ИТОГО отчёта по заказам не совпадает с суммой строк, загружены строки — "
-                        + "; ".join(sum_warns))
-
-    def row_label(r):
-        a = ws.cell(r, art_col).value or ws.cell(r, name_col).value
-        return f"стр. {r} ({str(a).strip()})"
-
     bad_payout, bad_ads = [], []
     has_ads = "Выплата на р/с (с рекл.)" in idx and "Баланс" in idx
     for r, hold in data_rows:
         if abs(num(r, "Выплата на р/с") - (num(r, "Выручка") - num(r, "Все удержания"))) > SUM_TOLERANCE:
-            bad_payout.append(row_label(r))
+            bad_payout.append(_row_label(ws, idx, r))
         # В строке «Удержания WB» MPPROFIT возвращает удержанную рекламу — тождество не действует.
         if has_ads and not hold and abs(
                 num(r, "Выплата на р/с (с рекл.)")
                 - (num(r, "Выплата на р/с") - num(r, "Баланс"))) > SUM_TOLERANCE:
-            bad_ads.append(row_label(r))
+            bad_ads.append(_row_label(ws, idx, r))
     if bad_payout:
         errors.append(f"«Выплата на р/с» ≠ «Выручка» − «Все удержания» в {len(bad_payout)} стр.: "
                       + ", ".join(bad_payout[:3]))
@@ -655,7 +743,7 @@ def load_report(conn, path, mp_key):
     # --- индекс заголовков (по ИМЕНАМ) ---
     # Яндекс: СОСТАВНОЙ индекс «Секция :: Метрика» (двухуровневая шапка).
     # Ozon/WB: обычный индекс по одному имени.
-    idx = build_ya_colidx(ws) if ya else build_colidx(ws, metric_row_first=(mp_key == "wb"))
+    idx = build_ya_colidx(ws) if ya else build_colidx(ws, metric_row_first=True)
     # И Ozon, И WB проверяются ПО НАЛИЧИЮ ключевых заголовков (по именам), а не по
     # жёстким позициям. Это устойчиво к добавлению/перестановке колонок MPPROFIT
     # (напр. новая колонка «Заказы, руб.» у WB сдвигала позиции — прежняя
@@ -693,10 +781,13 @@ def load_report(conn, path, mp_key):
         return {"ok": False, "error": msg, "period_kind": period_kind,
                 "marketplace": mp_name, "period_text": period}
 
-    # --- WB: сверка сумм до любой записи (в т.ч. до пополнения справочника) ---
-    check_warnings = []
-    if mp_key == "wb":
-        check_errs, check_warnings = check_wb_report(ws, idx)
+    # --- WB/Ozon: сверка сумм до любой записи (в т.ч. до пополнения справочника) ---
+    check_warnings, hold_deltas = [], {}
+    if mp_key in ("wb", "ozon"):
+        if mp_key == "wb":
+            check_errs, check_warnings = check_wb_report(ws, idx)
+        else:
+            check_errs, check_warnings, hold_deltas = check_oz_report(ws, idx)
         if check_errs:
             msg = "ОШИБКА СВЕРКИ: " + "; ".join(check_errs)
             with conn.cursor() as cur:
@@ -815,7 +906,7 @@ def load_report(conn, path, mp_key):
         art  = ws.cell(r, art_col).value
         name = ws.cell(r, name_col).value
         hold = is_hold_row(art, name)
-        orphan = mp_key == "wb" and not hold and is_wb_orphan_row(ws, idx, r)
+        orphan = mp_key in ORPHAN_KEYS and not hold and is_orphan_row(ws, idx, r, mp_key)
         if not hold and not orphan and is_empty_row(art, name):
             continue
         # Канонизируем артикул ДО записи в fact-таблицу и до подстановки
@@ -902,54 +993,40 @@ def load_report(conn, path, mp_key):
             continue
         rows.append(tuple(rec[col] for col in insert_cols))
 
+    def new_hold_row():
+        base = {period_col: period_val, "year": year, "period_text": period,
+                "period_start": start, "period_end": end, "marketplace": mp_name,
+                "row_type": "Общие удержания", "upload_id": upload_id}
+        return tuple(base.get(col) for col in insert_cols)
+
     if orphans:
-        def new_hold_row():
-            base = {period_col: period_val, "year": year, "period_text": period,
-                    "period_start": start, "period_end": end, "marketplace": mp_name,
-                    "row_type": "Общие удержания", "upload_id": upload_id}
-            return tuple(base.get(col) for col in insert_cols)
-        rows, merge_warnings = merge_wb_orphans(rows, orphans, insert_cols, new_hold_row)
+        rows, merge_warnings = merge_orphans(rows, orphans, insert_cols, new_hold_row, mp_key)
         check_warnings = check_warnings + merge_warnings
 
-    # --- Корректировка ОБЩИХ удержаний Ozon (универсальная) -------------------
-    # Ozon частично РАЗНОСИТ «общие удержания» по товарным строкам (их holds_total
-    # уже включает свою долю удержаний). Строка «Общие удержания» должна нести
-    # ТОЛЬКО НЕРАСПРЕДЕЛЁННЫЙ ОСТАТОК, иначе разнесённая часть вычитается дважды и
-    # маржа занижается (реальный случай: нед.25/2026 → 9,5% вместо 16,08%).
-    # Остаток = «Все удержания OZON» из строки ИТОГО (стр.6) − Σ(holds_total
-    # товарных строк). Эта формула работает на ЛЮБОЙ неделе независимо от того,
-    # какую долю Ozon разнёс по товарам. Если остаток < 0 — обнуляем (вся сумма
-    # уже разнесена). Срабатывает ТОЛЬКО на Ozon.
+    # --- Общие удержания Ozon: поправка на ИТОГО отчёта ---------------------
+    # Разница «ИТОГО − Σ строк» по выручке, удержаниям, выплате и прибыли
+    # (check_oz_report, OZ_HOLD_ABSORB) прибавляется к строке «Общие удержания».
+    # Покрывает оба известных случая: 12.2024 — выручка 222 008,50 ₽ есть только
+    # в ИТОГО (выплата строки удержаний её уже учитывает), нед. 25/2026 — строка
+    # удержаний дублировала разнесённое по товарам (поправка отрицательная).
+    # До 14.10.2026 здесь пересчитывались только удержания и прибыль (выплата
+    # оставалась из файла, прибыль теряла выручку строки), а отрицательный
+    # остаток обнулялся — возврат Ozon (нед. 27/2026: 25 417 ₽) пропадал.
     holds_dup_warning = None
-    if oz:
-        ix_rt   = insert_cols.index("row_type")
-        ix_hold = insert_cols.index("holds_total")
-        ix_prof = insert_cols.index("profit")
-        sum_holds_items = sum(
-            (r[ix_hold] or 0) for r in rows if r[ix_rt] == "Товар")
-        c_total_holds = idx.get("Все удержания OZON")
-        total_holds_report = to_num(ws.cell(6, c_total_holds).value) if c_total_holds else 0
-        total_holds_report = total_holds_report or 0
-        remainder = round(total_holds_report - sum_holds_items, 2)
-        if remainder < 0:
-            remainder = 0.0
-        new_rows = []
-        for r in rows:
-            if r[ix_rt] == "Общие удержания":
-                old_h = r[ix_hold] or 0
-                if abs(old_h - remainder) > 1:
-                    holds_dup_warning = (
-                        f"общие удержания Ozon скорректированы: было "
-                        f"{old_h:,.0f} ₽ → нераспределённый остаток {remainder:,.0f} ₽ "
-                        f"(всего по отчёту {total_holds_report:,.0f} ₽, из них "
-                        f"{sum_holds_items:,.0f} ₽ уже разнесено по товарам)"
-                        .replace(",", " "))
-                lr = list(r)
-                lr[ix_hold] = remainder
-                lr[ix_prof] = -remainder
-                r = tuple(lr)
-            new_rows.append(r)
-        rows = new_rows
+    if oz and hold_deltas:
+        ix = {c: i for i, c in enumerate(insert_cols)}
+        rows = [list(r) for r in rows]
+        target = next((r for r in rows if r[ix["row_type"]] == "Общие удержания"), None)
+        if target is None:
+            target = list(new_hold_row())
+            rows.append(target)
+        for col, dv in hold_deltas.items():
+            target[ix[col]] = (target[ix[col]] or 0) + dv
+        rows = [tuple(r) for r in rows]
+        names = {"revenue": "выручка", "holds_total": "удержания", "payout": "выплата", "profit": "прибыль"}
+        holds_dup_warning = ("общие удержания Ozon дополнены по ИТОГО отчёта: " + ", ".join(
+            f"{names[c]} {'+' if hold_deltas[c] > 0 else ''}{_fmt_num(hold_deltas[c])} ₽"
+            for c in names if c in hold_deltas))
 
     # --- Общие удержания ЯНДЕКСА (аналог Ozon) -----------------------------
     # У Яндекса основная часть удержаний разнесена по товарам (holds_total
@@ -1067,6 +1144,8 @@ def load_report(conn, path, mp_key):
         warnings.append(f"Пропущено строк без артикула и штрихкода: {skipped_no_id}. "
                         f"Такие строки невозможно однозначно идентифицировать, они не загружены.")
     warnings += [w[:1].upper() + w[1:] + "." for w in check_warnings]
+    if holds_dup_warning:
+        warnings.append(holds_dup_warning[:1].upper() + holds_dup_warning[1:] + ".")
     warning = " ".join(warnings) or None
     return {
         "ok": True, "period_kind": period_kind, "kind_label": kind_label,

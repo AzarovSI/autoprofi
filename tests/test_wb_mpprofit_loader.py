@@ -146,7 +146,7 @@ class WbOrphanRowTest(unittest.TestCase):
         rows = [self.row("Товар", "A-1", "46A-1", holds_total=300, payout=700),
                 self.row("Товар", "B-2", "46B-2", holds_total=500, payout=1500, wb_fines=None)]
         orphan = {"barcode_wb": "46B-2", "holds_total": 15, "payout": -15, "wb_fines": 15}
-        out, warnings = lc.merge_wb_orphans(rows, [(205, orphan)], self.COLS, lambda: None)
+        out, warnings = lc.merge_orphans(rows, [(205, orphan)], self.COLS, lambda: None, "wb")
         self.assertEqual(len(out), 2)
         self.assertEqual((self.get(out[1], "holds_total"), self.get(out[1], "payout"),
                           self.get(out[1], "wb_fines")), (515, 1485, 15))
@@ -157,8 +157,8 @@ class WbOrphanRowTest(unittest.TestCase):
     def test_unknown_barcode_goes_to_common_holds(self):
         rows = [self.row("Товар", "A-1", "46A-1", holds_total=300)]
         orphan = {"barcode_wb": "46Z-9", "holds_total": 15, "payout": -15}
-        out, warnings = lc.merge_wb_orphans(
-            rows, [(9, orphan)], self.COLS, lambda: self.row("Общие удержания", None, None))
+        out, warnings = lc.merge_orphans(
+            rows, [(9, orphan)], self.COLS, lambda: self.row("Общие удержания", None, None), "wb")
         self.assertEqual(len(out), 2)
         self.assertEqual(self.get(out[1], "row_type"), "Общие удержания")
         self.assertEqual((self.get(out[1], "holds_total"), self.get(out[1], "payout")), (15, -15))

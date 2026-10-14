@@ -9,17 +9,18 @@ from pathlib import Path
 
 from . import db
 
-MIGRATION = "2026_10_14_wb_payout_with_ads"
+MIGRATIONS = ["2026_10_14_wb_payout_with_ads", "2026_10_14_oz_temp_placement"]
 
 
 def migrate():
-    """Колонки выплаты WB с рекламой: один раз, атомарно, безопасно для нескольких воркеров."""
+    """Миграции фактов по порядку: каждая один раз, атомарно, безопасно для нескольких воркеров."""
     with db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(14102026, 0)")
         tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
             name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())""")
-        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
-            return
-        path = Path(__file__).resolve().parent.parent / "migrations" / (MIGRATION + ".sql")
-        tx.conn.execute(path.read_text(encoding="utf-8"))
-        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
+        for name in MIGRATIONS:
+            if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (name,)):
+                continue
+            path = Path(__file__).resolve().parent.parent / "migrations" / (name + ".sql")
+            tx.conn.execute(path.read_text(encoding="utf-8"))
+            tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (name,))

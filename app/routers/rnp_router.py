@@ -187,7 +187,8 @@ def _compute_cell(agg, mp="Ozon"):
     logistics_d = _f(agg.get("logistics_direct"))
     storage     = _f(agg.get("storage"))
     disposal    = _f(agg.get("oz_disposal"))   # утилизация (Ozon) — входит в "хранение и проч."
-    storage_all = storage + disposal             # Хранение и проч. удержания (прод-API)
+    temp_place  = _f(agg.get("oz_temp_placement"))  # временное размещение (Ozon) — туда же
+    storage_all = storage + disposal + temp_place  # Хранение и проч. удержания (прод-API)
     promo       = _f(agg.get("promo_total"))
     wb_ads      = _f(agg.get("wb_ads_total"))
     fines       = _f(agg.get("wb_fines"))
@@ -293,7 +294,7 @@ def _compute_cell(agg, mp="Ozon"):
 # Базовые колонки, которые суммируем по узлу.
 _SUM_COLS = [
     "revenue", "sales_qty", "orders_qty", "orders_rub", "profit", "cogs", "commission", "acquiring",
-    "logistics_total", "logistics_direct", "storage", "oz_disposal", "promo_total",
+    "logistics_total", "logistics_direct", "storage", "oz_disposal", "oz_temp_placement", "promo_total",
     "wb_fines", "wb_other_holds", "external_exp_inc",
     # Реклама итого (компоненты): Ozon ppc/ppo/spec, WB wb_ads_total
     "oz_pay_per_click", "oz_pay_per_order", "oz_special_placement", "wb_ads_total",
@@ -351,7 +352,7 @@ def negative_margin_articles(mp: str) -> set:
         SELECT seller_article,
                orders_qty, orders_rub, revenue, sales_qty, profit, cogs,
                commission, acquiring, logistics_total, logistics_direct,
-               storage, oz_disposal, promo_total, wb_fines, wb_other_holds,
+               storage, oz_disposal, oz_temp_placement, promo_total, wb_fines, wb_other_holds,
                external_exp_inc, buyout_pct, spp_pct,
                oz_pay_per_click, oz_pay_per_order, oz_special_placement,
                wb_ads_total, wb_profit_with_ads
@@ -480,7 +481,7 @@ def rnp_product_ue(
             SELECT year, week,
                    orders_qty, orders_rub, revenue, sales_qty, profit, cogs,
                    commission, acquiring, logistics_total, logistics_direct,
-                   storage, oz_disposal, promo_total, wb_fines, wb_other_holds,
+                   storage, oz_disposal, oz_temp_placement, promo_total, wb_fines, wb_other_holds,
                    external_exp_inc, buyout_pct, spp_pct,
                    oz_pay_per_click, oz_pay_per_order, oz_special_placement,
                    wb_ads_total, wb_profit_with_ads
@@ -545,7 +546,7 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
                cm.status, cm.manager,
                f.orders_qty, f.orders_rub, f.returns_qty, f.holds_total,
                f.revenue, f.sales_qty, f.profit, f.cogs, f.commission, f.acquiring,
-               f.logistics_total, f.logistics_direct, f.storage, f.oz_disposal, f.promo_total,
+               f.logistics_total, f.logistics_direct, f.storage, f.oz_disposal, f.oz_temp_placement, f.promo_total,
                f.wb_fines, f.wb_other_holds, f.external_exp_inc,
                f.buyout_pct, f.spp_pct, f.abc_revenue,
                f.oz_pay_per_click, f.oz_pay_per_order, f.oz_special_placement, f.wb_ads_total,
@@ -928,7 +929,7 @@ def _collect_mp_raw(mp):
                cm.status, cm.manager,
                f.orders_qty, f.orders_rub, f.returns_qty, f.holds_total,
                f.revenue, f.sales_qty, f.profit, f.cogs, f.commission, f.acquiring,
-               f.logistics_total, f.logistics_direct, f.storage, f.oz_disposal, f.promo_total,
+               f.logistics_total, f.logistics_direct, f.storage, f.oz_disposal, f.oz_temp_placement, f.promo_total,
                f.wb_fines, f.wb_other_holds, f.external_exp_inc,
                f.buyout_pct, f.spp_pct, f.abc_revenue,
                f.oz_pay_per_click, f.oz_pay_per_order, f.oz_special_placement, f.wb_ads_total,
