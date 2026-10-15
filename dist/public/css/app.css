@@ -2341,3 +2341,9 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .t-arrow { font-size:7px; margin-right:2px; position:relative; top:-1px; }
 .t-arrow.good { color:var(--good); }
 .t-arrow.bad { color:var(--bad); }
+/* «Ozon тест»: названия всех строк на одной вертикали; стрелка раскрывающихся — слева, в отступе.
+   Вложенные строки — чуть правее корневой и тусклее (тот же цвет, приглушённый). */
+.rnp-mtbl-test td.rnp-tgrp-head .rnp-exp-btn { position:absolute; left:calc(var(--rnp-mname-pad, 28px) - 19px);
+  top:50%; transform:translateY(-50%); }
+.rnp-mtbl-test td.rnp-m-name.rnp-t-child-name { padding-left:calc(var(--rnp-mname-pad, 28px) + 14px); }
+.rnp-mtbl-test tr.rnp-t-child td.rnp-m-name, .rnp-mtbl-test tr.rnp-t-child .rnp-vc-v { opacity:.62; }
