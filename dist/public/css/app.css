@@ -491,7 +491,7 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
 /* РНП заказы: ширина полей поиск/менеджеры/статусы — как в РНП Юнит-экономике */
 .rnp-filters-host > #rnps-search { width:150px; flex:0 0 auto; }
 .rnp-filters-host > #rnps-mgr, .rnp-filters-host > #rnps-status { width:auto; max-width:128px; min-width:0; flex:0 1 auto; }
-#rnp-top-metric { max-width:150px; }
+#rnp-top-metric { max-width:210px; } /* влезает «Маржинальность валовая, %» */
 
 /* Светофор маржинальности: галка «отрицательная» + поле «целевая %» */
 .rnp-sig-check { display:inline-flex; align-items:center; gap:5px; cursor:pointer; flex:0 0 auto;

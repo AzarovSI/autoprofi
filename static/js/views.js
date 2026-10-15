@@ -3781,7 +3781,8 @@ const Views = (() => {
   // productMetricRows), чтобы значения совпадали с карточкой метрик.
   // ------------------------------------------------------------------
   const RNP_TOP_METRICS = [
-    { key: 'rnp',           label: 'Маржинальность %',              kind: 'pct_node', isPct: true },
+    { key: 'rnp',           label: 'Маржинальность валовая, %',     kind: 'pct_node', isPct: true },
+    { key: 'p_net_margin_pct', label: 'Маржинальность чистая, %',   kind: 'pct',      isPct: true },
     { key: 'orders_qty',    label: 'Заказы, шт',                    kind: 'qty',      isPct: false },
     { key: 'sales_qty',     label: 'Продажи, шт',                   kind: 'qty',      isPct: false },
     { key: 'p_cogs_pct',    label: 'Себестоимость от выручки, %',   kind: 'pct',      isPct: true },
@@ -3809,7 +3810,7 @@ const Views = (() => {
   // рублях нет), поэтому в остальных режимах опция исключается.
   function rnpTopMetrics() {
     if (rnpState.mp === 'cross') return RNP_TOP_METRICS_CROSS;
-    return RNP_TOP_METRICS.filter(m => !(m.key === 'p_fines_rub' && rnpState.mp !== 'wb'));
+    return RNP_TOP_METRICS.filter(m => rnpMetricVisible(m.key));
   }
 
   // Видна ли метрика с данным ключом при текущем маркетплейсе.
@@ -4651,12 +4652,12 @@ const Views = (() => {
     { label: 'Доля A-товаров, %',       type: 'calc', calc: 'ashare' },
   ];
 
-  // Строка «Маржинальность, %» для карточки метрик. Добавляется ПЕРВОЙ,
+  // Строка «Маржинальность валовая, %» для карточки метрик. Добавляется ПЕРВОЙ,
   // когда верхний показатель НЕ маржа (чтобы маржа не пропадала из вида).
   // Жирная, нейтрального цвета; структура совпадает со строками карточки.
   // valDeltaCell читает cell['rnp'] — подходит и для товара, и для групп.
   function rnpMarginRow(node, weeks) {
-    let row = '<tr class="rnp-m-strong"><td class="rnp-m-name rnp-m-strong" style="font-weight:700;">Маржинальность, %</td>';
+    let row = '<tr class="rnp-m-strong"><td class="rnp-m-name rnp-m-strong" style="font-weight:700;">Маржинальность валовая, %</td>';
     weeks.forEach((w, i) => {
       const cell = node.cells[w.key] || {};
       const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;

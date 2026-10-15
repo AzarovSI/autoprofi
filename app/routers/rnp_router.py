@@ -102,8 +102,8 @@ PRODUCT_METRIC_DEFS = [
     # WB — «(с рекл.)», Ozon — обычная (реклама уже в удержаниях), Яндекс — пока нет.
     ("p_payout",           "К оплате на р/с, руб",              "rub",   "1E7D34", False, False, "pos"),
     # Раскрываемая группа «К оплате на р/с» (на фронте, как «Продвижение»):
-    # ребёнок — чистая маржинальность = к оплате / продажи руб.
-    ("p_net_margin_pct",   "Чистая маржинальность, %",          "pct",   "56A06A", False, False, "pos"),
+    # ребёнок — «Маржинальность чистая» = прибыль / к оплате на р/с.
+    ("p_net_margin_pct",   "Маржинальность чистая, %",          "pct",   "56A06A", False, False, "pos"),
     ("p_sales_qty",        "Продажи, шт",                       "qty",   "16191D", False, False, "pos"),
     ("p_revenue",          "Продажи, руб",                      "rub",   "16191D", False, False, "pos"),
     ("p_plan_qty",         "План продаж, шт",                   "qty",   "0000FF", False, False, "none"),
@@ -253,8 +253,10 @@ def _compute_cell(agg, mp="Ozon"):
         "avg_price":       _div(rev, qty),
         "profit":          profit,
         "p_payout":        payout,
-        # Чистая маржинальность = К оплате на р/с / Продажи, руб (доля 0..1).
-        "p_net_margin_pct": (_div(payout, rev) if payout is not None else None),
+        # Чистая маржинальность = Прибыль / К оплате на р/с (доля 0..1): какая часть
+        # выплаты площадки остаётся прибылью (решение владельца 15.10.2026). При
+        # выплате ≤ 0 — нет смысла (минус на минус дал бы «плюс») → None.
+        "p_net_margin_pct": (profit / payout if payout is not None and payout > 0 else None),
         "profit_per_unit": _div(profit, qty),
         "buyout_pct":      (_div(_f(bo_w), rev) if bo_w is not None else None),
         "log_per_unit":    _div(logistics_t, qty),
@@ -435,7 +437,7 @@ def rnp_weeks(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("u
 # polarity совпадает с PRODUCT_METRIC_DEFS: neg = расход (рост 🔴), pos = доход (рост 🟢).
 PRODUCT_UE_POPUP_DEFS = [
     ("profit",       "Прибыль, руб",             "rub", "pos"),
-    ("rnp",          "Маржинальность, %",       "pct", "pos"),
+    ("rnp",          "Маржинальность валовая, %", "pct", "pos"),
     ("p_cogs_pct",   "Себестоимость, %",        "pct", "neg"),
     ("p_promo_pct",  "Продвижение, от продаж", "pct", "neg"),
     ("p_holds_pct",  "Все удержания, %",       "pct", "neg"),
