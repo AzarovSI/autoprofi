@@ -2333,11 +2333,8 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl td.pm-calc .sp-cell .sp-plan { color: var(--plan-blue); font-weight: 700; }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl td.pm-calc .sp-cell .sp-plan.sp-plan-empty { color: #c2c9d0; font-weight: 400; }
 
-/* «Ozon тест» — подписи блоков карточки (Воронка / Деньги / На единицу / Структура) */
-.rnp-mtbl-test tr.rnp-t-cap td { padding-top:10px; padding-bottom:2px; border-bottom:none; }
-.rnp-mtbl-test tr.rnp-t-cap td.rnp-m-name { font-size:10px; font-weight:700; letter-spacing:.06em;
-  text-transform:uppercase; color:var(--text-mute); }
-.rnp-mtbl-test tr.rnp-t-total td { border-top:1px solid var(--border, #E3E8EE); }
+/* «Ozon тест» — граница блоков карточки (Воронка / Деньги / На единицу / Структура): линия над первой строкой блока */
+.rnp-mtbl-test tr.rnp-t-blk td { border-top:2px solid var(--border, #D5DCE3); }
 /* «Ozon тест»: изменение к прошлой неделе — число чёрное нежирное, цветной только треугольник */
 .rnp-vc-d.t-delta, .rnp-hd-d.t-delta { color:var(--text); font-weight:400; white-space:nowrap; }
 .rnp-vc-d.t-delta.flat, .rnp-hd-d.t-delta.flat { color:var(--text-mute); }

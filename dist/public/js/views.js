@@ -4759,6 +4759,7 @@ const Views = (() => {
   // «Ozon тест»: макет новой подачи карточки показателей (15.10.2026).
   // Порядок — по денежному потоку: Воронка → Деньги (каскад от продаж к
   // прибыли) → На единицу (только товар) → Структура (только группы/Итоги).
+  // Блоки разделены линией, без строк-подписей (они растягивали карточку).
   // Набор строк одинаков на своём уровне; нет значения — «—». Изменение к прошлой
   // неделе — tArrowDelta: ▲/▼ цветом по полярности, число чёрное (п.п. без единиц).
   // ------------------------------------------------------------------
@@ -4767,42 +4768,40 @@ const Views = (() => {
   const tMul = (a, b) => (a == null || b == null || isNaN(a) || isNaN(b)) ? null : a * b;
   // Строки: cap — подпись блока; g — группа (голова: head:true); lv — уровни показа.
   const T_ROWS = [
-    { cap: 'Воронка' },
-    { key: 'p_orders_qty', label: 'Заказы, шт', kind: 'qty', pol: 'pos', g: 'orders', head: true },
-    { key: 'p_orders_rub', label: 'Заказы, руб', kind: 'rub', pol: 'pos', g: 'orders' },
-    { key: 'p_buyout_pct', label: 'Выкуп, %', kind: 'pct', pol: 'pos', color: '96A5AF' },
-    { key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos' },
-    { key: 'p_plan_qty', label: 'План продаж, шт', kind: 'qty', pol: 'none', color: '0000FF', g: 'plan', head: true },
-    { calc: c => tDiv(c.p_sales_qty, c.p_plan_qty), label: 'Выполнение плана, %', kind: 'pct', pol: 'pos', color: '0000FF', g: 'plan' },
-    { cap: 'Деньги' },
-    { key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true },
-    { key: 'p_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true },
-    { key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds' },
-    { key: 'noart_exp_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT] },
-    { key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
-    { key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: 'C58CFF', g: 'promo' },
-    { key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true },
-    { key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF' },
-    { key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true },
-    { key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos' },
-    { key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '56A06A' },
-    { cap: 'На единицу товара', lv: [T_LEVEL_ITEM] },
-    { key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', g: 'unit', head: true, lv: [T_LEVEL_ITEM] },
-    { calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: 'Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: 'Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { calc: c => tDiv(c.p_payout, c.p_sales_qty), label: 'К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: 'Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { calc: c => tDiv(c.profit, c.p_sales_qty), label: 'Прибыль на ед.', kind: 'price', pol: 'pos', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { cap: 'Структура', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
-    { struct: 'share', label: 'Доля в общей выручке, %', lv: [T_LEVEL_GROUP] },
-    { struct: 'returns', label: 'Возвраты, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
-    { struct: 'loss', label: 'Убыточных SKU', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
-    { struct: 'ashare', label: 'Доля A-товаров, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    // b — блок: Воронка (f) → Деньги (m) → На единицу (u, только товар) → Структура (s).
+    // Граница блока — линия над его первой строкой (без отдельной строки-подписи).
+    { b: 'f', key: 'p_orders_qty', label: 'Заказы, шт', kind: 'qty', pol: 'pos' },
+    { b: 'f', key: 'p_orders_rub', label: 'Заказы, руб', kind: 'rub', pol: 'pos' },
+    { b: 'f', key: 'p_buyout_pct', label: 'Выкуп, %', kind: 'pct', pol: 'pos', color: '96A5AF' },
+    { b: 'f', key: 'p_plan_qty', label: 'План продаж, шт', kind: 'qty', pol: 'none', color: '0000FF', g: 'plan', head: true },
+    { b: 'f', calc: c => tDiv(c.p_sales_qty, c.p_plan_qty), label: 'Выполнение плана, %', kind: 'pct', pol: 'pos', color: '0000FF', g: 'plan' },
+    { b: 'f', key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos' },
+    { b: 'm', key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true },
+    { b: 'm', key: 'p_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true },
+    { b: 'm', key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds' },
+    { b: 'm', key: 'noart_exp_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT] },
+    { b: 'm', key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
+    { b: 'm', key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: 'C58CFF', g: 'promo' },
+    { b: 'm', key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true },
+    { b: 'm', key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF' },
+    { b: 'm', key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true },
+    { b: 'm', key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos' },
+    { b: 'm', key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '56A06A' },
+    { b: 'u', key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', g: 'unit', head: true, lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: 'Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: 'Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tDiv(c.p_payout, c.p_sales_qty), label: 'К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: 'Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tDiv(c.profit, c.p_sales_qty), label: 'Прибыль на ед.', kind: 'price', pol: 'pos', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 's', struct: 'share', label: 'Доля в общей выручке, %', lv: [T_LEVEL_GROUP] },
+    { b: 's', struct: 'returns', label: 'Возвраты, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { b: 's', struct: 'loss', label: 'Убыточных SKU', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { b: 's', struct: 'ashare', label: 'Доля A-товаров, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
   ];
 
   // Изменение к прошлой неделе в «Ozon тест»: треугольник ▲/▼ — направление
@@ -4840,17 +4839,14 @@ const Views = (() => {
     const lvl = node.level === 4 ? T_LEVEL_ITEM : (node.level === 0 ? T_LEVEL_ROOT : T_LEVEL_GROUP);
     const open = rnpState.tOpen || (rnpState.tOpen = {});
     const rows = T_ROWS.filter(r => !r.lv || r.lv.includes(lvl));
-    const ncol = weeks.length;
     let body = '';
+    let lastBlock = null;
     rows.forEach(r => {
-      if (r.cap) {
-        body += `<tr class="rnp-t-cap"><td class="rnp-m-name">${U.esc(r.cap)}</td>`
-          + `<td colspan="${ncol}"></td><td class="rnp-m-tail"></td></tr>`;
-        return;
-      }
       const isHead = !!r.head;
       const isChild = !!r.g && !isHead;
       if (isChild && !open[r.g]) return;
+      const blk = (lastBlock !== null && r.b !== lastBlock) ? ' rnp-t-blk' : '';
+      lastBlock = r.b;
       let nameSt = '';
       if (r.color) nameSt += `color:#${r.color};`;
       if (r.bold) nameSt += 'font-weight:700;';
@@ -4859,7 +4855,7 @@ const Views = (() => {
         ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
         : U.esc(r.label);
       const cls = (isChild ? ' rnp-m-holds-child' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
-      let tr = `<tr class="${r.bold ? 'rnp-t-total' : ''}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
+      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
         const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;
