@@ -2338,3 +2338,9 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .rnp-mtbl-test tr.rnp-t-cap td.rnp-m-name { font-size:10px; font-weight:700; letter-spacing:.06em;
   text-transform:uppercase; color:var(--text-mute); }
 .rnp-mtbl-test tr.rnp-t-total td { border-top:1px solid var(--border, #E3E8EE); }
+/* «Ozon тест»: изменение к прошлой неделе — число чёрное нежирное, цветной только треугольник */
+.rnp-vc-d.t-delta, .rnp-hd-d.t-delta { color:var(--text); font-weight:400; white-space:nowrap; }
+.rnp-vc-d.t-delta.flat, .rnp-hd-d.t-delta.flat { color:var(--text-mute); }
+.t-arrow { font-size:7px; margin-right:2px; position:relative; top:-1px; }
+.t-arrow.good { color:var(--good); }
+.t-arrow.bad { color:var(--bad); }

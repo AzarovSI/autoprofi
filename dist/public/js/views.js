@@ -4429,14 +4429,16 @@ const Views = (() => {
       const v = (node.cells[w.key] || {})[tm.key];
       const prev = i > 0 ? (node.cells[weeks[i - 1].key] || {})[tm.key] : null;
       const d = calcDelta(v, prev, tm.kind);
-      // «Ozon тест»: изменение %-показателя — в п.п. числом без единиц
-      const dTxt = rnpState.mp === 'oz_test' ? tFmtDelta(d) : fmtDelta(d);
+      const dTxt = fmtDelta(d);
       // Светофор (красный при отрицательной марже, оранжевый ниже целевой)
       // применяем только к процентным показателям; для штучных/денежных — нет.
       const sig = tm.isPct ? marginSignalClass(v) : '';
       return `<span class="rnp-hd-wk">`
         + `<span class="rnp-hd-v${sig ? ' ' + sig : ''}">${rnpFmt(v, tm.kind)}</span>`
-        + (dTxt ? `<span class="rnp-hd-d ${deltaDir(d)}">${dTxt}</span>` : `<span class="rnp-hd-d flat"></span>`)
+        // «Ozon тест»: треугольник ▲/▼ с цветом по полярности показателя, число чёрное
+        + (rnpState.mp === 'oz_test'
+          ? tArrowDelta(d, T_NEG_KEYS.has(tm.key) ? 'neg' : 'pos', 'rnp-hd-d')
+          : (dTxt ? `<span class="rnp-hd-d ${deltaDir(d)}">${dTxt}</span>` : `<span class="rnp-hd-d flat"></span>`))
         + `</span>`;
     }).join('');
 
@@ -4757,8 +4759,8 @@ const Views = (() => {
   // «Ozon тест»: макет новой подачи карточки показателей (15.10.2026).
   // Порядок — по денежному потоку: Воронка → Деньги (каскад от продаж к
   // прибыли) → На единицу (только товар) → Структура (только группы/Итоги).
-  // Набор строк одинаков на своём уровне; нет значения — «—». Изменения %-показателей
-  // — в п.п. числом без единиц («−0,7»), «%» — только у относительных изменений.
+  // Набор строк одинаков на своём уровне; нет значения — «—». Изменение к прошлой
+  // неделе — tArrowDelta: ▲/▼ цветом по полярности, число чёрное (п.п. без единиц).
   // ------------------------------------------------------------------
   const T_LEVEL_ITEM = 'item', T_LEVEL_GROUP = 'group', T_LEVEL_ROOT = 'root';
   const tDiv = (a, b) => (a == null || b == null || !b || isNaN(a) || isNaN(b)) ? null : a / b;
@@ -4803,12 +4805,21 @@ const Views = (() => {
     { struct: 'ashare', label: 'Доля A-товаров, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
   ];
 
-  function tFmtDelta(d) {
-    if (!d) return '';
-    const sign = d.val > 0 ? '+' : (d.val < 0 ? '−' : '');
-    const v = Math.abs(d.val * 100).toFixed(1).replace('.', ',');
-    // п.п. — без единиц (подпись «п.п.» не влезала в колонку дельты); «%» — только относительное изменение
-    return d.mode === 'pp' ? `${sign}${v}` : `${sign}${v}%`;
+  // Изменение к прошлой неделе в «Ozon тест»: треугольник ▲/▼ — направление
+  // изменения, его цвет — хорошо/плохо с учётом полярности (рост расходов — красный);
+  // число — чёрное нежирное, без знака: у %-показателей п.п. без единиц, иначе «%».
+  // cls — класс контейнера (rnp-vc-d в карточке, rnp-hd-d в строке узла).
+  const T_NEG_KEYS = new Set(['p_cogs_pct', 'p_holds_pct', 'p_promo_pct', 'p_storage_pct', 'p_fines_rub', 'p_fines_pct']);
+  function tArrowDelta(d, pol, cls) {
+    if (!d) return `<span class="${cls} flat"></span>`;
+    const num = Math.abs(d.val * 100).toFixed(1).replace('.', ',') + (d.mode === 'pp' ? '' : '%');
+    const title = d.mode === 'pp' ? ' title="Изменение в процентных пунктах"' : '';
+    if (d.val === 0 || num === '0,0' || num === '0,0%') {
+      return `<span class="${cls} t-delta flat"${title}>${num}</span>`;
+    }
+    const good = (pol === 'neg') ? d.val < 0 : d.val > 0;
+    const arrow = `<span class="t-arrow ${good ? 'good' : 'bad'}">${d.val > 0 ? '▲' : '▼'}</span>`;
+    return `<span class="${cls} t-delta"${title}>${arrow}${num}</span>`;
   }
 
   function tValCell(cur, prev, row) {
@@ -4821,10 +4832,8 @@ const Views = (() => {
       return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span><span class="rnp-vc-d flat"></span></span>`;
     }
     const d = calcDelta(cur, prev, row.kind);
-    const dTxt = tFmtDelta(d);
     return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span>`
-      + (dTxt ? `<span class="rnp-vc-d ${deltaDirPolar(d, row.pol)}"${d.mode === 'pp' ? ' title="Изменение в процентных пунктах"' : ''}>${dTxt}</span>` : '<span class="rnp-vc-d flat"></span>')
-      + '</span>';
+      + tArrowDelta(d, row.pol, 'rnp-vc-d') + '</span>';
   }
 
   function testMetricTable(node, weeks, parent) {
