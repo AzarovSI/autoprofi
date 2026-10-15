@@ -98,6 +98,9 @@ PRODUCT_METRIC_DEFS = [
     # --- Блок 2: прибыль, объёмы, план, заказы, цена, выкуп (sep сверху) ---
     # Доходные метрики (pos): рост = хорошо. План продаж — без дельты (none).
     ("profit",             "Прибыль, руб",                      "rub",   "16191D", True,  True,  "pos"),
+    # «К оплате на р/с» — выплата площадки (MPPROFIT «Выплата на р/с»): зелёный, нежирный.
+    # WB — «(с рекл.)», Ozon — обычная (реклама уже в удержаниях), Яндекс — пока нет.
+    ("p_payout",           "К оплате на р/с, руб",              "rub",   "1E7D34", False, False, "pos"),
     ("p_sales_qty",        "Продажи, шт",                       "qty",   "16191D", False, False, "pos"),
     ("p_revenue",          "Продажи, руб",                      "rub",   "16191D", False, False, "pos"),
     ("p_plan_qty",         "План продаж, шт",                   "qty",   "0000FF", False, False, "none"),
@@ -212,6 +215,18 @@ def _compute_cell(agg, mp="Ozon"):
     else:
         promo_eff = -promo
 
+    # К оплате на р/с (выплата площадки). WB — «Выплата на р/с (с рекл.)»; если в
+    # узле нет рекламы по товарам (MPPROFIT не разнёс её: 06.2024–01.2025,
+    # 03–06.2025), «(с рекл.)» не вычитает рекламу вовсе — берём обычную выплату
+    # (решение владельца 14.10.2026, docs/decisions.md). Ozon — «Выплата на р/с»,
+    # реклама в ней уже вычтена. Яндекс — пока не выводим (None).
+    if mp == "Wildberries":
+        payout = _f(agg.get("wb_payout_with_ads")) if wb_ads else _f(agg.get("payout"))
+    elif mp == "Ozon":
+        payout = _f(agg.get("payout"))
+    else:
+        payout = None
+
     # При нулевой выручке все доли/удельные = None (как в прод-API).
     promo_pct = _div(promo, rev)
     cell = {
@@ -234,6 +249,7 @@ def _compute_cell(agg, mp="Ozon"):
         "revenue":         rev,
         "avg_price":       _div(rev, qty),
         "profit":          profit,
+        "p_payout":        payout,
         "profit_per_unit": _div(profit, qty),
         "buyout_pct":      (_div(_f(bo_w), rev) if bo_w is not None else None),
         "log_per_unit":    _div(logistics_t, qty),
@@ -302,6 +318,8 @@ _SUM_COLS = [
     # (колонка «Прибыль (с рекл.)»). Суммируется по узлу вместе
     # со строкой «Общие удержания» — даёт маржу WB точь-в-точь как в отчёте.
     "wb_profit_with_ads",
+    # Выплата на р/с: Ozon — payout, WB — wb_payout_with_ads (см. _compute_cell).
+    "payout", "wb_payout_with_ads",
 ]
 
 
@@ -550,7 +568,7 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
                f.wb_fines, f.wb_other_holds, f.external_exp_inc,
                f.buyout_pct, f.spp_pct, f.abc_revenue,
                f.oz_pay_per_click, f.oz_pay_per_order, f.oz_special_placement, f.wb_ads_total,
-               f.wb_profit_with_ads
+               f.wb_profit_with_ads, f.payout, f.wb_payout_with_ads
         FROM fact_weekly f
         LEFT JOIN catalog_items ci ON ci.seller_article = f.seller_article
         LEFT JOIN catalog_marketplace cm
@@ -562,7 +580,8 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
     )
     noart_rows = db.query_all(
         """
-        SELECT year, week, SUM(holds_total) AS holds
+        SELECT year, week, SUM(holds_total) AS holds,
+               SUM(payout) AS pay, SUM(wb_payout_with_ads) AS wpay
         FROM fact_weekly
         WHERE marketplace = %s AND row_type = 'Общие удержания'
         GROUP BY year, week
@@ -792,6 +811,10 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
         wk = f"{nr['year']}-{nr['week']}"
         if wk in root["_agg"] and nr.get("holds") is not None:
             root["_agg"][wk]["noart_exp"] = _f(nr["holds"])
+        # К оплате на р/с «Итогов» = Σ товаров + выплата строки общих удержаний.
+        if wk in root["_agg"]:
+            root["_agg"][wk]["payout"] += _f(nr.get("pay"))
+            root["_agg"][wk]["wb_payout_with_ads"] += _f(nr.get("wpay"))
 
     # Для Wildberries прибыль узла берётся из готовой колонки wb_profit_with_ads
     # (см. _compute_cell). Строка «Общие удержания» имеет СВОЁ значение

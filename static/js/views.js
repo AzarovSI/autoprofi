@@ -3816,7 +3816,10 @@ const Views = (() => {
   // «Штрафы, руб.» (p_fines_rub) — только Wildberries (в Ozon/Сводной штрафов
   // в рублях нет). Применяется единообразно к строкам групп и товара.
   function rnpMetricVisible(key) {
-    return !(key === 'p_fines_rub' && rnpState.mp !== 'wb');
+    if (key === 'p_fines_rub' && rnpState.mp !== 'wb') return false;
+    // «К оплате на р/с» — пока только WB и Ozon: выплату Яндекса ещё не сверяли.
+    if (key === 'p_payout' && rnpState.mp === 'yandex') return false;
+    return true;
   }
 
   // Текущая запись каталога по rnpState.topMetric (дефолт — маржинальность).
