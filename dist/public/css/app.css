@@ -1192,7 +1192,10 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
      поэтому шапка и фильтры всегда видны. */
   max-height: calc(100vh - var(--sp-wrap-top, 240px) - 14px);
 }
-table.sp-tbl { font-size:12.5px; }
+/* Ширина таблицы — по содержимому, а не на весь экран: ячейка месяца собрана
+   из дорожек фиксированной ширины, поэтому месяц всегда одной ширины при любом
+   периоде; если месяцев меньше 12, справа остаётся пустое поле. */
+table.sp-tbl { font-size:12.5px; width:max-content; }
 /* Высота строк — компактная, как в РНП (вертикальный паддинг ~4px → строка ~30px). */
 table.sp-tbl th, table.sp-tbl td { padding:4px 10px; }
 
@@ -1373,6 +1376,8 @@ table.sp-tbl tbody tr.sp-leaf td.sp-sum { font-weight:400; }
 /* Σ план/факт ₽ */
 table.sp-tbl th.sp-sum, table.sp-tbl td.sp-sum {
   background:var(--bg-elev2); font-weight:600; border-left:1px solid var(--border-soft);
+  /* Фиксированная ширина, чтобы итоговые колонки не «гуляли» от периода к периоду. */
+  width:96px; min-width:96px;
 }
 /* Итог плана за год — синий, как все плановые показатели. */
 table.sp-tbl td.sp-sum-plan { color:var(--plan-blue); }
