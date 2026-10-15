@@ -4429,7 +4429,7 @@ const Views = (() => {
       const v = (node.cells[w.key] || {})[tm.key];
       const prev = i > 0 ? (node.cells[weeks[i - 1].key] || {})[tm.key] : null;
       const d = calcDelta(v, prev, tm.kind);
-      // «Ozon тест»: изменение процентов — в п.п.
+      // «Ozon тест»: изменение %-показателя — в п.п. числом без единиц
       const dTxt = rnpState.mp === 'oz_test' ? tFmtDelta(d) : fmtDelta(d);
       // Светофор (красный при отрицательной марже, оранжевый ниже целевой)
       // применяем только к процентным показателям; для штучных/денежных — нет.
@@ -4757,8 +4757,8 @@ const Views = (() => {
   // «Ozon тест»: макет новой подачи карточки показателей (15.10.2026).
   // Порядок — по денежному потоку: Воронка → Деньги (каскад от продаж к
   // прибыли) → На единицу (только товар) → Структура (только группы/Итоги).
-  // Набор строк одинаков на своём уровне; нет значения — «—». Изменения %
-  // подписаны «п.п.». Значения — те же ключи ячеек, что у вкладки OZON.
+  // Набор строк одинаков на своём уровне; нет значения — «—». Изменения %-показателей
+  // — в п.п. числом без единиц («−0,7»), «%» — только у относительных изменений.
   // ------------------------------------------------------------------
   const T_LEVEL_ITEM = 'item', T_LEVEL_GROUP = 'group', T_LEVEL_ROOT = 'root';
   const tDiv = (a, b) => (a == null || b == null || !b || isNaN(a) || isNaN(b)) ? null : a / b;
@@ -4807,7 +4807,8 @@ const Views = (() => {
     if (!d) return '';
     const sign = d.val > 0 ? '+' : (d.val < 0 ? '−' : '');
     const v = Math.abs(d.val * 100).toFixed(1).replace('.', ',');
-    return d.mode === 'pp' ? `${sign}${v} п.п.` : `${sign}${v}%`;
+    // п.п. — без единиц (подпись «п.п.» не влезала в колонку дельты); «%» — только относительное изменение
+    return d.mode === 'pp' ? `${sign}${v}` : `${sign}${v}%`;
   }
 
   function tValCell(cur, prev, row) {
@@ -4822,7 +4823,7 @@ const Views = (() => {
     const d = calcDelta(cur, prev, row.kind);
     const dTxt = tFmtDelta(d);
     return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span>`
-      + (dTxt ? `<span class="rnp-vc-d ${deltaDirPolar(d, row.pol)}">${dTxt}</span>` : '<span class="rnp-vc-d flat"></span>')
+      + (dTxt ? `<span class="rnp-vc-d ${deltaDirPolar(d, row.pol)}"${d.mode === 'pp' ? ' title="Изменение в процентных пунктах"' : ''}>${dTxt}</span>` : '<span class="rnp-vc-d flat"></span>')
       + '</span>';
   }
 
