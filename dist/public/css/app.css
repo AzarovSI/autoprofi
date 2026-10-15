@@ -952,7 +952,8 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 .rnp-mtbl tr.rnp-m-strong .rnp-vc-v { font-weight:400; color:var(--text); }
 /* сворачиваемая группа «Все удержания, %»: заголовок кликабелен, дети с лёгким отступом */
 .rnp-mtbl td.rnp-m-holds-head.is-clickable,
-.rnp-mtbl td.rnp-m-promo-head.is-clickable { cursor:pointer; }
+.rnp-mtbl td.rnp-m-promo-head.is-clickable,
+.rnp-mtbl td.rnp-m-payout-head.is-clickable { cursor:pointer; }
 .rnp-mtbl td.rnp-m-name.rnp-m-holds-child { padding-left:calc(var(--rnp-mname-pad, 28px) + 16px); }
 .rnp-mtbl tbody tr:hover td { background:var(--accent-bg); }
 /* Фикс-колонка имени метрики (sticky, перекрывает зону «Статус»): при наведении

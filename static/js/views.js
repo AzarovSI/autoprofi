@@ -3119,7 +3119,7 @@ const Views = (() => {
   // topMetric — ключ показателя «верхнего уровня» в строке-заголовке узла
   //             (дефолт 'rnp' = Маржинальность %; выбирается селектором,
   //              хранится только на время сессии, как остальные фильтры).
-  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, uiSnap: {} };
+  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, payoutOpen: false, uiSnap: {} };
 
   // ── Память состояния дерева РНП по маркетплейсам (на время открытой вкладки).
   // Проблема: при переключении подтаба МП (Ozon/WB/Сводная) раскрытие групп,
@@ -3818,7 +3818,7 @@ const Views = (() => {
   function rnpMetricVisible(key) {
     if (key === 'p_fines_rub' && rnpState.mp !== 'wb') return false;
     // «К оплате на р/с» — пока только WB и Ozon: выплату Яндекса ещё не сверяли.
-    if (key === 'p_payout' && rnpState.mp === 'yandex') return false;
+    if ((key === 'p_payout' || key === 'p_net_margin_pct') && rnpState.mp === 'yandex') return false;
     return true;
   }
 
@@ -4689,22 +4689,29 @@ const Views = (() => {
     // отдельно (rnpState.promoOpen).
     const promoIdx = pmetrics.findIndex(mt => mt.key === 'p_promo_pct');
     const promoChildIdx = pmetrics.findIndex(mt => mt.key === 'p_promo_orders_pct');
+    // Группа «К оплате на р/с» (голова p_payout) с ребёнком «Чистая
+    // маржинальность, %» (p_net_margin_pct) — флаг rnpState.payoutOpen.
+    const payoutIdx = pmetrics.findIndex(mt => mt.key === 'p_payout');
+    const payoutChildIdx = pmetrics.findIndex(mt => mt.key === 'p_net_margin_pct');
     let body = '';
     pmetrics.forEach((mt, idx) => {
       const isHoldsHead = idx === holdsIdx;
       const isHoldsChild = holdsIdx !== -1 && idx > holdsIdx && idx < holdsEnd;
       const isPromoHead = idx === promoIdx;
       const isPromoChild = idx === promoChildIdx;
+      const isPayoutHead = idx === payoutIdx;
+      const isPayoutChild = idx === payoutChildIdx;
       // Дети групп рендерятся только когда своя группа раскрыта.
       if (isHoldsChild && !rnpState.holdsOpen) return;
       if (isPromoChild && !rnpState.promoOpen) return;
+      if (isPayoutChild && !rnpState.payoutOpen) return;
       let nameSt = '';
       if (mt.color) nameSt += `color:#${mt.color};`;
       if (mt.bold) nameSt += 'font-weight:700;';
       const nameStyle = nameSt ? ` style="${nameSt}"` : '';
       const strong = mt.bold ? ' rnp-m-strong' : '';
       const sepCls = mt.sep ? ' rnp-m-sep' : '';
-      const childCls = (isHoldsChild || isPromoChild) ? ' rnp-m-holds-child' : '';
+      const childCls = (isHoldsChild || isPromoChild || isPayoutChild) ? ' rnp-m-holds-child' : '';
       // Заголовок группы: слева треугольник (тот же символ/стиль,
       // что у стрелки раскрытия узла ▸/▾). Дети — с лёгким отступом.
       let nameInner;
@@ -4714,12 +4721,16 @@ const Views = (() => {
       } else if (isPromoHead && promoChildIdx !== -1) {
         const tri = rnpState.promoOpen ? '▾' : '▸';
         nameInner = `<button class="rnp-exp-btn rnp-promo-toggle" title="Показать/скрыть продвижение от заказов">${tri}</button>${U.esc(mt.label)}`;
+      } else if (isPayoutHead && payoutChildIdx !== -1) {
+        const tri = rnpState.payoutOpen ? '▾' : '▸';
+        nameInner = `<button class="rnp-exp-btn rnp-payout-toggle" title="Показать/скрыть чистую маржинальность">${tri}</button>${U.esc(mt.label)}`;
       } else {
         nameInner = U.esc(mt.label);
       }
       let headCls = '';
       if (isHoldsHead) headCls = ' rnp-m-holds-head is-clickable';
       else if (isPromoHead && promoChildIdx !== -1) headCls = ' rnp-m-promo-head is-clickable';
+      else if (isPayoutHead && payoutChildIdx !== -1) headCls = ' rnp-m-payout-head is-clickable';
       let row = `<tr class="${(strong + sepCls + childCls).trim()}"><td class="rnp-m-name${strong}${childCls}${headCls}"${nameStyle}>${nameInner}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
@@ -4857,6 +4868,21 @@ const Views = (() => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.rnp-promo-toggle')) return; // стрелка уже обработана
         togglePromo(e);
+      });
+    });
+    // сворачиваемая группа «К оплате на р/с»: флаг rnpState.payoutOpen
+    const togglePayout = (e) => {
+      e.stopPropagation();
+      rnpState.payoutOpen = !rnpState.payoutOpen;
+      renderRnpMatrix(rnpState.data.tree, weeks, metrics);
+    };
+    host.querySelectorAll('.rnp-payout-toggle').forEach(el => {
+      el.addEventListener('click', togglePayout);
+    });
+    host.querySelectorAll('.rnp-m-payout-head').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.rnp-payout-toggle')) return; // стрелка уже обработана
+        togglePayout(e);
       });
     });
     // дополнительно: клик по имени узла повторяет действие его стрелки

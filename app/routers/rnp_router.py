@@ -101,6 +101,9 @@ PRODUCT_METRIC_DEFS = [
     # «К оплате на р/с» — выплата площадки (MPPROFIT «Выплата на р/с»): зелёный, нежирный.
     # WB — «(с рекл.)», Ozon — обычная (реклама уже в удержаниях), Яндекс — пока нет.
     ("p_payout",           "К оплате на р/с, руб",              "rub",   "1E7D34", False, False, "pos"),
+    # Раскрываемая группа «К оплате на р/с» (на фронте, как «Продвижение»):
+    # ребёнок — чистая маржинальность = к оплате / продажи руб.
+    ("p_net_margin_pct",   "Чистая маржинальность, %",          "pct",   "56A06A", False, False, "pos"),
     ("p_sales_qty",        "Продажи, шт",                       "qty",   "16191D", False, False, "pos"),
     ("p_revenue",          "Продажи, руб",                      "rub",   "16191D", False, False, "pos"),
     ("p_plan_qty",         "План продаж, шт",                   "qty",   "0000FF", False, False, "none"),
@@ -250,6 +253,8 @@ def _compute_cell(agg, mp="Ozon"):
         "avg_price":       _div(rev, qty),
         "profit":          profit,
         "p_payout":        payout,
+        # Чистая маржинальность = К оплате на р/с / Продажи, руб (доля 0..1).
+        "p_net_margin_pct": (_div(payout, rev) if payout is not None else None),
         "profit_per_unit": _div(profit, qty),
         "buyout_pct":      (_div(_f(bo_w), rev) if bo_w is not None else None),
         "log_per_unit":    _div(logistics_t, qty),
