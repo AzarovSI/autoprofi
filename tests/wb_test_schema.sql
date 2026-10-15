@@ -64,3 +64,10 @@ CREATE TABLE IF NOT EXISTS wb_daily_sales (
 CREATE TABLE IF NOT EXISTS ozon_daily_sales (
   seller_article text, date date, spp_pct numeric
 );
+-- План продаж (раздел «Продажи, шт.»): PK как в рабочей БД — нужен для UPSERT импорта.
+CREATE TABLE IF NOT EXISTS sales_plan (
+  seller_article text NOT NULL, marketplace text NOT NULL,
+  year integer NOT NULL, month integer NOT NULL, plan_qty numeric,
+  updated_at timestamptz DEFAULT now(), is_manual boolean DEFAULT false, prev_qty numeric,
+  PRIMARY KEY (seller_article, marketplace, year, month)
+);

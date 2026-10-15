@@ -74,56 +74,145 @@ def _st_norm(s):
     return s if s else "-"
 
 
+# Период раздела — непрерывный диапазон месяцев «ГГГГ-ММ»..«ГГГГ-ММ», может
+# переходить через границу года. Длину ограничиваем, чтобы случайный запрос
+# не строил таблицу на десятки лет.
+MAX_PERIOD_MONTHS = 36
+RU_MONTHS_SHORT = ["", "янв", "фев", "мар", "апр", "май", "июн",
+                   "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+
+def _parse_ym(s, name):
+    """«ГГГГ-ММ» → (год, месяц); иначе 400."""
+    try:
+        y_s, m_s = str(s).strip().split("-")
+        y, m = int(y_s), int(m_s)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail=f"Некорректный месяц {name}: ожидается ГГГГ-ММ")
+    if not (2000 <= y <= 2100 and 1 <= m <= 12):
+        raise HTTPException(status_code=400, detail=f"Некорректный месяц {name}: ожидается ГГГГ-ММ")
+    return y, m
+
+
+def _months_between(lo, hi):
+    """Список (год, месяц) от lo до hi включительно."""
+    out = []
+    y, m = lo
+    while (y, m) <= hi:
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _period_months(month_from=None, month_to=None, year=None):
+    """Месяцы периода из параметров запроса. Без from/to — январь–декабрь
+    года `year` (старый параметр), без всего — текущего года."""
+    if month_from or month_to:
+        lo = _parse_ym(month_from or month_to, "начала")
+        hi = _parse_ym(month_to or month_from, "конца")
+        if hi < lo:
+            lo, hi = hi, lo
+    else:
+        y = int(year) if year else datetime.date.today().year
+        lo, hi = (y, 1), (y, 12)
+    months = _months_between(lo, hi)
+    if len(months) > MAX_PERIOD_MONTHS:
+        raise HTTPException(status_code=400,
+                            detail=f"Слишком длинный период: не больше {MAX_PERIOD_MONTHS} месяцев")
+    return months
+
+
+def _ym_key(y, m):
+    return f"{y:04d}-{m:02d}"
+
+
+def _ym_num(y, m):
+    """Число ГГГГММ — для фильтра диапазона в SQL (year * 100 + month)."""
+    return y * 100 + m
+
+
+def _period_label(months):
+    """Подпись периода для заголовков: «2026 г.», «октябрь 2026», «ноябрь 2026 – февраль 2027»."""
+    (y1, m1), (y2, m2) = months[0], months[-1]
+    if y1 == y2 and m1 == 1 and m2 == 12:
+        return f"{y1} г."
+    if (y1, m1) == (y2, m2):
+        return f"{RU_MONTHS[m1].lower()} {y1}"
+    if y1 == y2:
+        return f"{RU_MONTHS[m1].lower()} – {RU_MONTHS[m2].lower()} {y1}"
+    return f"{RU_MONTHS[m1].lower()} {y1} – {RU_MONTHS[m2].lower()} {y2}"
+
+
+def _period_tag(months):
+    """Метка периода для имени файла: «2026», «2026-10», «2026-11_2027-02»."""
+    (y1, m1), (y2, m2) = months[0], months[-1]
+    if y1 == y2 and m1 == 1 and m2 == 12:
+        return str(y1)
+    if (y1, m1) == (y2, m2):
+        return _ym_key(y1, m1)
+    return f"{_ym_key(y1, m1)}_{_ym_key(y2, m2)}"
+
+
 @router.get("/plan_fact")
 def plan_fact(
     marketplace: str = Query("ozon"),
-    year: int = Query(...),
+    month_from: str = Query(None),
+    month_to: str = Query(None),
+    year: int = Query(None),
     status: str = Query(None),
     manager: str = Query(None),
     user=Depends(auth.get_current_user),
 ):
-    """Дерево план/факт по месяцам выбранного года для одного МП или «Сводной»."""
+    """Дерево план/факт по месяцам выбранного периода для одного МП или «Сводной»."""
     _check_access(user, marketplace)
-    return _compute_plan_fact(marketplace, year, status, manager)
+    months = _period_months(month_from, month_to, year)
+    return _compute_plan_fact(marketplace, months, status, manager)
 
 
-def _compute_plan_fact(marketplace, year, status=None, manager=None):
+def _compute_plan_fact(marketplace, months, status=None, manager=None):
     """Построение дерева план/факт (вынесено из эндпоинта для переиспользования
-    в выгрузке сводного отчёта). Параметры — обычные значения, без Query."""
+    в выгрузке сводного отчёта). months — список (год, месяц) периода по порядку;
+    ячейки месяцев в узлах идут в том же порядке."""
     mps = _mps_for(marketplace)
     is_cross = len(mps) > 1
+    n_months = len(months)
+    idx = {ym: i for i, ym in enumerate(months)}  # (год, месяц) → номер ячейки
+    lo = _ym_num(*months[0])
+    hi = _ym_num(*months[-1])
 
     # 4 независимых запроса (факт, план, иерархия, статусы/менеджеры) —
     # последовательно на тёплом пуле; построение дерева ниже тоже последовательное.
     fact_rows = db.query_all(
         """
-        SELECT seller_article, marketplace, month,
+        SELECT seller_article, marketplace, year, month,
                SUM(sales_qty) AS qty,
                SUM(sales_qty * COALESCE(avg_sale_price, 0)) AS rub
         FROM fact_monthly
-        WHERE year = %s AND marketplace = ANY(%s) AND row_type = 'Товар'
-        GROUP BY seller_article, marketplace, month
+        WHERE year * 100 + month BETWEEN %s AND %s
+              AND marketplace = ANY(%s) AND row_type = 'Товар'
+        GROUP BY seller_article, marketplace, year, month
         """,
-        (year, mps),
+        (lo, hi, mps),
     )
     plan_rows = db.query_all(
         """
-        SELECT seller_article, marketplace, month, plan_qty, is_manual, prev_qty
+        SELECT seller_article, marketplace, year, month, plan_qty, is_manual, prev_qty
         FROM sales_plan
-        WHERE year = %s AND marketplace = ANY(%s)
+        WHERE year * 100 + month BETWEEN %s AND %s AND marketplace = ANY(%s)
         """,
-        (year, mps),
+        (lo, hi, mps),
     )
-    # Факт прошлого года (year-1) — для дорожки YoY в ячейках месяцев.
+    # Факт того же месяца годом раньше — для дорожки YoY в ячейках месяцев.
     # Тянем только количество (шт), помесячно; иерархию/статусы берём из текущего набора.
     fact_prev_rows = db.query_all(
         """
-        SELECT seller_article, marketplace, month, SUM(sales_qty) AS qty
+        SELECT seller_article, marketplace, year, month, SUM(sales_qty) AS qty
         FROM fact_monthly
-        WHERE year = %s AND marketplace = ANY(%s) AND row_type = 'Товар'
-        GROUP BY seller_article, marketplace, month
+        WHERE year * 100 + month BETWEEN %s AND %s
+              AND marketplace = ANY(%s) AND row_type = 'Товар'
+        GROUP BY seller_article, marketplace, year, month
         """,
-        (year - 1, mps),
+        (lo - 100, hi - 100, mps),
     )
     cat_rows = db.query_all(
         """SELECT seller_article, category_l1, category_l2, category_l3
@@ -135,53 +224,61 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
         (mps,),
     )
 
+    def _cell_of(r, shift_years=0):
+        """Номер ячейки периода для строки с year/month (или None, если вне периода)."""
+        try:
+            ym = (int(r["year"]) + shift_years, int(r["month"] or 0))
+        except (TypeError, ValueError):
+            return None
+        return idx.get(ym)
+
     # 1) Факт: продажи шт и средняя цена по месяцам (только товарные строки).
-    # fact[(art, mp)][month] = {"qty":..., "rub":...}
+    # fact[(art, mp)][i] = {"qty":..., "rub":...}, i — номер месяца в периоде
     fact = {}
     arts = set()
     for r in fact_rows:
         art = r.get("seller_article") or ""
         if not art:
             continue
-        mp = r["marketplace"]
-        m = int(r["month"] or 0)
-        if not (1 <= m <= 12):
+        i = _cell_of(r)
+        if i is None:
             continue
         arts.add(art)
-        fact.setdefault((art, mp), {})[m] = {"qty": _f(r["qty"]), "rub": _f(r["rub"])}
+        fact.setdefault((art, r["marketplace"]), {})[i] = {"qty": _f(r["qty"]), "rub": _f(r["rub"])}
 
     # 2) План шт по месяцам.
     plan = {}
-    # Метаданные ручной правки плана per (art, mp)[month] — нужны ТОЛЬКО на листе
+    # Метаданные ручной правки плана per (art, mp)[i] — нужны ТОЛЬКО на листе
     # одиночного МП (не агрегируются в группы). Храним отдельно от plan.
     plan_meta = {}
     for r in plan_rows:
         art = r.get("seller_article") or ""
         if not art:
             continue
-        m = int(r["month"] or 0)
-        if not (1 <= m <= 12):
+        i = _cell_of(r)
+        if i is None:
             continue
         arts.add(art)
-        plan.setdefault((art, r["marketplace"]), {})[m] = _f(r["plan_qty"])
+        plan.setdefault((art, r["marketplace"]), {})[i] = _f(r["plan_qty"])
         prev = r.get("prev_qty")
-        plan_meta.setdefault((art, r["marketplace"]), {})[m] = {
+        plan_meta.setdefault((art, r["marketplace"]), {})[i] = {
             "is_manual": bool(r.get("is_manual")),
             "prev_qty": (_f(prev) if prev is not None else None),
         }
 
-    # 2b) Факт прошлого года по месяцам: fact_prev[(art, mp)][month] = qty.
-    # Артикулы, которые есть ТОЛЬКО в прошлом году (новых продаж/плана нет), в дерево
-    # не добавляем — показываем YoY лишь для существующих в текущем году позиций.
+    # 2b) Факт годом раньше: fact_prev[(art, mp)][i] = qty (i — месяц периода,
+    # к которому относится сравнение). Артикулы, которые есть ТОЛЬКО год назад
+    # (в периоде нет продаж/плана), в дерево не добавляем — YoY лишь для
+    # существующих в периоде позиций.
     fact_prev = {}
     for r in fact_prev_rows:
         art = r.get("seller_article") or ""
         if not art:
             continue
-        m = int(r["month"] or 0)
-        if not (1 <= m <= 12):
+        i = _cell_of(r, shift_years=1)
+        if i is None:
             continue
-        fact_prev.setdefault((art, r["marketplace"]), {})[m] = _f(r["qty"])
+        fact_prev.setdefault((art, r["marketplace"]), {})[i] = _f(r["qty"])
 
     # 3) Иерархия (общая) + статус/менеджер по МП.
     cat = {r["seller_article"]: r for r in cat_rows}
@@ -213,29 +310,29 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
             continue
         arts.add(a)
 
-    # 4) «Факт по дату»: день месяца последнего месячного отчёта по (mp, month).
+    # 4) «Факт по дату»: день месяца последнего месячного отчёта по (mp, месяц).
     df_rows = db.query_all(
-        """SELECT marketplace, month, fact_through_date
+        """SELECT marketplace, year, month, fact_through_date
            FROM report_uploads
-           WHERE period_kind = 'monthly' AND year = %s AND marketplace = ANY(%s)
-                 AND fact_through_date IS NOT NULL
+           WHERE period_kind = 'monthly' AND year * 100 + month BETWEEN %s AND %s
+                 AND marketplace = ANY(%s) AND fact_through_date IS NOT NULL
            ORDER BY id""",
-        (year, mps),
+        (lo, hi, mps),
     )
-    days_fact = {mp: {} for mp in mps}  # mp -> month -> day
+    days_fact = {mp: {} for mp in mps}  # mp -> i -> day
     for r in df_rows:
         mp = r["marketplace"]
-        m = int(r["month"] or 0)
+        i = _cell_of(r)
         d = r["fact_through_date"]
-        if mp in days_fact and 1 <= m <= 12 and d is not None:
-            days_fact[mp][m] = d.day  # последний по id перезаписывает
+        if mp in days_fact and i is not None and d is not None:
+            days_fact[mp][i] = d.day  # последний по id перезаписывает
 
-    # days_fact в ответ (по ключам ozon/wb/yandex для фронта).
+    # days_fact в ответ (по ключам ozon/wb/yandex для фронта; месяц — «ГГГГ-ММ»).
     _MP_KEY = {"Ozon": "ozon", "Wildberries": "wb", "Yandex": "yandex"}
     df_out = {}
     for mp in mps:
         key = _MP_KEY.get(mp, "ozon")
-        df_out[key] = {str(m): days_fact[mp][m] for m in days_fact[mp]}
+        df_out[key] = {_ym_key(*months[i]): days_fact[mp][i] for i in days_fact[mp]}
 
     # 4b) Данные для рублёвого плана (галочка «продажи в руб.»):
     #   (а) закрыт ли месяц — по последней загрузке fact_monthly за период;
@@ -245,22 +342,22 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
     # загрузку). fact_through_date IS NULL → месяц ЗАКРЫТ (закрывающий отчёт),
     # задана → НЕ закрыт (промежуточный). Нет строк fact_monthly → НЕ закрыт.
     closed_rows = db.query_all(
-        """SELECT DISTINCT fm.marketplace, fm.month, ru.fact_through_date
+        """SELECT DISTINCT fm.marketplace, fm.year, fm.month, ru.fact_through_date
            FROM fact_monthly fm
            JOIN report_uploads ru ON ru.id = fm.upload_id
-           WHERE fm.year = %s AND fm.marketplace = ANY(%s)""",
-        (year, mps),
+           WHERE fm.year * 100 + fm.month BETWEEN %s AND %s AND fm.marketplace = ANY(%s)""",
+        (lo, hi, mps),
     )
-    month_closed = {}  # (mp, month) -> bool
+    month_closed = {}  # (mp, i) -> bool
     for r in closed_rows:
         mp = r["marketplace"]
-        m = int(r["month"] or 0)
-        if 1 <= m <= 12:
+        i = _cell_of(r)
+        if i is not None:
             # Несколько upload_id за период не ожидается (хранится только
             # последняя загрузка), но на всякий случай: закрыт, если хотя бы
             # одна строка периода = закрывающая (through=NULL).
-            prev = month_closed.get((mp, m), False)
-            month_closed[(mp, m)] = prev or (r["fact_through_date"] is None)
+            prev = month_closed.get((mp, i), False)
+            month_closed[(mp, i)] = prev or (r["fact_through_date"] is None)
 
     # Последняя недельная цена продажи по каждому SKU: avg_sale_price из
     # ПОСЛЕДНЕГО недельного отчёта (max year, week), где у товара были продажи.
@@ -302,14 +399,14 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
                 "sum_fact": 0.0, "fc": 0.0, "plan_rub": 0.0, "partial": False}
 
     def article_months(art):
-        months = [empty_month() for _ in range(12)]
+        cells = [empty_month() for _ in range(n_months)]
         tot_sp = tot_sf = 0.0
-        for m in range(1, 13):
-            dim = calendar.monthrange(year, m)[1]
-            cell = months[m - 1]
+        for i, (y, m) in enumerate(months):
+            dim = calendar.monthrange(y, m)[1]
+            cell = cells[i]
             for mp in mps:
-                pl = plan.get((art, mp), {}).get(m, 0.0)
-                fc_cell = fact.get((art, mp), {}).get(m)
+                pl = plan.get((art, mp), {}).get(i, 0.0)
+                fc_cell = fact.get((art, mp), {}).get(i)
                 fq = fc_cell["qty"] if fc_cell else 0.0
                 frub = fc_cell["rub"] if fc_cell else 0.0
                 # средняя цена месяца по МП (для суммы плана)
@@ -318,20 +415,20 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
                 #  закрытый месяц → цена из fact_monthly (= frub/fq);
                 #  незакрытый (промежуточный/текущий/будущий, либо нет
                 #  месячного отчёта) → последняя недельная цена с продажами.
-                if month_closed.get((mp, m), False):
+                if month_closed.get((mp, i), False):
                     plan_price = price
                 else:
                     plan_price = last_weekly_price.get((art, mp), 0.0)
                 cell["plan"] += pl
                 cell["fact"] += fq
-                cell["fact_prev"] += fact_prev.get((art, mp), {}).get(m, 0.0)
+                cell["fact_prev"] += fact_prev.get((art, mp), {}).get(i, 0.0)
                 cell["sum_plan"] += pl * price
                 cell["sum_fact"] += frub
                 # План_руб считаем ОТДЕЛЬНО по каждому МП (в cross цены разные)
                 # и суммируем — по правилам спеки.
                 cell["plan_rub"] += pl * plan_price
                 # прогноз по этому МП
-                day = days_fact.get(mp, {}).get(m)
+                day = days_fact.get(mp, {}).get(i)
                 if day and day < dim:
                     cell["fc"] += (fq / day * dim) if day else fq
                     cell["partial"] = True
@@ -339,20 +436,20 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
                     cell["fc"] += fq
             tot_sp += cell["sum_plan"]
             tot_sf += cell["sum_fact"]
-        return months, tot_sp, tot_sf
+        return cells, tot_sp, tot_sf
 
     # 7) Сбор дерева L1→L2→L3→Товар.
     def new_node(key, name, level):
         return {"key": key, "name": name, "level": level,
-                "months": [empty_month() for _ in range(12)],
+                "months": [empty_month() for _ in range(n_months)],
                 "total_sum_plan": 0.0, "total_sum_fact": 0.0,
                 "children": {}, "leaf_info": None}
 
-    def add_into(node, months, tsp, tsf):
-        for i in range(12):
+    def add_into(node, cells, tsp, tsf):
+        for i in range(n_months):
             for k in ("plan", "fact", "fact_prev", "sum_plan", "sum_fact", "fc", "plan_rub"):
-                node["months"][i][k] += months[i][k]
-            if months[i]["partial"]:
+                node["months"][i][k] += cells[i][k]
+            if cells[i]["partial"]:
                 node["months"][i]["partial"] = True
         node["total_sum_plan"] += tsp
         node["total_sum_fact"] += tsf
@@ -361,42 +458,42 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
     for art in sorted(arts):
         if not passes_filters(art):
             continue
-        months, tsp, tsf = article_months(art)
+        cells, tsp, tsf = article_months(art)
         ci = cat.get(art) or {}
         l1 = ci.get("category_l1") or "(без категории)"
         l2 = ci.get("category_l2") or "(без категории)"
         l3 = ci.get("category_l3") or "(без категории)"
 
-        add_into(root, months, tsp, tsf)
+        add_into(root, cells, tsp, tsf)
         # L1
         n1 = root["children"].get(l1) or new_node(l1, l1, 1)
         root["children"][l1] = n1
-        add_into(n1, months, tsp, tsf)
+        add_into(n1, cells, tsp, tsf)
         # L2
         k2 = f"{l1}|{l2}"
         n2 = n1["children"].get(k2) or new_node(k2, l2, 2)
         n1["children"][k2] = n2
-        add_into(n2, months, tsp, tsf)
+        add_into(n2, cells, tsp, tsf)
         # L3
         k3 = f"{l1}|{l2}|{l3}"
         n3 = n2["children"].get(k3) or new_node(k3, l3, 3)
         n2["children"][k3] = n3
-        add_into(n3, months, tsp, tsf)
+        add_into(n3, cells, tsp, tsf)
         # Товар
         k4 = f"{k3}|{art}"
         n4 = new_node(k4, art, 4)
-        n4["months"] = months
+        n4["months"] = cells
         n4["total_sum_plan"] = tsp
         n4["total_sum_fact"] = tsf
         # is_manual/prev_qty осмысленны только для одиночного МП (ozon/wb):
         # кладём прямо в месяцы листа, минуя add_into (группы план не редактируют).
         if not is_cross:
             meta_mp = plan_meta.get((art, mps[0]), {})
-            for mo in range(1, 13):
-                mv = meta_mp.get(mo)
+            for i in range(n_months):
+                mv = meta_mp.get(i)
                 if mv:
-                    n4["months"][mo - 1]["is_manual"] = mv["is_manual"]
-                    n4["months"][mo - 1]["prev_qty"] = mv["prev_qty"]
+                    n4["months"][i]["is_manual"] = mv["is_manual"]
+                    n4["months"][i]["prev_qty"] = mv["prev_qty"]
         oz = cm.get((art, "Ozon")) or {}
         wb = cm.get((art, "Wildberries")) or {}
         ya = cm.get((art, "Yandex")) or {}
@@ -447,22 +544,23 @@ def _compute_plan_fact(marketplace, year, status=None, manager=None):
             "prev_qty": (round(prev, 3) if prev is not None else None),
         }
 
-    # 8) Списки для фильтров и доступные годы.
+    # 8) Списки для фильтров и доступные годы (границы выбора периода).
     statuses = sorted({_st_norm(v["status"]) for v in cm.values()})
     managers = sorted({v["manager"] for v in cm.values() if v.get("manager")})
     yrs = [r["year"] for r in db.query_all(
         """SELECT DISTINCT year FROM fact_monthly
            UNION SELECT DISTINCT year FROM sales_plan ORDER BY 1""")]
-    # Следующий год (текущий + 1) всегда доступен для планирования, даже
-    # если факта/плана за него ещё нет — иначе план на новый год не выгрузить
-    # и не загрузить через UI (год берётся из фильтра, а не из шапки файла).
-    next_year = datetime.date.today().year + 1
-    if next_year not in yrs:
-        yrs = sorted(set(yrs) | {next_year})
+    # Текущий и следующий год всегда доступны для планирования, даже
+    # если факта/плана за них ещё нет — иначе план на новый год не выгрузить.
+    this_year = datetime.date.today().year
+    yrs = sorted(set(yrs) | {this_year, this_year + 1})
 
     return {
-        "marketplace": marketplace, "year": year, "prev_year": year - 1, "is_cross": is_cross,
-        "years": yrs, "months": list(range(1, 13)),
+        "marketplace": marketplace, "is_cross": is_cross,
+        "month_from": _ym_key(*months[0]), "month_to": _ym_key(*months[-1]),
+        "period_label": _period_label(months),
+        "years": yrs,
+        "months": [{"key": _ym_key(y, m), "year": y, "month": m} for y, m in months],
         "statuses": statuses, "managers": managers,
         "days_fact": df_out,
         "tree": finalize(root),
@@ -527,39 +625,41 @@ def plan_cell(body: PlanCellIn, user=Depends(auth.get_current_user)):
     }
 
 
-def _plan_universe(mp_db: str, year: int):
-    """Артикулы для шаблона плана (есть факт или план за год по этому МП).
+def _plan_universe(mp_db: str, months):
+    """Артикулы для шаблона плана (есть факт или план в периоде по этому МП).
 
     Текущий статус берём из catalog_marketplace по этому маркетплейсу —
     он добавляется в шаблон СПРАВОЧНО (для анализа), при загрузке файла
     статус не читается и не перезаписывает данные в системе.
 
-    Если за запрошенный год данных ещё нет (например, планируем будущий год —
-    факта/плана нет), берём список артикулов за последний доступный год с
-    данными по этому МП, чтобы шаблон не вышел пустым.
+    Если в периоде данных ещё нет (например, планируем будущий год —
+    факта/плана нет), берём список артикулов за последний год с данными
+    по этому МП (не позже конца периода), чтобы шаблон не вышел пустым.
     """
-    def _fetch(yr):
+    def _fetch(lo, hi):
         return db.query_all(
             """
             SELECT DISTINCT t.seller_article, cm.status AS status
             FROM (
                 SELECT seller_article FROM fact_monthly
-                  WHERE year = %s AND marketplace = %s AND row_type = 'Товар'
+                  WHERE year * 100 + month BETWEEN %s AND %s
+                        AND marketplace = %s AND row_type = 'Товар'
                 UNION
                 SELECT seller_article FROM sales_plan
-                  WHERE year = %s AND marketplace = %s
+                  WHERE year * 100 + month BETWEEN %s AND %s AND marketplace = %s
             ) t
             LEFT JOIN catalog_marketplace cm
                    ON cm.seller_article = t.seller_article AND cm.marketplace = %s
             WHERE t.seller_article IS NOT NULL AND t.seller_article <> ''
             ORDER BY 1
             """,
-            (yr, mp_db, yr, mp_db, mp_db),
+            (lo, hi, mp_db, lo, hi, mp_db, mp_db),
         )
 
-    rows = _fetch(year)
+    rows = _fetch(_ym_num(*months[0]), _ym_num(*months[-1]))
     if not rows:
-        # последний год с фактом/планом по этому МП (≤ запрошенного)
+        # последний год с фактом/планом по этому МП (≤ года конца периода)
+        last_year = months[-1][0]
         fb = db.query_one(
             """
             SELECT MAX(year) AS y FROM (
@@ -570,21 +670,23 @@ def _plan_universe(mp_db: str, year: int):
                   WHERE marketplace = %s AND year <= %s
             ) z
             """,
-            (mp_db, year, mp_db, year),
+            (mp_db, last_year, mp_db, last_year),
         )
         fb_year = fb.get("y") if fb else None
-        if fb_year and fb_year != year:
-            rows = _fetch(fb_year)
+        if fb_year:
+            rows = _fetch(_ym_num(fb_year, 1), _ym_num(fb_year, 12))
     return rows
 
 
 @router.get("/plan_export")
 def plan_export(
     marketplace: str = Query("ozon"),
-    year: int = Query(...),
+    month_from: str = Query(None),
+    month_to: str = Query(None),
+    year: int = Query(None),
     user=Depends(auth.get_current_user),
 ):
-    """Excel-шаблон плана продаж (шт) одного МП на выбранный год."""
+    """Excel-шаблон плана продаж (шт) одного МП строго на месяцы выбранного периода."""
     _check_access(user, marketplace, "sales.plan.export")
     import openpyxl
     from openpyxl.styles import Font
@@ -592,20 +694,23 @@ def plan_export(
     if m == "cross" or m not in MP_MAP:
         raise HTTPException(status_code=400, detail="План редактируется по одному маркетплейсу (ozon или wb)")
     mp_db = MP_MAP[m]
+    months = _period_months(month_from, month_to, year)
 
-    # Текущий план: (art, month) -> plan_qty; ручные (is_manual) ячейки помечаем
-    # для последующей зелёной подсветки шрифта в Excel.
+    # Текущий план: (art, год, месяц) -> plan_qty; ручные (is_manual) ячейки
+    # помечаем для последующей зелёной подсветки шрифта в Excel.
     cur = {}
     manual = set()
     for r in db.query_all(
-        "SELECT seller_article, month, plan_qty, is_manual FROM sales_plan WHERE year=%s AND marketplace=%s",
-        (year, mp_db),
+        """SELECT seller_article, year, month, plan_qty, is_manual FROM sales_plan
+           WHERE year * 100 + month BETWEEN %s AND %s AND marketplace=%s""",
+        (_ym_num(*months[0]), _ym_num(*months[-1]), mp_db),
     ):
-        cur[(r["seller_article"], int(r["month"]))] = r["plan_qty"]
+        k = (r["seller_article"], int(r["year"]), int(r["month"]))
+        cur[k] = r["plan_qty"]
         if r.get("is_manual"):
-            manual.add((r["seller_article"], int(r["month"])))
+            manual.add(k)
 
-    rows = _plan_universe(mp_db, year)
+    rows = _plan_universe(mp_db, months)
 
     # Иерархия групп товаров (из раздела «Справочник») — ОБЩАЯ, по артикулу.
     # art -> (l1, l2, l3). Добавляется в шаблон СПРАВОЧНО (при загрузке не читается).
@@ -620,33 +725,33 @@ def plan_export(
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = f"План {mp_db} {year}"[:31]
+    ws.title = f"План {mp_db}"[:31]
     # Столбцы: Артикул | Уровень 1 | Уровень 2 | Уровень 3 |
-    #          Текущий статус (справочно) | 12 месяцев.
-    # Три столбца иерархии групп вставлены между «Артикул» и «Текущий статус».
+    #          Текущий статус (справочно) | месяцы периода («Октябрь 2026» …).
+    # Год в заголовке месяца обязателен: по нему загрузка понимает, куда писать план.
     header = ["Артикул", "Уровень 1", "Уровень 2", "Уровень 3", "Текущий статус"] + \
-             [f"{RU_MONTHS[m]} {year}" for m in range(1, 13)]
+             [f"{RU_MONTHS[mo]} {y}" for y, mo in months]
     ws.append(header)
     green = Font(color="16A360")
     for r in rows:
         art = r["seller_article"]
         l1, l2, l3 = cat.get(art, (None, None, None))
         line = [art, l1, l2, l3, r.get("status")]
-        for mo in range(1, 13):
-            v = cur.get((art, mo))
+        for y, mo in months:
+            v = cur.get((art, y, mo))
             line.append(float(v) if v is not None else None)
         ws.append(line)
         # Ручные ячейки (is_manual) — зелёный шрифт. Месяцы идут с 6-й колонки
-        # (Артикул|Ур1|Ур2|Ур3|Статус = 5 столбцов), поэтому месяц mo → колонка 5+mo.
+        # (Артикул|Ур1|Ур2|Ур3|Статус = 5 столбцов), поэтому i-й месяц → колонка 6+i.
         row_idx = ws.max_row
-        for mo in range(1, 13):
-            if (art, mo) in manual and cur.get((art, mo)) is not None:
-                ws.cell(row=row_idx, column=5 + mo).font = green
+        for i, (y, mo) in enumerate(months):
+            if (art, y, mo) in manual and cur.get((art, y, mo)) is not None:
+                ws.cell(row=row_idx, column=6 + i).font = green
 
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    fname = f"plan_{m}_{year}.xlsx"
+    fname = f"plan_{m}_{_period_tag(months)}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -660,19 +765,19 @@ def plan_export(
     )
 
 
-
-
 @router.get("/report_export")
 def report_export(
     marketplace: str = Query("cross"),
-    year: int = Query(...),
+    month_from: str = Query(None),
+    month_to: str = Query(None),
+    year: int = Query(None),
     status: str = Query(None),
     manager: str = Query(None),
     user=Depends(auth.get_current_user),
 ):
     """Красивый Excel-отчёт «Продажи, шт» с иерархией номенклатуры (группировка
-    Excel/outline), помесячным планом и фактом за год и прогнозом выполнения
-    текущего месяца. Предназначен для вкладки «Сводная», но работает и для
+    Excel/outline), помесячным планом и фактом за выбранный период и прогнозом
+    выполнения текущего месяца (если он входит в период). Предназначен для вкладки «Сводная», но работает и для
     одиночного МП.
     """
     _check_access(user, marketplace, "sales.summary.export")
@@ -681,10 +786,18 @@ def report_export(
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
-    data = _compute_plan_fact(marketplace, year, status, manager)
+    months = _period_months(month_from, month_to, year)
+    data = _compute_plan_fact(marketplace, months, status, manager)
     tree = data["tree"]
     is_cross = data["is_cross"]
-    cur_month = _dt.date.today().month if year == _dt.date.today().year else 0
+    n_months = len(months)
+    # Номер текущего месяца в периоде (None — текущий месяц вне периода).
+    _today = _dt.date.today()
+    cur_idx = next((i for i, ym in enumerate(months) if ym == (_today.year, _today.month)), None)
+    # Год в подписи месяца нужен, только если период захватывает несколько лет.
+    multi_year = months[0][0] != months[-1][0]
+    full_year = len(months) == 12 and months[0][1] == 1
+    period_label = _period_label(months)
 
     # --- Палитра (светлая, деловая) ---
     C_TITLE = "1F3B57"      # тёмно-синий — заголовок отчёта
@@ -715,26 +828,26 @@ def report_export(
                "ozon": "OZON", "wb": "Wildberries",
                "wildberries": "Wildberries",
                "yandex": "Яндекс", "ya": "Яндекс"}.get((marketplace or "").strip().lower(), marketplace)
-    ws.title = f"Продажи {year}"[:31]
+    ws.title = f"Продажи {_period_tag(months)}"[:31]
 
-    # Колонки: A=Номенклатура | далее по месяцам (План,Факт) [+Прогноз% для тек.] | Итог(План,Факт)
+    # Колонки: A=Номенклатура | далее по месяцам периода (План,Факт) [+Прогноз% для тек.] | Итог(План,Факт)
     # Считаем раскладку колонок.
     NAME_COL = 1
     col = 2
-    month_cols = {}  # m -> (plan_col, fact_col, fc_col|None)
-    for m in range(1, 13):
+    month_cols = {}  # i (номер месяца в периоде) -> (plan_col, fact_col, fc_col|None)
+    for i in range(n_months):
         pc = col; fc_col = None
         col += 1
         fac = col; col += 1
-        if m == cur_month:
+        if i == cur_idx:
             fc_col = col; col += 1
-        month_cols[m] = (pc, fac, fc_col)
+        month_cols[i] = (pc, fac, fc_col)
     total_plan_col = col; col += 1
     total_fact_col = col; last_col = col
 
     # --- Строка 1: заголовок отчёта ---
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
-    tc = ws.cell(row=1, column=1, value=f"Отчёт по продажам (шт): план / факт — {mp_name}, {year} г.")
+    tc = ws.cell(row=1, column=1, value=f"Отчёт по продажам (шт): план / факт — {mp_name}, {period_label}")
     tc.font = f_title; tc.alignment = Alignment(horizontal="left", vertical="center")
     tc.fill = PatternFill("solid", fgColor=C_TITLE)
     ws.row_dimensions[1].height = 26
@@ -742,8 +855,8 @@ def report_export(
     # --- Строка 2: подзаголовок с датой формирования и пояснением прогноза ---
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_col)
     sub = f"Сформировано {_dt.date.today().strftime('%d.%m.%Y')}."
-    if cur_month:
-        sub += (f" Прогноз % — ожидаемое выполнение плана за {RU_MONTHS[cur_month]} "
+    if cur_idx is not None:
+        sub += (f" Прогноз % — ожидаемое выполнение плана за {RU_MONTHS[months[cur_idx][1]]} "
                 f"(факт экстраполирован на полный месяц).")
     sc = ws.cell(row=2, column=1, value=sub)
     sc.font = f_sub; sc.alignment = left
@@ -767,12 +880,12 @@ def report_export(
         cell.fill = PatternFill("solid", fgColor=fill)
         return cell
 
-    for m in range(1, 13):
-        pc, fac, fcc = month_cols[m]
+    for i, (y, m) in enumerate(months):
+        pc, fac, fcc = month_cols[i]
         span_end = fcc if fcc else fac
         ws.merge_cells(start_row=HR1, start_column=pc, end_row=HR1, end_column=span_end)
         mfill = C_MON_A if m % 2 == 0 else C_MON_B
-        top = ws.cell(row=HR1, column=pc, value=f"{RU_MONTHS[m]}")
+        top = ws.cell(row=HR1, column=pc, value=(f"{RU_MONTHS[m]} {y}" if multi_year else RU_MONTHS[m]))
         top.font = f_head_dark; top.alignment = center; top.border = border
         top.fill = PatternFill("solid", fgColor=mfill)
         for cc in range(pc, span_end + 1):
@@ -783,9 +896,9 @@ def report_export(
         if fcc:
             _paint_head((HR2, fcc), "Прогноз %", "7D3C98")
 
-    # Итог за год
+    # Итог за период
     ws.merge_cells(start_row=HR1, start_column=total_plan_col, end_row=HR1, end_column=total_fact_col)
-    tt = ws.cell(row=HR1, column=total_plan_col, value="Итог за год")
+    tt = ws.cell(row=HR1, column=total_plan_col, value=("Итог за год" if full_year else "Итог за период"))
     tt.font = f_head_dark; tt.alignment = center; tt.border = border
     tt.fill = PatternFill("solid", fgColor=C_TOTAL)
     ws.cell(row=HR1, column=total_fact_col).border = border
@@ -832,9 +945,9 @@ def report_export(
             namec.fill = PatternFill("solid", fgColor=fill)
         # Месяцы
         yr_plan = 0.0; yr_fact = 0.0
-        for m in range(1, 13):
-            pc, fac, fcc = month_cols[m]
-            mm = node["months"][m - 1]
+        for i in range(n_months):
+            pc, fac, fcc = month_cols[i]
+            mm = node["months"][i]
             pl = mm["plan"]; ft = mm["fact"]
             yr_plan += pl; yr_fact += ft
             pcell = ws.cell(row=r, column=pc, value=(round(pl) if pl else None))
@@ -863,7 +976,7 @@ def report_export(
                     fccell.fill = PatternFill("solid", fgColor=bg)
                 elif not is_leaf:
                     fccell.fill = PatternFill("solid", fgColor=level_fills.get(lvl, "FFFFFF"))
-        # Итог за год
+        # Итог за период
         tpc = ws.cell(row=r, column=total_plan_col, value=(round(yr_plan) if yr_plan else None))
         tfc = ws.cell(row=r, column=total_fact_col, value=(round(yr_fact) if yr_fact else None))
         for cc, is_plan in ((tpc, True), (tfc, False)):
@@ -873,7 +986,7 @@ def report_export(
                                color=(PLAN_BLUE if is_plan else "1F3B57"))
                 cc.fill = PatternFill("solid", fgColor=C_TOTAL)
             else:
-                # Итог за год на уровне товара: план синий, но НЕ жирный.
+                # Итог за период на уровне товара: план синий, но НЕ жирный.
                 cc.font = Font(name="Calibri", size=10, bold=False,
                                color=(PLAN_BLUE if is_plan else "555555"))
         # outline
@@ -886,15 +999,15 @@ def report_export(
     # Верхняя строка ИТОГО по корню дерева, затем дети L1 с группировкой.
     root_children = tree.get("children", [])
     _write_total_root(ws, tree, month_cols, total_plan_col, total_fact_col,
-                      HR2 + 1, border, cur_month)
+                      HR2 + 1, border)
     row = HR2 + 2
     for ch in root_children:
         write_node(ch, 1)
 
     # --- Оформление колонок ---
     ws.column_dimensions[get_column_letter(NAME_COL)].width = 46
-    for m in range(1, 13):
-        pc, fac, fcc = month_cols[m]
+    for i in range(n_months):
+        pc, fac, fcc = month_cols[i]
         ws.column_dimensions[get_column_letter(pc)].width = 8
         ws.column_dimensions[get_column_letter(fac)].width = 8
         if fcc:
@@ -912,7 +1025,7 @@ def report_export(
     wb.save(buf)
     buf.seek(0)
     tag = (marketplace or "cross").strip().lower()
-    fname = f"otchet_prodazhi_{tag}_{year}.xlsx"
+    fname = f"otchet_prodazhi_{tag}_{_period_tag(months)}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -927,7 +1040,7 @@ def report_export(
 
 
 def _write_total_root(ws, tree, month_cols, total_plan_col, total_fact_col,
-                      r, border, cur_month):
+                      r, border):
     """Верхняя строка ИТОГО по всей номенклатуре (сумма корня дерева)."""
     from openpyxl.styles import Font, PatternFill, Alignment
     ROOT_FILL = "1F3B57"
@@ -941,9 +1054,8 @@ def _write_total_root(ws, tree, month_cols, total_plan_col, total_fact_col,
     namec.font = fwhite; namec.alignment = Alignment(horizontal="left", vertical="center")
     namec.fill = PatternFill("solid", fgColor=ROOT_FILL); namec.border = border
     yr_plan = 0.0; yr_fact = 0.0
-    for m in range(1, 13):
-        pc, fac, fcc = month_cols[m]
-        mm = tree["months"][m - 1]
+    for i, (pc, fac, fcc) in month_cols.items():
+        mm = tree["months"][i]
         pl = mm["plan"]; ft = mm["fact"]
         yr_plan += pl; yr_fact += ft
         for cc, val, is_plan in ((pc, pl, True), (fac, ft, False)):
@@ -963,23 +1075,66 @@ def _write_total_root(ws, tree, month_cols, total_plan_col, total_fact_col,
         cell.font = fblue if is_plan else fwhite
         cell.fill = PatternFill("solid", fgColor=ROOT_FILL)
 
+
+def _plan_header_months(header):
+    """Колонки месяцев шаблона плана по шапке: {индекс колонки: (год, месяц)}.
+
+    Заголовок месяца — «Январь 2026» (название месяца + год). Год обязателен:
+    по нему загрузка понимает, куда писать план, независимо от периода на экране.
+    Ячейку-дату (если Excel превратил заголовок в дату) тоже принимаем.
+    Первая колонка — артикул; прочие справочные колонки пропускаются.
+    """
+    month_name_to_no = {RU_MONTHS[m].lower(): m for m in range(1, 13)}
+    cols = {}
+    seen = {}
+    for ci, h in enumerate(header or ()):
+        if ci == 0 or h is None:
+            continue
+        if isinstance(h, (datetime.date, datetime.datetime)):
+            ym = (h.year, h.month)
+        else:
+            words = str(h).strip().split()
+            mo = month_name_to_no.get(words[0].lower()) if words else None
+            if not mo:
+                continue
+            year_txt = words[1] if len(words) > 1 else ""
+            if not (len(year_txt) == 4 and year_txt.isdigit()):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"В заголовке колонки «{str(h).strip()}» нет года. "
+                           "Ожидается вид «Январь 2026» — выгрузите шаблон заново",
+                )
+            ym = (int(year_txt), mo)
+        if ym in seen:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Месяц «{RU_MONTHS[ym[1]]} {ym[0]}» повторяется в шапке файла",
+            )
+        seen[ym] = ci
+        cols[ci] = ym
+    if not cols:
+        raise HTTPException(
+            status_code=422,
+            detail="В первой строке файла не найдены колонки месяцев вида «Январь 2026» — "
+                   "выгрузите шаблон заново",
+        )
+    return cols
+
+
 @router.post("/plan_import")
 def plan_import(
     file: UploadFile = File(...),
     marketplace: str = Form(...),
-    year: int = Form(...),
     user=Depends(auth.get_current_user),
 ):
     """Импорт плана продаж (шт) из Excel. UPSERT по (art, mp, year, month).
 
-    Пустая ячейка месяца ⇒ план за этот месяц удаляется (очистка). Год —
-    параметром формы.
+    Месяцы и их год берутся ИЗ ШАПКИ файла («Январь 2026» …), а не из периода
+    на экране. Перезаписываются ТОЛЬКО месяцы, которые есть в файле: файл за
+    квартал не трогает план остальных месяцев. Пустая ячейка месяца ⇒ план
+    за этот месяц удаляется (очистка).
 
-    Колонки определяются ПО ШАПКЕ (первая строка): артикул — первый
-    столбец, 12 месяцев — по совпадению заголовка с названием месяца
-    («Январь 2026» и т.п.). Благодаря этому файл грузится независимо от
-    числа и порядка справочных столбцов (Уровень 1–3, Текущий статус) —
-    совместимы и старые, и новые шаблоны. Справочные столбцы (иерархия,
+    Артикул — первый столбец. Справочные столбцы (Уровень 1–3, Текущий
     статус) НЕ читаются и ничего в системе не перезаписывают.
     """
     _check_access(user, marketplace, "sales.plan.import")
@@ -1004,21 +1159,10 @@ def plan_import(
         except (ValueError, TypeError):
             return None
 
-    # Определяем индексы 12 месячных колонок по шапке (первая строка).
-    # Заголовок месяца вида «Январь 2026» — сопоставляем по названию месяца.
     rows_iter = list(ws.iter_rows(values_only=True))
     header = rows_iter[0] if rows_iter else ()
-    month_name_to_no = {RU_MONTHS[m].lower(): m for m in range(1, 13)}
-    month_col = {}  # month_no -> column index
-    for ci, h in enumerate(header or ()):
-        if ci == 0 or h is None:
-            continue
-        first_word = str(h).strip().split()[0].lower() if str(h).strip() else ""
-        mo = month_name_to_no.get(first_word)
-        if mo and mo not in month_col:
-            month_col[mo] = ci
-    # Фолбэк: если шапка не распознана — берём последние 12 колонок строки.
-    use_header = len(month_col) == 12
+    month_cols = _plan_header_months(header)  # индекс колонки -> (год, месяц)
+    file_months = sorted(month_cols.values())
 
     upserts = []   # (art, mp, year, month, qty, qty) — второй qty → prev_qty
     seen_arts = set()
@@ -1031,42 +1175,37 @@ def plan_import(
         if not art:
             continue
         seen_arts.add(art)
-        if use_header:
-            for mo in range(1, 13):
-                ci = month_col[mo]
-                q = _num(row[ci]) if ci < len(row) else None
-                if q is not None:
-                    upserts.append((art, mp_db, year, mo, q, q))
-        else:
-            # Без шапки: 12 месяцев — последние 12 непустых/всех колонок строки.
-            tail = list(row)[-12:]
-            tail = [None] * (12 - len(tail)) + tail
-            for k, v in enumerate(tail):
-                q = _num(v)
-                if q is not None:
-                    upserts.append((art, mp_db, year, k + 1, q, q))
+        for ci, (y, mo) in month_cols.items():
+            q = _num(row[ci]) if ci < len(row) else None
+            if q is not None:
+                upserts.append((art, mp_db, y, mo, q, q))
 
-    # Полная перезапись плана для артикулов из файла за (mp, year):
-    # сначала удаляем все их строки (так очищаются пустые ячейки), затем
-    # вставляем заполненные. Удаление — пакетно по списку артикулов.
+    # Перезапись плана артикулов из файла ТОЛЬКО за месяцы файла: сначала
+    # удаляем их строки (так очищаются пустые ячейки), затем вставляем
+    # заполненные. Одной транзакцией — чтобы сбой не оставил план удалённым.
     cleared = 0
-    if seen_arts:
-        cleared = db.execute(
-            "DELETE FROM sales_plan WHERE marketplace=%s AND year=%s AND seller_article = ANY(%s)",
-            (mp_db, year, list(seen_arts)),
-        )
-    if upserts:
-        # Перезалив = все ячейки становятся нативными: is_manual=false,
-        # prev_qty = значение из файла (фиксируем «было» для будущих ручных правок).
-        db.execute_values(
-            """INSERT INTO sales_plan (seller_article, marketplace, year, month, plan_qty, is_manual, prev_qty, updated_at)
-               VALUES %s
-               ON CONFLICT (seller_article, marketplace, year, month) DO UPDATE SET
-                 plan_qty = EXCLUDED.plan_qty, is_manual = false,
-                 prev_qty = EXCLUDED.prev_qty, updated_at = now()""",
-            upserts,
-            template="(%s,%s,%s,%s,%s, false, %s, now())",
-        )
+    with db.transaction() as tx:
+        if seen_arts:
+            cleared = tx.execute(
+                """DELETE FROM sales_plan
+                   WHERE marketplace=%s AND seller_article = ANY(%s)
+                         AND year * 100 + month = ANY(%s)""",
+                (mp_db, list(seen_arts), [_ym_num(y, mo) for y, mo in file_months]),
+            )
+        if upserts:
+            # Перезалив = все ячейки становятся нативными: is_manual=false,
+            # prev_qty = значение из файла (фиксируем «было» для будущих ручных правок).
+            tx.execute_values(
+                """INSERT INTO sales_plan (seller_article, marketplace, year, month, plan_qty, is_manual, prev_qty, updated_at)
+                   VALUES %s
+                   ON CONFLICT (seller_article, marketplace, year, month) DO UPDATE SET
+                     plan_qty = EXCLUDED.plan_qty, is_manual = false,
+                     prev_qty = EXCLUDED.prev_qty, updated_at = now()""",
+                upserts,
+                template="(%s,%s,%s,%s,%s, false, %s, now())",
+            )
 
-    return {"ok": True, "marketplace": mp_db, "year": year,
+    return {"ok": True, "marketplace": mp_db,
+            "month_from": _ym_key(*file_months[0]), "month_to": _ym_key(*file_months[-1]),
+            "months": len(file_months), "period_label": _period_label(file_months),
             "articles": len(seen_arts), "upserted": len(upserts), "cleared": cleared}
