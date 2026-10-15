@@ -4787,7 +4787,9 @@ const Views = (() => {
     { b: 'm', key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
     { b: 'm', key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: 'C58CFF', g: 'promo' },
     { b: 'm', key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true },
-    { b: 'm', key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF' },
+    { b: 'm', key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF', g: 'cogs', head: true },
+    // рубли себестоимости = доля × продажи (точно, без округления процента) — каскад сходится вычитанием
+    { b: 'm', calc: c => tMul(c.p_cogs_pct, c.p_revenue), label: 'Себестоимость, руб', kind: 'rub', pol: 'neg', color: '6A7DFF', g: 'cogs' },
     { b: 'm', key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true },
     { b: 'm', key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos' },
     { b: 'm', key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '56A06A' },
