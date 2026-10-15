@@ -85,6 +85,17 @@ class OzCheckTest(unittest.TestCase):
         errors, _, _ = self.check(total_override={"Комиссия": 900})
         self.assertTrue(any("«Комиссия»" in e for e in errors))
 
+    def test_cancels_total_mismatch_only_warns(self):
+        # Нед. 36/2026: ИТОГО невыкупов MPPROFIT 871 при Σ строк 877.
+        rows = [dict(ROWS[0], **{"Невыкупы/отмены шт.": 4}), ROWS[1], ROWS[2]]
+        ws = make_ws(rows)
+        ws.cell(5, ws.max_column + 1, "Невыкупы/отмены шт.")
+        c = ws.max_column
+        ws.cell(7, c, 4); ws.cell(6, c, 2)
+        errors, warnings, _ = lc.check_oz_report(ws, idx_of(ws))
+        self.assertEqual(errors, [])
+        self.assertIn("«Невыкупы/отмены шт.»: в ИТОГО 2,00, сумма строк 4,00", warnings[0])
+
     def test_handout_sign_quirk_ignored(self):
         rows = [dict(ROWS[0], **{"Выдача товара": -90.55}), ROWS[1], ROWS[2]]
         self.assertEqual(self.check(rows, total_override={"Выдача товара": 90.55})[0], [])
