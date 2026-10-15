@@ -3477,17 +3477,19 @@ const Views = (() => {
   // Хелперы маппинга текущего МП юнит-экономики (rnpState.mp) → параметр API
   // и → значение маркетплейса в БД. Единая точка правды, чтобы не плодить
   // тернарники (иначе Яндекс «утекал» бы в ozon).
+  // Тестовые вкладки: «WB тест» = данные WB, «Ozon тест» = данные Ozon.
+  function rnpIsTest() { return rnpState.mp === 'oz_test' || rnpState.mp === 'wb_test'; }
   function rnpMpParam() {
-    return rnpState.mp === 'wb' ? 'wb'
+    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
   function rnpMpDbName() {
-    return rnpState.mp === 'wb' ? 'Wildberries'
+    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'Wildberries'
          : rnpState.mp === 'yandex' ? 'Yandex' : 'Ozon';
   }
   function rnpMpCls() {
     return rnpState.mp === 'cross' ? 'cross'
-         : rnpState.mp === 'wb' ? 'wb'
+         : (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
 
@@ -3514,6 +3516,7 @@ const Views = (() => {
                   ['yandex', 'Yandex', 'yandex']].filter(([id]) => App.canTab('unit', id));
     // «Ozon тест» — макет новой подачи юнит-экономики (функция №102, только администратор).
     // Данные те же, что у OZON (rnpMpParam для неизвестной вкладки даёт 'ozon').
+    if (App.can('unit.tab.wb_test')) tabs.push(['wb_test', 'WB тест', 'wb']);
     if (App.can('unit.tab.oz_test')) tabs.push(['oz_test', 'Ozon тест', 'ozon']);
     if (App.can('unit.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
     return tabs;
@@ -3670,7 +3673,7 @@ const Views = (() => {
 
     if (!weeks.length) {
       const lbl = rnpState.mp === 'cross' ? 'данным'
-        : (rnpState.mp === 'wb' ? 'Wildberries' : (rnpState.mp === 'yandex' ? 'Yandex' : 'OZON'));
+        : (rnpMpParam() === 'wb' ? 'Wildberries' : (rnpState.mp === 'yandex' ? 'Yandex' : 'OZON'));
       // Подтабы оставляем: иначе на пустой БД не попасть в «Загрузка данных».
       root.innerHTML = `<div class="card rnp-card mp-${rnpMpCls()}"><div class="rnp-toolbar"><div class="subtabs" id="rnp-subtabs"></div></div><div class="empty" style="padding:40px;">Нет загруженных недель по ${lbl}.</div></div>`;
       rnpSubtabs(root.querySelector('#rnp-subtabs'));
@@ -3820,7 +3823,7 @@ const Views = (() => {
   // «Штрафы, руб.» (p_fines_rub) — только Wildberries (в Ozon/Сводной штрафов
   // в рублях нет). Применяется единообразно к строкам групп и товара.
   function rnpMetricVisible(key) {
-    if (key === 'p_fines_rub' && rnpState.mp !== 'wb') return false;
+    if (key === 'p_fines_rub' && rnpMpParam() !== 'wb') return false;
     // «К оплате на р/с» — пока только WB и Ozon: выплату Яндекса ещё не сверяли.
     if ((key === 'p_payout' || key === 'p_net_margin_pct') && rnpState.mp === 'yandex') return false;
     return true;
@@ -4436,7 +4439,7 @@ const Views = (() => {
       return `<span class="rnp-hd-wk">`
         + `<span class="rnp-hd-v${sig ? ' ' + sig : ''}">${rnpFmt(v, tm.kind)}</span>`
         // «Ozon тест»: треугольник ▲/▼ с цветом по полярности показателя, число чёрное
-        + (rnpState.mp === 'oz_test'
+        + (rnpIsTest()
           ? tArrowDelta(d, T_NEG_KEYS.has(tm.key) ? 'neg' : 'pos', 'rnp-hd-d')
           : (dTxt ? `<span class="rnp-hd-d ${deltaDir(d)}">${dTxt}</span>` : `<span class="rnp-hd-d flat"></span>`))
         + `</span>`;
@@ -4767,44 +4770,68 @@ const Views = (() => {
   const tDiv = (a, b) => (a == null || b == null || !b || isNaN(a) || isNaN(b)) ? null : a / b;
   const tMul = (a, b) => (a == null || b == null || isNaN(a) || isNaN(b)) ? null : a * b;
   // Строки: cap — подпись блока; g — группа (голова: head:true); lv — уровни показа.
+  const tIsWb = () => rnpMpParam() === 'wb';
+  // «Другие удержания» = удержания площадки − перечисленные составляющие (каскад сходится всегда)
+  const tOtherHolds = c => (c.p_mp_holds_pct == null) ? null : c.p_mp_holds_pct
+    - ['p_commission_pct', 'p_logistics_pct', 'p_acquiring_pct', 'p_storage_pct', 'p_acceptance_pct', 'p_fines_pct']
+        .reduce((a, k) => a + (c[k] || 0), 0);
   const T_ROWS = [
     // b — блок: Воронка (f) → Деньги (m) → На единицу (u, только товар) → Структура (s).
-    // Граница блока — линия над его первой строкой (без отдельной строки-подписи).
-    { b: 'f', key: 'p_orders_qty', label: 'Заказы, шт', kind: 'qty', pol: 'pos' },
-    { b: 'f', key: 'p_orders_rub', label: 'Заказы, руб', kind: 'rub', pol: 'pos' },
-    { b: 'f', key: 'p_buyout_pct', label: 'Выкуп, %', kind: 'pct', pol: 'pos', color: '96A5AF' },
-    { b: 'f', key: 'p_plan_qty', label: 'План продаж, шт', kind: 'qty', pol: 'none', color: '0000FF', g: 'plan', head: true },
-    { b: 'f', calc: c => tDiv(c.p_sales_qty, c.p_plan_qty), label: 'Выполнение плана, %', kind: 'pct', pol: 'pos', color: '0000FF', g: 'plan' },
-    { b: 'f', key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos' },
-    { b: 'm', key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true },
-    { b: 'm', key: 'p_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true },
-    { b: 'm', key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { b: 'm', key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { b: 'm', key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { b: 'm', key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds' },
-    { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds' },
-    { b: 'm', key: 'noart_exp_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT] },
-    { b: 'm', key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
-    { b: 'm', key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo' },
-    { b: 'm', key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true },
-    { b: 'm', key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF', g: 'cogs', head: true },
+    // Граница блока — линия над его первой строкой. tip — подсказка с формулой.
+    // Набор строк одинаков для WB и Ozon; нет показателя у площадки — «—», нулевые не убираем.
+    { b: 'f', key: 'p_orders_qty', label: 'Заказы, шт', kind: 'qty', pol: 'pos', tip: 'Заказы за неделю, шт (отчёт MPPROFIT)' },
+    { b: 'f', key: 'p_orders_rub', label: 'Заказы, руб', kind: 'rub', pol: 'pos', tip: 'Заказы за неделю, руб' },
+    { b: 'f', key: 'p_buyout_pct', label: 'Выкуп, %', kind: 'pct', pol: 'pos', tip: 'Доля выкупленных заказов (отчёт MPPROFIT)' },
+    { b: 'f', calc: c => (tIsWb() ? c.spp_pct : null), label: 'СПП, %', kind: 'pct', pol: 'none', tip: 'Скидка постоянного покупателя WB (за счёт WB). У Ozon нет — «—»' },
+    { b: 'f', key: 'p_plan_qty', label: 'План продаж, шт', kind: 'qty', pol: 'none', color: '0000FF', g: 'plan', head: true, tip: 'Недельная доля месячного плана из раздела «Продажи, шт.»' },
+    { b: 'f', calc: c => tDiv(c.p_sales_qty, c.p_plan_qty), label: 'Выполнение плана, %', kind: 'pct', pol: 'pos', color: '0000FF', g: 'plan', tip: 'Продажи, шт ÷ План продаж, шт' },
+    { b: 'f', key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos', tip: 'Выкупы за вычетом возвратов, шт' },
+    { b: 'm', key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true, tip: 'Выручка: выкупы − возвраты, руб. Все проценты ниже — от этой суммы' },
+    { b: 'm', key: 'p_mp_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true, tip: '«Все удержания» площадки по товарам, кроме рекламы, ÷ Продажи, руб' },
+    { b: 'm', key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Комиссия площадки ÷ Продажи, руб' },
+    { b: 'm', key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Вся логистика ÷ Продажи, руб' },
+    { b: 'm', key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Эквайринг ÷ Продажи, руб' },
+    { b: 'm', key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Хранение, утилизация, временное размещение ÷ Продажи, руб' },
+    { b: 'm', key: 'p_acceptance_pct', label: 'Приёмка, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Платная приёмка ÷ Продажи, руб' },
+    { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds', tip: 'Штрафы ÷ Продажи, руб' },
+    { b: 'm', calc: tOtherHolds, label: 'Другие удержания, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Остальные удержания площадки по товарам, не вошедшие в строки выше' },
+    { b: 'm', key: 'noart_pay_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT], tip: 'Удержания площадки, не привязанные к товарам (только в «Итогах») ÷ Продажи, руб' },
+    { b: 'm', key: 'p_ads_paid_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true, tip: 'Реклама, оплаченная деньгами, ÷ Продажи, руб (WB — «Баланс», без промо-бонусов; Ozon — «Продвижение всего»)' },
+    { b: 'm', key: 'p_ads_paid_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', tip: 'Реклама ÷ Заказы, руб' },
+    { b: 'm', key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true, tip: 'Продажи − удержания − продвижение: сколько площадка перечисляет на расчётный счёт' },
+    { b: 'm', key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF', g: 'cogs', head: true, tip: 'Себестоимость ÷ Продажи, руб' },
     // рубли себестоимости = доля × продажи (точно, без округления процента) — каскад сходится вычитанием
-    { b: 'm', calc: c => tMul(c.p_cogs_pct, c.p_revenue), label: 'Себестоимость, руб', kind: 'rub', pol: 'neg', color: '0000FF', g: 'cogs' },
-    { b: 'm', key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true },
-    { b: 'm', key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos', color: '16191D' },
-    { b: 'm', key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '1E7D34' },
-    { b: 'u', key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', color: '16191D', g: 'unit', head: true, lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: '− Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: '− Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tDiv(c.p_payout, c.p_sales_qty), label: '= К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', bold: true, g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: '− Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tDiv(c.profit, c.p_sales_qty), label: '= Прибыль на ед.', kind: 'price', pol: 'pos', bold: true, g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 's', struct: 'share', label: 'Доля в общей выручке, %', lv: [T_LEVEL_GROUP] },
-    { b: 's', struct: 'returns', label: 'Возвраты, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
-    { b: 's', struct: 'loss', label: 'Убыточных SKU', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
-    { b: 's', struct: 'ashare', label: 'Доля A-товаров, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { b: 'm', calc: c => tMul(c.p_cogs_pct, c.p_revenue), label: 'Себестоимость, руб', kind: 'rub', pol: 'neg', color: '0000FF', g: 'cogs', tip: 'Себестоимость проданных товаров, руб' },
+    { b: 'm', key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true, tip: 'К оплате на р/с − себестоимость (− налог и внешние расходы, если есть)' },
+    { b: 'm', key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos', color: '16191D', tip: 'Прибыль ÷ Продажи, руб' },
+    { b: 'm', key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '1E7D34', tip: 'Прибыль ÷ К оплате на р/с: какая часть выплаты остаётся прибылью' },
+    { b: 'u', key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', color: '16191D', g: 'unit', head: true, lv: [T_LEVEL_ITEM], tip: 'Продажи, руб ÷ Продажи, шт' },
+    { b: 'u', calc: c => tMul(c.p_mp_holds_pct, c.p_avg_price), label: '− Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM], tip: 'Удержания площадки ÷ Продажи, шт' },
+    { b: 'u', key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM], tip: 'Логистика ÷ Продажи, шт (входит в удержания)' },
+    { b: 'u', calc: c => tMul(c.p_ads_paid_pct, c.p_avg_price), label: '− Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM], tip: 'Продвижение ÷ Продажи, шт' },
+    { b: 'u', calc: c => tDiv(c.p_payout, c.p_sales_qty), label: '= К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', bold: true, g: 'unit', lv: [T_LEVEL_ITEM], tip: 'К оплате на р/с ÷ Продажи, шт' },
+    { b: 'u', calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: '− Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM], tip: 'Себестоимость ÷ Продажи, шт' },
+    { b: 'u', calc: c => tDiv(c.profit, c.p_sales_qty), label: '= Прибыль на ед.', kind: 'price', pol: 'pos', bold: true, g: 'unit', lv: [T_LEVEL_ITEM], tip: 'Прибыль ÷ Продажи, шт' },
+    { b: 's', sv: 'share', label: 'Доля в общей выручке, %', kind: 'pct', pol: 'none', lv: [T_LEVEL_GROUP], tip: 'Продажи, руб группы ÷ Продажи, руб «Итогов»' },
+    { b: 's', sv: 'returns', label: 'Возвраты, %', kind: 'pct', pol: 'neg', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT], tip: '100% − выкуп' },
+    { b: 's', sv: 'loss', label: 'Убыточных SKU', kind: 'qty', pol: 'neg', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT], tip: 'Товаров с отрицательной прибылью / всего товаров с продажами' },
+    { b: 's', sv: 'ashare', label: 'Доля A-товаров, %', kind: 'pct', pol: 'pos', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT], tip: 'Доля выручки товаров класса A (ABC по выручке)' },
   ];
+
+  // Значения строк «Структура» в «WB/Ozon тест» (те же расчёты, что у рабочих вкладок).
+  function tStructVal(sv, node, parent, wkey) {
+    const cell = node.cells[wkey] || {};
+    if (sv === 'returns') { const bo = cell.buyout_pct; return (bo == null || isNaN(bo)) ? null : 1 - bo; }
+    if (sv === 'ashare') return leafStats(node, wkey).aShareFrac;
+    if (sv === 'loss') return leafStats(node, wkey);
+    if (sv === 'share') {
+      const root = rnpState.data ? rnpState.data.tree : null;
+      if (!parent || !root) return null;
+      const r = root.cells[wkey] || {};
+      return (r.revenue && cell.revenue != null) ? cell.revenue / r.revenue : null;
+    }
+    return null;
+  }
 
   // Изменение к прошлой неделе в «Ozon тест»: треугольник ▲/▼ — направление
   // изменения, его цвет — хорошо/плохо с учётом полярности (рост расходов — красный);
@@ -4819,7 +4846,7 @@ const Views = (() => {
     const title = d.mode === 'pp' ? ' title="Изменение к прошлой неделе, процентных пунктов"'
                                   : ' title="Изменение к прошлой неделе, %"';
     if (d.val === 0 || num === '0,0') {
-      return `<span class="${cls} t-delta flat"${title}><span class="t-arrow"></span>${num}</span>`;
+      return `<span class="${cls} t-delta flat"></span>`;  // нулевое изменение не показываем
     }
     const good = (pol === 'neg') ? d.val < 0 : d.val > 0;
     const arrow = `<span class="t-arrow ${good ? 'good' : 'bad'}">${d.val > 0 ? '▲' : '▼'}</span>`;
@@ -4865,16 +4892,26 @@ const Views = (() => {
       // вложенные строки приглушены; исключения — «на единицу» и «удержания площадки»
       // (решения владельца 15.10: там обычный шрифт, как было)
       const dim = isChild && r.g !== 'unit' && r.g !== 'holds';
-      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk + (dim ? ' rnp-t-child' : '')}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
+      const tipAttr = r.tip ? ` title="${U.esc(r.tip)}"` : '';
+      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk + (dim ? ' rnp-t-child' : '')}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}${tipAttr}>${nameInner}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
         const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;
         let inner;
-        if (r.struct) {
-          inner = r.struct === 'share' ? shareOfParentCell(node, parent, weeks, i)
-            : r.struct === 'returns' ? returnsCell(node, weeks, i)
-            : r.struct === 'loss' ? lossSkuCell(node, weeks, i)
-            : aShareCell(node, weeks, i);
+        if (r.sv === 'loss') {
+          // «Убыточных SKU»: «n / всего», изменение — числом штук (рост — плохо)
+          const cur = tStructVal('loss', node, parent, w.key);
+          const prev = i > 0 ? tStructVal('loss', node, parent, weeks[i - 1].key) : null;
+          const txt = cur.totalN > 0 ? `${cur.lossN} / ${cur.totalN}` : '—';
+          const diff = prev ? cur.lossN - prev.lossN : 0;
+          const dHtml = diff
+            ? `<span class="rnp-vc-d t-delta" title="Изменение к прошлой неделе, шт"><span class="t-arrow ${diff > 0 ? 'bad' : 'good'}">${diff > 0 ? '▲' : '▼'}</span>${Math.abs(diff)}</span>`
+            : '<span class="rnp-vc-d t-delta flat"></span>';
+          inner = `<span class="rnp-vc"><span class="rnp-vc-v${cur.lossN > 0 ? ' rnp-sig-neg' : ''}">${txt}</span>${dHtml}</span>`;
+        } else if (r.sv) {
+          const cur = tStructVal(r.sv, node, parent, w.key);
+          const prev = i > 0 ? tStructVal(r.sv, node, parent, weeks[i - 1].key) : null;
+          inner = tValCell(cur, prev, Object.assign({}, r, { pol: r.pol === 'none' ? 'pos' : r.pol }));
         } else {
           const get = c => (c == null ? null : (r.calc ? r.calc(c) : c[r.key]));
           inner = tValCell(get(cell), get(prevCell), r);
@@ -4888,7 +4925,7 @@ const Views = (() => {
   }
 
   function metricTable(node, weeks, metrics, parent) {
-    if (rnpState.mp === 'oz_test') return testMetricTable(node, weeks, parent);
+    if (rnpIsTest()) return testMetricTable(node, weeks, parent);
     // заголовок «Показатель» не нужен ни у групп, ни у артикулов —
     // раскрываем узел и сразу идут метрики (подписи недель — в общей шапке сверху)
 

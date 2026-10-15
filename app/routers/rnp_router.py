@@ -272,6 +272,23 @@ def _compute_cell(agg, mp="Ozon"):
     # (иначе было бы двойное учёт). На прибыль это не влияет — profit
     # считается отдельно (WB: wb_profit_with_ads).
     holds_total_rub = commission + acquiring + logistics_t + storage_all + fines
+    # --- Для тестовых вкладок («WB тест» / «Ozon тест»): каскад, который сходится всегда ---
+    # Удержания площадки = «Все удержания» отчёта по товарам без рекламы внутри (у Ozon
+    # «Продвижение всего» входит в удержания, promo_total < 0; у WB реклама удерживается в
+    # общей строке, в удержаниях товаров её нет). Продвижение — оплаченное деньгами
+    # (WB «Баланс», без «Промо бонусов»; Ozon −promo_total). Тогда по товарам:
+    # Продажи − удержания − продвижение = К оплате на р/с (WB «с рекл.», Ozon — выплата).
+    mp_holds = _f(agg.get("holds_total")) + (0.0 if mp == "Wildberries" else promo)
+    ads_paid = _f(agg.get("wb_ads_balance")) if mp == "Wildberries" else -promo
+    noart_pay = agg.get("noart_pay")  # только корень: −выплата строки общих удержаний
+    cell.update({
+        "p_mp_holds_pct":       _div(mp_holds, rev),
+        "p_acceptance_pct":     _div(_f(agg.get("wb_acceptance")), rev),
+        "p_ads_paid_pct":       _div(ads_paid, rev),
+        "p_ads_paid_orders_pct": _div(ads_paid, orders_rub),
+        "noart_pay_pct":        (_div(_f(noart_pay), rev) if noart_pay is not None else None),
+    })
+
     cell.update({
         "p_cogs_pct":       _div(cogs, rev),
         "p_holds_pct":      _div(holds_total_rub, rev),
@@ -327,6 +344,8 @@ _SUM_COLS = [
     "wb_profit_with_ads",
     # Выплата на р/с: Ozon — payout, WB — wb_payout_with_ads (см. _compute_cell).
     "payout", "wb_payout_with_ads",
+    # Тестовые вкладки: удержания из отчёта, реклама деньгами (WB), приёмка (WB).
+    "holds_total", "wb_ads_balance", "wb_acceptance",
 ]
 
 
@@ -335,6 +354,7 @@ def _empty_agg():
     a["buyout_w"] = 0.0
     a["spp_w"] = 0.0
     a["noart_exp"] = None
+    a["noart_pay"] = None
     return a
 
 
@@ -575,7 +595,8 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
                f.wb_fines, f.wb_other_holds, f.external_exp_inc,
                f.buyout_pct, f.spp_pct, f.abc_revenue,
                f.oz_pay_per_click, f.oz_pay_per_order, f.oz_special_placement, f.wb_ads_total,
-               f.wb_profit_with_ads, f.payout, f.wb_payout_with_ads
+               f.wb_profit_with_ads, f.payout, f.wb_payout_with_ads,
+               f.wb_ads_balance, f.wb_acceptance
         FROM fact_weekly f
         LEFT JOIN catalog_items ci ON ci.seller_article = f.seller_article
         LEFT JOIN catalog_marketplace cm
@@ -822,6 +843,9 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
         if wk in root["_agg"]:
             root["_agg"][wk]["payout"] += _f(nr.get("pay"))
             root["_agg"][wk]["wb_payout_with_ads"] += _f(nr.get("wpay"))
+            # тестовые вкладки: удержания без разбивки = −выплата общей строки (WB — «с рекл.»:
+            # удержанная WB реклама уже разнесена по товарам в продвижении)
+            root["_agg"][wk]["noart_pay"] = -_f(nr.get("wpay") if mp == "Wildberries" else nr.get("pay"))
 
     # Для Wildberries прибыль узла берётся из готовой колонки wb_profit_with_ads
     # (см. _compute_cell). Строка «Общие удержания» имеет СВОЁ значение
