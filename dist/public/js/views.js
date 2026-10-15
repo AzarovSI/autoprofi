@@ -4778,11 +4778,11 @@ const Views = (() => {
     { b: 'f', key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos' },
     { b: 'm', key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true },
     { b: 'm', key: 'p_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true },
-    { b: 'm', key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds' },
-    { b: 'm', key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds' },
-    { b: 'm', key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds' },
-    { b: 'm', key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds' },
-    { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds' },
+    { b: 'm', key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds' },
     { b: 'm', key: 'noart_exp_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT] },
     { b: 'm', key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
     { b: 'm', key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo' },
@@ -4862,8 +4862,9 @@ const Views = (() => {
         ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
         : U.esc(r.label);
       const cls = (isChild ? ' rnp-t-child-name' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
-      // вложенные строки приглушены; исключение — блок «на единицу» (решение владельца 15.10)
-      const dim = isChild && r.g !== 'unit';
+      // вложенные строки приглушены; исключения — «на единицу» и «удержания площадки»
+      // (решения владельца 15.10: там обычный шрифт, как было)
+      const dim = isChild && r.g !== 'unit' && r.g !== 'holds';
       let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk + (dim ? ' rnp-t-child' : '')}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
