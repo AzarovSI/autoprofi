@@ -498,12 +498,41 @@ const Views = (() => {
 
   // ============================================================
   // Раздел «Продажи, шт.» — план/факт по иерархии и месяцам.
-  // Вкладки: Wildberries / Ozon / Сводная. Фильтры: год, статус, менеджер.
+  // Вкладки: Wildberries / Ozon / Yandex / Сводная. Фильтры: период (месяцы), статус, менеджер.
   // Чекбокс «прогноз выполнения» (по умолчанию ВКЛ) — для незавершённого месяца.
   // ============================================================
-  // yoy — показывать дорожку факта прошлого года (year-1) между Планом и Фактом; по умолчанию ВЫКЛ.
-  const salesState = { tab: 'wb', year: null, status: '', manager: '', forecast: true, hideStatus: true, yoy: false, rub: false, manualOnly: false, search: '', searchExpandSig: '', expanded: {}, data: null };
+  // yoy — показывать дорожку факта того же месяца годом раньше между Планом и Фактом; по умолчанию ВЫКЛ.
+  // from/to — период «ГГГГ-ММ» (общий для всех вкладок, может переходить через год);
+  // пусто — по умолчанию текущий календарный год (ставится при первом открытии).
+  const salesState = { tab: 'wb', from: '', to: '', status: '', manager: '', forecast: true, hideStatus: true, yoy: false, rub: false, manualOnly: false, search: '', searchExpandSig: '', expanded: {}, data: null };
   const RU_MON_SH = ['', 'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+  // Не длиннее, чем принимает сервер (sales_router.MAX_PERIOD_MONTHS).
+  const SP_MAX_MONTHS = 36;
+
+  // «ГГГГ-ММ» ↔ {y, m}; номер месяца от начала эры — для сравнения и длины периода.
+  function spYm(y, m) { return `${y}-${String(m).padStart(2, '0')}`; }
+  function spParseYm(k) { const [y, m] = String(k).split('-').map(Number); return { y, m }; }
+  function spYmIndex(k) { const { y, m } = spParseYm(k); return y * 12 + (m - 1); }
+  function spCurYm() { const d = new Date(); return spYm(d.getFullYear(), d.getMonth() + 1); }
+  // Подпись периода в поле фильтра: «Янв – Дек 2026», «Окт 2026», «Ноя 2026 – Фев 2027».
+  function spPeriodLabel() {
+    if (!salesState.from || !salesState.to) return 'Период';
+    const a = spParseYm(salesState.from), b = spParseYm(salesState.to);
+    if (salesState.from === salesState.to) return `${RU_MON_SH[a.m]} ${a.y}`;
+    if (a.y === b.y) return `${RU_MON_SH[a.m]} – ${RU_MON_SH[b.m]} ${a.y}`;
+    return `${RU_MON_SH[a.m]} ${a.y} – ${RU_MON_SH[b.m]} ${b.y}`;
+  }
+  // Быстрый выбор — от сегодняшней даты (не от последних данных, как в РНП).
+  function spPresetRange(kind) {
+    const d = new Date();
+    const y = d.getFullYear(), m = d.getMonth() + 1;
+    if (kind === 'month') return { from: spYm(y, m), to: spYm(y, m) };
+    if (kind === 'quarter') { const q0 = Math.floor((m - 1) / 3) * 3 + 1; return { from: spYm(y, q0), to: spYm(y, q0 + 2) }; }
+    if (kind === 'prev_year') return { from: spYm(y - 1, 1), to: spYm(y - 1, 12) };
+    if (kind === 'next_year') return { from: spYm(y + 1, 1), to: spYm(y + 1, 12) };
+    return { from: spYm(y, 1), to: spYm(y, 12) };
+  }
+  function spPeriodParams() { return { month_from: salesState.from, month_to: salesState.to }; }
 
   function salesMpParam() {
     if (salesState.tab === 'ozon') return 'ozon';
@@ -563,7 +592,7 @@ const Views = (() => {
       } else {
         planAttr = ' title="Двойной клик — изменить план"';
       }
-      planAttr += ` data-art="${U.esc(edit.art)}" data-month="${edit.month}" data-plan="${rawPlan}"`;
+      planAttr += ` data-art="${U.esc(edit.art)}" data-year="${edit.year}" data-month="${edit.month}" data-idx="${edit.idx}" data-plan="${rawPlan}"`;
     }
     const planHtml = `<span class="${planCls}"${planAttr}>${planInner}</span>`;
     const factHtml = `<span class="sp-fact" title="Факт, шт">${factTxt}</span>`;
@@ -634,7 +663,8 @@ const Views = (() => {
   }
 
   // Рекурсивная отрисовка строк дерева с учётом раскрытия (salesState.expanded).
-  function salesBuildRows(node, depth, isCross, months, curMonth) {
+  // months — месяцы периода [{key, year, month}]; node.months[i] идёт в том же порядке.
+  function salesBuildRows(node, depth, isCross, months, curKey) {
     let html = '';
     const applyManual = salesState.manualOnly && !isCross;
     const applySearch = salesSearchActive();
@@ -667,12 +697,12 @@ const Views = (() => {
       }
     }
     const canEdit = isLeaf && !isCross && App.can('sales.plan.edit');
-    const monthCells = months.map(mo => {
-      const cls = mo === curMonth ? 'sp-cur' : '';
-      const edit = canEdit ? { art: li.seller_article, month: mo } : null;
-      return `<td class="sp-mth ${cls}">${salesMonthCell(node.months[mo - 1], salesState.forecast, mo === curMonth, edit)}</td>`;
+    const monthCells = months.map((mo, i) => {
+      const isCur = mo.key === curKey;
+      const edit = canEdit ? { art: li.seller_article, year: mo.year, month: mo.month, idx: i } : null;
+      return `<td class="sp-mth ${isCur ? 'sp-cur' : ''}">${salesMonthCell(node.months[i], salesState.forecast, isCur, edit)}</td>`;
     }).join('');
-    // Итоги за год в ШТУКАХ: сумма помесячных план/факт по узлу.
+    // Итоги за период в ШТУКАХ: сумма помесячных план/факт по узлу.
     let totPlanQty = 0, totFactQty = 0;
     for (let i = 0; i < node.months.length; i++) {
       totPlanQty += node.months[i].plan || 0;
@@ -683,7 +713,7 @@ const Views = (() => {
     const rowCls = `sp-row lvl${node.level} ` + (isLeaf ? 'sp-leaf' : 'sp-group') + (hasChildren ? ' sp-has' : '');
     html += `<tr class="${rowCls}" data-key="${U.esc(node.key)}"${hasChildren ? ' style="cursor:pointer"' : ''}>${nameCell}${statusCells}${monthCells}${totals}</tr>`;
     if (expanded && hasChildren) {
-      node.children.forEach(c => { html += salesBuildRows(c, depth + 1, isCross, months, curMonth); });
+      node.children.forEach(c => { html += salesBuildRows(c, depth + 1, isCross, months, curKey); });
     }
     return html;
   }
@@ -698,8 +728,10 @@ const Views = (() => {
     const prevScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
     const isCross = !!data.is_cross;
     const months = data.months || [];
-    const now = new Date();
-    const curMonth = (salesState.year === now.getFullYear()) ? (now.getMonth() + 1) : null;
+    const curKey = spCurYm();
+    // Год в шапке месяца — только если период захватывает несколько лет («Дек 26», «Янв 27»).
+    const years = Array.from(new Set(months.map(mo => mo.year)));
+    const multiYear = years.length > 1;
     const tree = data.tree;
     if (!tree || !tree.children || !tree.children.length) {
       host.innerHTML = '<div class="empty">Нет данных по выбранным фильтрам.</div>';
@@ -711,15 +743,15 @@ const Views = (() => {
           ? '<th class="sp-st sp-st1">Статус OZ</th><th class="sp-st sp-st2">Статус WB</th><th class="sp-st sp-st3">Статус YA</th>'
           : '<th class="sp-st sp-st1">Статус</th>');
     const mthHead = months.map(mo =>
-      `<th class="sp-mth ${mo === curMonth ? 'sp-cur' : ''}">${RU_MON_SH[mo]}</th>`).join('');
-    let rows = salesBuildRows(tree, 0, isCross, months, curMonth);
+      `<th class="sp-mth ${mo.key === curKey ? 'sp-cur' : ''}">${RU_MON_SH[mo.month]}${multiYear ? ' ' + String(mo.year).slice(2) : ''}</th>`).join('');
+    let rows = salesBuildRows(tree, 0, isCross, months, curKey);
     // Фильтр/поиск дал пустой результат — аккуратная заглушка на всю ширину
     // таблицы, не ломая верстку. Поиск приоритетнее в тексте сообщения.
     if (!rows && (salesSearchActive() || (salesState.manualOnly && !isCross))) {
       const colspan = 1 + (salesState.hideStatus ? 0 : (isCross ? 3 : 1)) + months.length + 2;
       const msg = salesSearchActive()
         ? `Ничего не найдено по артикулу «${U.esc(salesState.search)}»`
-        : 'Нет товаров с ручными правками плана за выбранный год';
+        : 'Нет товаров с ручными правками плана за выбранный период';
       rows = `<tr><td class="muted" colspan="${colspan}" style="padding:16px; text-align:center;">${msg}</td></tr>`;
     }
     // Класс уровня таблицы — управляет правой границей последней липкой
@@ -742,7 +774,7 @@ const Views = (() => {
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <div class="sp-legend muted">В ячейке месяца: <b class="sp-lg-plan">план</b> / ${salesState.rub ? `<b class="sp-lg-rub">план&nbsp;руб.</b> / ` : ''}${salesState.yoy ? `<b class="sp-lg-prev">факт ${data.prev_year}</b> / ` : ''}<b>факт</b>${salesState.forecast ? '; <b class="sp-fc sp-fc-good">%</b> — прогноз выполнения плана текущего месяца (светофор: ≥100 зелёный, 70–99 жёлтый, &lt;70 красный)' : ''}. Σ план/факт, шт. — сумма за год в штуках.</div>`;
+      <div class="sp-legend muted">В ячейке месяца: <b class="sp-lg-plan">план</b> / ${salesState.rub ? `<b class="sp-lg-rub">план&nbsp;руб.</b> / ` : ''}${salesState.yoy ? `<b class="sp-lg-prev">факт ${multiYear ? 'годом раньше' : (years[0] - 1)}</b> / ` : ''}<b>факт</b>${salesState.forecast ? '; <b class="sp-fc sp-fc-good">%</b> — прогноз выполнения плана текущего месяца (светофор: ≥100 зелёный, 70–99 жёлтый, &lt;70 красный)' : ''}. Σ план/факт, шт. — сумма за выбранный период в штуках.</div>`;
     // Восстанавливаем позицию прокрутки нового контейнера — чтобы при раскрытии
     // группы или переключении чекбоксов таблица оставалась на том же месте.
     const newWrap = host.querySelector('.sp-wrap');
@@ -756,10 +788,10 @@ const Views = (() => {
   // находим лист по seller_article, ставим новое значение/флаги, а разницу
   // (delta) протягиваем в план того же месяца у всех родительских узлов.
   // Затем перерисовываем таблицу (раскрытие/скролл сохраняются).
-  function applyPlanCellUpdate(art, month, res) {
+  // idx — номер месяца в периоде (порядок data.months).
+  function applyPlanCellUpdate(art, idx, res) {
     const data = salesState.data;
     if (!data || !data.tree) return;
-    const idx = month - 1;
     const path = [];
     let leaf = null;
     (function walk(node) {
@@ -813,6 +845,114 @@ const Views = (() => {
     });
   }
 
+  // Поле периода «Продаж»: поповер с сеткой месяцев на два года (данные помесячные,
+  // дни не выбираются). Первый клик — начальный месяц, второй — конечный;
+  // применённый период общий для всех вкладок. years — годы с данными из ответа
+  // (плюс текущий и следующий) — границы листания.
+  function bindSalesPeriod(root, years) {
+    const periodWrap = root.querySelector('#sp-period');
+    const fieldEl = root.querySelector('#sp-period-field');
+    const calEl = root.querySelector('#sp-cal');
+    if (!periodWrap || !fieldEl || !calEl) return;
+    const thisYear = new Date().getFullYear();
+    const minYear = Math.min(...(years.length ? years : [thisYear]), thisYear);
+    const maxYear = Math.max(...(years.length ? years : [thisYear]), thisYear + 1);
+    const cal = { from: '', to: '', left: thisYear, open: false };
+
+    function openCal() {
+      cal.from = salesState.from; cal.to = salesState.to;
+      // Левый год — год начала периода, но так, чтобы справа не было пустоты за maxYear.
+      const fy = spParseYm(cal.from).y || thisYear;
+      cal.left = Math.max(minYear, Math.min(fy, maxYear - 1));
+      cal.open = true;
+      calEl.hidden = false;
+      fieldEl.classList.add('open');
+      drawCal();
+    }
+    function closeCal() {
+      cal.open = false;
+      calEl.hidden = true;
+      fieldEl.classList.remove('open');
+    }
+    function applyPeriod(from, to) {
+      if (spYmIndex(to) - spYmIndex(from) + 1 > SP_MAX_MONTHS) {
+        App.toast(`Период не длиннее ${SP_MAX_MONTHS} месяцев`, 'warn');
+        cal.from = ''; cal.to = '';
+        drawCal();
+        return;
+      }
+      closeCal();
+      if (from === salesState.from && to === salesState.to) return;
+      salesState.from = from; salesState.to = to;
+      App.renderView();
+    }
+    function yearHtml(y) {
+      // Пока выбран только начальный месяц — подсвечиваем его одного.
+      const lo = cal.from, hi = cal.to || cal.from;
+      const cur = spCurYm();
+      let cells = '';
+      for (let m = 1; m <= 12; m++) {
+        const k = spYm(y, m);
+        let c = 'sp-mcal-m';
+        if (lo && (k === lo || k === hi)) c += ' end';
+        else if (lo && hi && k > lo && k < hi) c += ' in-range';
+        if (k === cur) c += ' today';
+        cells += `<button type="button" class="${c}" data-ym="${k}">${RU_MON_SH[m]}</button>`;
+      }
+      return `<div class="sp-mcal-year"><div class="rnp-cal-mtitle">${y}</div><div class="sp-mcal-grid">${cells}</div></div>`;
+    }
+    function drawCal() {
+      const canPrev = cal.left > minYear, canNext = cal.left + 1 < maxYear;
+      calEl.innerHTML = `
+        <div class="rnp-cal-nav">
+          <button type="button" class="rnp-cal-arrow" data-cal-nav="-1" title="Предыдущий год"${canPrev ? '' : ' disabled'}>‹</button>
+          <button type="button" class="rnp-cal-arrow" data-cal-nav="1" title="Следующий год"${canNext ? '' : ' disabled'}>›</button>
+        </div>
+        <div class="rnp-cal-months">${yearHtml(cal.left)}${yearHtml(cal.left + 1)}</div>
+        <div class="rnp-cal-presets sp-mcal-presets">
+          <button type="button" class="rnp-cal-preset" data-cal-preset="month">Тек. месяц</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="quarter">Тек. квартал</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="year">Тек. год</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="prev_year">Прошлый год</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="next_year">След. год</button>
+        </div>`;
+    }
+
+    fieldEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cal.open ? closeCal() : openCal();
+    });
+    calEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nav = e.target.closest('[data-cal-nav]');
+      if (nav) {
+        if (nav.disabled) return;
+        cal.left += Number(nav.getAttribute('data-cal-nav'));
+        drawCal();
+        return;
+      }
+      const pre = e.target.closest('[data-cal-preset]');
+      if (pre) {
+        const r = spPresetRange(pre.getAttribute('data-cal-preset'));
+        applyPeriod(r.from, r.to);
+        return;
+      }
+      const cell = e.target.closest('[data-ym]');
+      if (cell) {
+        const k = cell.getAttribute('data-ym');
+        if (!cal.from || cal.to) {
+          cal.from = k; cal.to = '';
+          drawCal();
+        } else {
+          applyPeriod(k < cal.from ? k : cal.from, k < cal.from ? cal.from : k);
+        }
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (cal.open && !periodWrap.contains(e.target)) closeCal();
+    });
+  }
+
   async function skus(root, ctl, state) {
     ctl.innerHTML = '';
     const allowedTabs = skusTabs();
@@ -825,26 +965,18 @@ const Views = (() => {
     // пока пуст — план-колонки будут нулевыми, факт заполнен). Роутер
     // /api/sales generic по marketplace, поэтому отдельная ветка не нужна.
 
-    const reqYear = salesState.year || new Date().getFullYear();
+    // Период по умолчанию — текущий календарный год, всегда (даже если данных за него нет).
+    if (!salesState.from || !salesState.to) {
+      const r = spPresetRange('year');
+      salesState.from = r.from; salesState.to = r.to;
+    }
     let data;
     try {
       data = await API.salesPlanFact({
-        marketplace: salesMpParam(), year: reqYear,
+        marketplace: salesMpParam(), ...spPeriodParams(),
         status: salesState.status || undefined, manager: salesState.manager || undefined,
       });
     } catch (e) { root.innerHTML = `<div class="empty">Ошибка: ${U.esc(e.message)}</div>`; return; }
-
-    // Год по умолчанию: если запрошенного нет в данных — берём последний доступный.
-    if (!salesState.year) {
-      const yrs = data.years || [];
-      salesState.year = yrs.includes(reqYear) ? reqYear : (yrs.length ? yrs[yrs.length - 1] : reqYear);
-      if (salesState.year !== reqYear) {
-        data = await API.salesPlanFact({
-          marketplace: salesMpParam(), year: salesState.year,
-          status: salesState.status || undefined, manager: salesState.manager || undefined,
-        });
-      }
-    }
     salesState.data = data;
     // Корень «Итоги» раскрыт по умолчанию.
     if (data.tree && data.tree.key && Object.keys(salesState.expanded).length === 0) {
@@ -853,8 +985,6 @@ const Views = (() => {
 
     const isSingle = salesState.tab !== 'cross';
     const subtabs = skusSubtabsHtml();
-    const yearOpts = (data.years || []).map(y =>
-      `<option value="${y}"${y === salesState.year ? ' selected' : ''}>${y}</option>`).join('');
     const statusOpts = ['<option value="">Все статусы</option>']
       .concat((data.statuses || []).map(s => `<option value="${U.esc(s)}"${salesState.status === s ? ' selected' : ''}>${U.esc(s)}</option>`)).join('');
     const mgrOpts = ['<option value="">Все менеджеры</option>']
@@ -872,7 +1002,13 @@ const Views = (() => {
           <div class="ctl sp-ctl" style="gap:12px; flex-wrap:wrap; align-items:center;">
             <div class="sp-filters">
               <input class="input-sm" id="sp-search-art" placeholder="Поиск по артикулу…" value="${U.esc(salesState.search || '')}">
-              <label class="ctl rnp-period sp-year-period" id="sp-period">Год: <select id="sp-year" class="input-sm">${yearOpts}</select></label>
+              <div class="rnp-period" id="sp-period">
+                <button class="rnp-period-field" id="sp-period-field" type="button" title="Выбрать период: первый клик — начальный месяц, второй — конечный">
+                  <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+                  <span class="rnp-period-text" id="sp-period-text">${U.esc(spPeriodLabel())}</span>
+                </button>
+                <div class="rnp-cal sp-mcal" id="sp-cal" hidden></div>
+              </div>
               <label class="ctl">Статус: <select id="sp-status" class="input-sm">${statusOpts}</select></label>
               <label class="ctl">Менеджер: <select id="sp-mgr" class="input-sm">${mgrOpts}</select></label>
               <div class="sp-settings" id="sp-settings">
@@ -882,18 +1018,18 @@ const Views = (() => {
                   <label class="sp-fc-check" style="cursor:pointer;"><input type="checkbox" id="sp-hide-status"${salesState.hideStatus ? ' checked' : ''}> скрыть статус</label>
                   <label class="sp-fc-check" style="cursor:pointer;" title="Показать факт продаж прошлого года в ячейках месяцев"><input type="checkbox" id="sp-yoy"${salesState.yoy ? ' checked' : ''}> факт YoY</label>
                   <label class="sp-fc-check" style="cursor:pointer;" title="Показать рублёвый план (план_шт × цена) в ячейках месяцев"><input type="checkbox" id="sp-rub"${salesState.rub ? ' checked' : ''}> продажи в руб.</label>
-                  ${isSingle ? `<label class="sp-fc-check" style="cursor:pointer;" title="Показать только товары с ручными правками плана в этом году"><input type="checkbox" id="sp-manual-only"${salesState.manualOnly ? ' checked' : ''}> исправлено вручную</label>` : ''}
+                  ${isSingle ? `<label class="sp-fc-check" style="cursor:pointer;" title="Показать только товары с ручными правками плана в выбранном периоде"><input type="checkbox" id="sp-manual-only"${salesState.manualOnly ? ' checked' : ''}> исправлено вручную</label>` : ''}
                 </div>
               </div>
               <button class="btn-sm" id="sp-expand" type="button" title="Развернуть все группировки">Развернуть всё</button>
               <button class="btn-sm" id="sp-collapse" type="button" title="Свернуть все группировки до корня («Итоги»)">Свернуть всё</button>
             </div>
             ${(isSingle) ? `<div class="sp-actions">
-              ${App.can('sales.plan.export') ? `<button class="btn" id="sp-export" title="Выгрузить план в Excel">⬇️ Выгрузить</button>` : ''}
-              ${App.can('sales.plan.import') ? `<button class="btn" id="sp-import-btn" title="Загрузить план из Excel">⬆️ Загрузить</button>
+              ${App.can('sales.plan.export') ? `<button class="btn" id="sp-export" title="Выгрузить шаблон плана в Excel на месяцы выбранного периода">⬇️ Выгрузить</button>` : ''}
+              ${App.can('sales.plan.import') ? `<button class="btn" id="sp-import-btn" title="Загрузить план из Excel: месяцы берутся из шапки файла, перезаписываются только они">⬆️ Загрузить</button>
               <input type="file" id="sp-import-file" accept=".xlsx,.xls" class="hidden" style="display:none">` : ''}
             </div>` : `<div class="sp-actions">
-              ${App.can('sales.summary.export') ? `<button class="btn" id="sp-report-export" title="Выгрузить красивый отчёт в Excel: иерархия номенклатуры, план/факт помесячно и прогноз выполнения текущего месяца">📊 Выгрузить отчёт</button>` : ''}
+              ${App.can('sales.summary.export') ? `<button class="btn" id="sp-report-export" title="Выгрузить отчёт в Excel за выбранный период: иерархия номенклатуры, план/факт помесячно и прогноз выполнения текущего месяца">📊 Выгрузить отчёт</button>` : ''}
             </div>`}
           </div>
         </div>
@@ -904,6 +1040,7 @@ const Views = (() => {
 
     salesPaintTable(root.querySelector('#sp-tbl'), data);
     alignRnpToolbarPeriod(root, 'sp-subtabs', 'sp-period');
+    bindSalesPeriod(root, data.years || []);
     syncSalesToolbarHeight();
 
     // --- Вкладки маркетплейса (общий биндер с заглушкой Yandex) ---
@@ -922,7 +1059,6 @@ const Views = (() => {
       });
     }
     // --- Фильтры ---
-    root.querySelector('#sp-year').addEventListener('change', (e) => { salesState.year = Number(e.target.value); salesState.expanded = {}; App.renderView(); });
     root.querySelector('#sp-status').addEventListener('change', (e) => { salesState.status = e.target.value; salesState.expanded = {}; App.renderView(); });
     root.querySelector('#sp-mgr').addEventListener('change', (e) => { salesState.manager = e.target.value; salesState.expanded = {}; App.renderView(); });
     // --- Чекбокс прогноза — без перезапроса ---
@@ -969,7 +1105,9 @@ const Views = (() => {
       const span = e.target.closest('.sp-plan-edit');
       if (!span || span.querySelector('input')) return;
       const art = span.dataset.art;
+      const year = Number(span.dataset.year);
       const month = Number(span.dataset.month);
+      const idx = Number(span.dataset.idx);
       const cur = Number(span.dataset.plan) || 0;
       const wasEmpty = span.classList.contains('sp-plan-empty');
       const oldHtml = span.innerHTML;
@@ -1007,9 +1145,9 @@ const Views = (() => {
         try {
           const res = await API.salesPlanCell({
             seller_article: art, marketplace: salesMpParam(),
-            year: salesState.year, month, plan_qty: val,
+            year, month, plan_qty: val,
           });
-          applyPlanCellUpdate(art, month, res);
+          applyPlanCellUpdate(art, idx, res);
         } catch (err) {
           if (App && App.toast) App.toast(err.message || 'Не удалось сохранить план', 'err');
           salesPaintTable(tblHost, salesState.data);
@@ -1074,11 +1212,11 @@ const Views = (() => {
         const prev = expBtn.innerHTML;
         expBtn.disabled = true; expBtn.innerHTML = '<span class="btn-spin"></span>Выгружаю…';
         try {
-          const url = API.salesPlanExportUrl({ marketplace: salesMpParam(), year: salesState.year });
+          const url = API.salesPlanExportUrl({ marketplace: salesMpParam(), ...spPeriodParams() });
           const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + API.getToken() } });
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           const cd = resp.headers.get('Content-Disposition') || '';
-          let fname = `plan_${salesMpParam()}_${salesState.year}.xlsx`;
+          let fname = `plan_${salesMpParam()}_${salesState.from}_${salesState.to}.xlsx`;
           const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
           if (m) { try { fname = decodeURIComponent(m[1]); } catch (e) { fname = m[1]; } }
           const blob = await resp.blob();
@@ -1100,14 +1238,14 @@ const Views = (() => {
         repBtn.disabled = true; repBtn.innerHTML = '<span class="btn-spin"></span>Формирую…';
         try {
           // Фильтры экрана (статус/менеджер) учитываются в отчёте.
-          const p = { marketplace: salesMpParam(), year: salesState.year };
+          const p = { marketplace: salesMpParam(), ...spPeriodParams() };
           if (salesState.status) p.status = salesState.status;
           if (salesState.manager) p.manager = salesState.manager;
           const url = API.salesReportExportUrl(p);
           const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + API.getToken() } });
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           const cd = resp.headers.get('Content-Disposition') || '';
-          let fname = `otchet_prodazhi_${salesMpParam()}_${salesState.year}.xlsx`;
+          let fname = `otchet_prodazhi_${salesMpParam()}_${salesState.from}_${salesState.to}.xlsx`;
           const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
           if (m) { try { fname = decodeURIComponent(m[1]); } catch (e) { fname = m[1]; } }
           const blob = await resp.blob();
@@ -1134,10 +1272,11 @@ const Views = (() => {
         impBtn.disabled = true; impBtn.innerHTML = '<span class="btn-spin"></span>Загружаю…';
         if (impRes) impRes.innerHTML = '';
         try {
-          const r = await API.salesPlanImport(f, { marketplace: salesMpParam(), year: salesState.year });
+          // Месяцы и год сервер берёт из шапки файла, период на экране не передаём.
+          const r = await API.salesPlanImport(f, { marketplace: salesMpParam() });
           if (API.cacheClear) API.cacheClear('/api/sales');
           if (impRes) impRes.innerHTML = `<div class="note ok" style="margin-bottom:12px; padding:10px 14px; border-radius:8px; background:rgba(46,204,113,.12); border:1px solid rgba(46,204,113,.4);">
-            <b>План загружен.</b> Артикулов: <b>${r.articles || 0}</b>, записей плана: <b>${r.upserted || 0}</b>.</div>`;
+            <b>План загружен.</b> Месяцы файла: <b>${U.esc(r.period_label || '')}</b> (${r.months || 0} мес.). Артикулов: <b>${r.articles || 0}</b>, записей плана: <b>${r.upserted || 0}</b>. План других месяцев не изменён.</div>`;
           App.toast('План загружен: записей ' + (r.upserted || 0), 'ok');
           App.renderView();
         } catch (e) {

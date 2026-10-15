@@ -580,6 +580,20 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
   cursor:pointer; transition:background .12s, border-color .12s; }
 .rnp-cal-preset:hover { background:#fadddd; border-color:#f3b9b9; }
 .rnp-cal-preset:active { background:#f6cccc; }
+/* «Продажи, шт.»: тот же поповер, но вместо дней — сетка месяцев (данные помесячные).
+   Концы периода — насыщенный бренд-красный, середина — мягкая заливка, как у дней. */
+.sp-mcal-year { width:204px; }
+.sp-mcal-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+.sp-mcal-m { height:36px; font-size:12.5px; color:var(--text); background:transparent;
+  border:1px solid transparent; border-radius:8px; cursor:pointer; transition:background .1s, color .1s; }
+.sp-mcal-m:hover { background:var(--cal-acc-soft); }
+.sp-mcal-m.today { border-color:#f3b9b9; }
+.sp-mcal-m.in-range { background:var(--cal-acc-soft); color:var(--cal-acc); font-weight:600; }
+.sp-mcal-m.end { background:var(--cal-acc); color:#fff; font-weight:600; }
+.sp-mcal-m.end:hover { background:#cf1111; }
+.rnp-cal-arrow:disabled { opacity:.35; cursor:default; background:transparent; color:var(--text-dim); border-color:var(--border-soft); }
+.sp-mcal-presets { gap:6px; }
+.sp-mcal-presets .rnp-cal-preset { flex:1 1 0; padding:0 6px; font-size:12px; white-space:nowrap; }
 
 /* Сигнальные цвета значения РНП % (только шрифт, без фона — аккуратно) */
 .rnp-hd-v.rnp-sig-neg { color:#d11414; font-weight:600; }
@@ -608,8 +622,6 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
 .sp-toolbar .rnp-toolbar-top > .subtabs { flex:1 1 auto; width:auto; min-width:0; margin-bottom:0; flex-wrap:wrap; }
 .rnp-toolbar-top > .rnp-period { margin-left:auto; }
 .rnp-toolbar-top .rnp-period-field:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.rnp-toolbar-top > .sp-year-period { display:inline-flex; align-items:center; gap:8px; margin-bottom:0; font-size:13px; color:var(--text-dim); }
-.sp-year-period #sp-year { width:90px; min-width:0; height:34px; padding:6px 9px; font-size:13px; }
 @media (max-width:700px) {
   .rnp-toolbar .rnp-toolbar-top > .subtabs,
   .sp-toolbar .rnp-toolbar-top > .subtabs { flex-basis:100%; }
@@ -1123,7 +1135,6 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 
 /* Компактные поля фильтров Продаж — чтобы фильтры + кнопки помещались в один ряд. */
 .sp-ctl .input-sm { padding:6px 9px; font-size:12.5px; width:auto; min-width:0; }
-.sp-ctl select#sp-year   { width:84px; }
 .sp-ctl select#sp-status { width:140px; }
 .sp-ctl select#sp-mgr    { width:150px; }
 .sp-filters { gap:10px; }
