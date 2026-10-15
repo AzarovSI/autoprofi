@@ -4792,12 +4792,12 @@ const Views = (() => {
     { b: 'm', key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos' },
     { b: 'm', key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '56A06A' },
     { b: 'u', key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', g: 'unit', head: true, lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: 'Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: '− Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
     { b: 'u', key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: 'Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tDiv(c.p_payout, c.p_sales_qty), label: 'К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: 'Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
-    { b: 'u', calc: c => tDiv(c.profit, c.p_sales_qty), label: 'Прибыль на ед.', kind: 'price', pol: 'pos', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: '− Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tDiv(c.p_payout, c.p_sales_qty), label: '= К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', bold: true, g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: '− Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { b: 'u', calc: c => tDiv(c.profit, c.p_sales_qty), label: '= Прибыль на ед.', kind: 'price', pol: 'pos', bold: true, g: 'unit', lv: [T_LEVEL_ITEM] },
     { b: 's', struct: 'share', label: 'Доля в общей выручке, %', lv: [T_LEVEL_GROUP] },
     { b: 's', struct: 'returns', label: 'Возвраты, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
     { b: 's', struct: 'loss', label: 'Убыточных SKU', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
@@ -4845,7 +4845,8 @@ const Views = (() => {
       const isHead = !!r.head;
       const isChild = !!r.g && !isHead;
       if (isChild && !open[r.g]) return;
-      const blk = (lastBlock !== null && r.b !== lastBlock) ? ' rnp-t-blk' : '';
+      // граница блока; первая строка карточки — тоже с линией (отделяет её от строки узла)
+      const blk = (r.b !== lastBlock) ? ' rnp-t-blk' : '';
       lastBlock = r.b;
       let nameSt = '';
       if (r.color) nameSt += `color:#${r.color};`;
