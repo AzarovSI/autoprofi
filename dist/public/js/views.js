@@ -5019,14 +5019,22 @@ const Views = (() => {
         togglePayout(e);
       });
     });
-    // «Ozon тест»: раскрываемые группы карточки (rnpState.tOpen[g])
+    // «Ozon тест»: раскрываемые группы карточки (rnpState.tOpen[g]). Стрелка —
+    // кнопка .rnp-exp-btn: общий обработчик стрелок узлов гасит всплытие, поэтому
+    // у самой стрелки свой обработчик (как у «Продвижения» / «Все удержания»).
+    const toggleTGroup = (e, g) => {
+      e.stopPropagation();
+      rnpState.tOpen = rnpState.tOpen || {};
+      rnpState.tOpen[g] = !rnpState.tOpen[g];
+      renderRnpMatrix(rnpState.data.tree, weeks, metrics);
+    };
+    host.querySelectorAll('.rnp-tgrp-toggle').forEach(el => {
+      el.addEventListener('click', (e) => toggleTGroup(e, el.getAttribute('data-g')));
+    });
     host.querySelectorAll('.rnp-tgrp-head').forEach(el => {
       el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const g = el.getAttribute('data-g');
-        rnpState.tOpen = rnpState.tOpen || {};
-        rnpState.tOpen[g] = !rnpState.tOpen[g];
-        renderRnpMatrix(rnpState.data.tree, weeks, metrics);
+        if (e.target.closest('.rnp-tgrp-toggle')) return; // стрелка уже обработана
+        toggleTGroup(e, el.getAttribute('data-g'));
       });
     });
     // дополнительно: клик по имени узла повторяет действие его стрелки
