@@ -3119,7 +3119,7 @@ const Views = (() => {
   // topMetric — ключ показателя «верхнего уровня» в строке-заголовке узла
   //             (дефолт 'rnp' = Маржинальность %; выбирается селектором,
   //              хранится только на время сессии, как остальные фильтры).
-  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, payoutOpen: false, uiSnap: {} };
+  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, payoutOpen: false, tOpen: {}, uiSnap: {} };
 
   // ── Память состояния дерева РНП по маркетплейсам (на время открытой вкладки).
   // Проблема: при переключении подтаба МП (Ozon/WB/Сводная) раскрытие групп,
@@ -3512,6 +3512,9 @@ const Views = (() => {
   function rnpTabs() {
     const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
                   ['yandex', 'Yandex', 'yandex']].filter(([id]) => App.canTab('unit', id));
+    // «Ozon тест» — макет новой подачи юнит-экономики (функция №102, только администратор).
+    // Данные те же, что у OZON (rnpMpParam для неизвестной вкладки даёт 'ozon').
+    if (App.can('unit.tab.oz_test')) tabs.push(['oz_test', 'Ozon тест', 'ozon']);
     if (App.can('unit.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
     return tabs;
   }
@@ -4426,7 +4429,8 @@ const Views = (() => {
       const v = (node.cells[w.key] || {})[tm.key];
       const prev = i > 0 ? (node.cells[weeks[i - 1].key] || {})[tm.key] : null;
       const d = calcDelta(v, prev, tm.kind);
-      const dTxt = fmtDelta(d);
+      // «Ozon тест»: изменение процентов — в п.п.
+      const dTxt = rnpState.mp === 'oz_test' ? tFmtDelta(d) : fmtDelta(d);
       // Светофор (красный при отрицательной марже, оранжевый ниже целевой)
       // применяем только к процентным показателям; для штучных/денежных — нет.
       const sig = tm.isPct ? marginSignalClass(v) : '';
@@ -4749,7 +4753,126 @@ const Views = (() => {
 
   // Таблица: строки = метрики, столбцы = недели (каждая = значение + дельта)
   // Стиль повторяет отчёт «Недели API v2»: плотная таблица, трёхстрочный заголовок недели
+  // ------------------------------------------------------------------
+  // «Ozon тест»: макет новой подачи карточки показателей (15.10.2026).
+  // Порядок — по денежному потоку: Воронка → Деньги (каскад от продаж к
+  // прибыли) → На единицу (только товар) → Структура (только группы/Итоги).
+  // Набор строк одинаков на своём уровне; нет значения — «—». Изменения %
+  // подписаны «п.п.». Значения — те же ключи ячеек, что у вкладки OZON.
+  // ------------------------------------------------------------------
+  const T_LEVEL_ITEM = 'item', T_LEVEL_GROUP = 'group', T_LEVEL_ROOT = 'root';
+  const tDiv = (a, b) => (a == null || b == null || !b || isNaN(a) || isNaN(b)) ? null : a / b;
+  const tMul = (a, b) => (a == null || b == null || isNaN(a) || isNaN(b)) ? null : a * b;
+  // Строки: cap — подпись блока; g — группа (голова: head:true); lv — уровни показа.
+  const T_ROWS = [
+    { cap: 'Воронка' },
+    { key: 'p_orders_qty', label: 'Заказы, шт', kind: 'qty', pol: 'pos', g: 'orders', head: true },
+    { key: 'p_orders_rub', label: 'Заказы, руб', kind: 'rub', pol: 'pos', g: 'orders' },
+    { key: 'p_buyout_pct', label: 'Выкуп, %', kind: 'pct', pol: 'pos', color: '96A5AF' },
+    { key: 'p_sales_qty', label: 'Продажи, шт', kind: 'qty', pol: 'pos' },
+    { key: 'p_plan_qty', label: 'План продаж, шт', kind: 'qty', pol: 'none', color: '0000FF', g: 'plan', head: true },
+    { calc: c => tDiv(c.p_sales_qty, c.p_plan_qty), label: 'Выполнение плана, %', kind: 'pct', pol: 'pos', color: '0000FF', g: 'plan' },
+    { cap: 'Деньги' },
+    { key: 'p_revenue', label: 'Продажи, руб', kind: 'rub', pol: 'pos', bold: true },
+    { key: 'p_holds_pct', label: '− Удержания площадки, %', kind: 'pct', pol: 'neg', color: 'C0392B', g: 'holds', head: true },
+    { key: 'p_commission_pct', label: 'Комиссия, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { key: 'p_logistics_pct', label: 'Логистика, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { key: 'p_acquiring_pct', label: 'Эквайринг, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { key: 'p_storage_pct', label: 'Хранение и проч. удержания, %', kind: 'pct', pol: 'neg', g: 'holds' },
+    { key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds' },
+    { key: 'noart_exp_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT] },
+    { key: 'p_promo_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true },
+    { key: 'p_promo_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: 'C58CFF', g: 'promo' },
+    { key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true },
+    { key: 'p_cogs_pct', label: '− Себестоимость, %', kind: 'pct', pol: 'neg', color: '0000FF' },
+    { key: 'profit', label: '= Прибыль, руб', kind: 'rub', pol: 'pos', bold: true },
+    { key: 'rnp', label: 'Маржинальность валовая, %', kind: 'pct', pol: 'pos' },
+    { key: 'p_net_margin_pct', label: 'Маржинальность чистая, %', kind: 'pct', pol: 'pos', color: '56A06A' },
+    { cap: 'На единицу товара', lv: [T_LEVEL_ITEM] },
+    { key: 'p_avg_price', label: 'Ср. цена продажи, руб', kind: 'price', pol: 'pos', g: 'unit', head: true, lv: [T_LEVEL_ITEM] },
+    { calc: c => tMul(c.p_holds_pct, c.p_avg_price), label: 'Удержания площадки на ед.', kind: 'price', pol: 'neg', color: 'C0392B', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { key: 'p_log_per_unit', label: 'в т.ч. логистика на ед.', kind: 'price', pol: 'neg', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { calc: c => tMul(c.p_promo_pct, c.p_avg_price), label: 'Продвижение на ед.', kind: 'price', pol: 'neg', color: '9900FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { calc: c => tDiv(c.p_payout, c.p_sales_qty), label: 'К оплате на ед.', kind: 'price', pol: 'pos', color: '1E7D34', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { calc: c => tMul(c.p_cogs_pct, c.p_avg_price), label: 'Себестоимость на ед.', kind: 'price', pol: 'neg', color: '0000FF', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { calc: c => tDiv(c.profit, c.p_sales_qty), label: 'Прибыль на ед.', kind: 'price', pol: 'pos', g: 'unit', lv: [T_LEVEL_ITEM] },
+    { cap: 'Структура', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { struct: 'share', label: 'Доля в общей выручке, %', lv: [T_LEVEL_GROUP] },
+    { struct: 'returns', label: 'Возвраты, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { struct: 'loss', label: 'Убыточных SKU', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+    { struct: 'ashare', label: 'Доля A-товаров, %', lv: [T_LEVEL_GROUP, T_LEVEL_ROOT] },
+  ];
+
+  function tFmtDelta(d) {
+    if (!d) return '';
+    const sign = d.val > 0 ? '+' : (d.val < 0 ? '−' : '');
+    const v = Math.abs(d.val * 100).toFixed(1).replace('.', ',');
+    return d.mode === 'pp' ? `${sign}${v} п.п.` : `${sign}${v}%`;
+  }
+
+  function tValCell(cur, prev, row) {
+    const valTxt = rnpFmtProduct(cur, row.kind, row.key || '');
+    let st = '';
+    if (row.color) st += `color:#${row.color};`;
+    if (row.bold) st += 'font-weight:700;';
+    const sa = st ? ` style="${st}"` : '';
+    if (row.pol === 'none') {
+      return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span><span class="rnp-vc-d flat"></span></span>`;
+    }
+    const d = calcDelta(cur, prev, row.kind);
+    const dTxt = tFmtDelta(d);
+    return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span>`
+      + (dTxt ? `<span class="rnp-vc-d ${deltaDirPolar(d, row.pol)}">${dTxt}</span>` : '<span class="rnp-vc-d flat"></span>')
+      + '</span>';
+  }
+
+  function testMetricTable(node, weeks, parent) {
+    const lvl = node.level === 4 ? T_LEVEL_ITEM : (node.level === 0 ? T_LEVEL_ROOT : T_LEVEL_GROUP);
+    const open = rnpState.tOpen || (rnpState.tOpen = {});
+    const rows = T_ROWS.filter(r => !r.lv || r.lv.includes(lvl));
+    const ncol = weeks.length;
+    let body = '';
+    rows.forEach(r => {
+      if (r.cap) {
+        body += `<tr class="rnp-t-cap"><td class="rnp-m-name">${U.esc(r.cap)}</td>`
+          + `<td colspan="${ncol}"></td><td class="rnp-m-tail"></td></tr>`;
+        return;
+      }
+      const isHead = !!r.head;
+      const isChild = !!r.g && !isHead;
+      if (isChild && !open[r.g]) return;
+      let nameSt = '';
+      if (r.color) nameSt += `color:#${r.color};`;
+      if (r.bold) nameSt += 'font-weight:700;';
+      const nameStyle = nameSt ? ` style="${nameSt}"` : '';
+      const nameInner = isHead
+        ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
+        : U.esc(r.label);
+      const cls = (isChild ? ' rnp-m-holds-child' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
+      let tr = `<tr class="${r.bold ? 'rnp-t-total' : ''}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
+      weeks.forEach((w, i) => {
+        const cell = node.cells[w.key] || {};
+        const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;
+        let inner;
+        if (r.struct) {
+          inner = r.struct === 'share' ? shareOfParentCell(node, parent, weeks, i)
+            : r.struct === 'returns' ? returnsCell(node, weeks, i)
+            : r.struct === 'loss' ? lossSkuCell(node, weeks, i)
+            : aShareCell(node, weeks, i);
+        } else {
+          const get = c => (c == null ? null : (r.calc ? r.calc(c) : c[r.key]));
+          inner = tValCell(get(cell), get(prevCell), r);
+        }
+        tr += `<td class="num rnp-wkcol">${inner}</td>`;
+      });
+      tr += '<td class="rnp-m-tail"></td></tr>';
+      body += tr;
+    });
+    return `<table class="tbl rnp-mtbl rnp-mtbl-test"><tbody>${body}</tbody></table>`;
+  }
+
   function metricTable(node, weeks, metrics, parent) {
+    if (rnpState.mp === 'oz_test') return testMetricTable(node, weeks, parent);
     // заголовок «Показатель» не нужен ни у групп, ни у артикулов —
     // раскрываем узел и сразу идут метрики (подписи недель — в общей шапке сверху)
 
@@ -4884,6 +5007,16 @@ const Views = (() => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.rnp-payout-toggle')) return; // стрелка уже обработана
         togglePayout(e);
+      });
+    });
+    // «Ozon тест»: раскрываемые группы карточки (rnpState.tOpen[g])
+    host.querySelectorAll('.rnp-tgrp-head').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const g = el.getAttribute('data-g');
+        rnpState.tOpen = rnpState.tOpen || {};
+        rnpState.tOpen[g] = !rnpState.tOpen[g];
+        renderRnpMatrix(rnpState.data.tree, weeks, metrics);
       });
     });
     // дополнительно: клик по имени узла повторяет действие его стрелки

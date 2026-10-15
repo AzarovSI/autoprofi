@@ -491,7 +491,7 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
 /* РНП заказы: ширина полей поиск/менеджеры/статусы — как в РНП Юнит-экономике */
 .rnp-filters-host > #rnps-search { width:150px; flex:0 0 auto; }
 .rnp-filters-host > #rnps-mgr, .rnp-filters-host > #rnps-status { width:auto; max-width:128px; min-width:0; flex:0 1 auto; }
-#rnp-top-metric { max-width:210px; } /* влезает «Маржинальность валовая, %» */
+#rnp-top-metric { max-width:235px; } /* влезает «Маржинальность валовая, %» со стрелкой списка */
 
 /* Светофор маржинальности: галка «отрицательная» + поле «целевая %» */
 .rnp-sig-check { display:inline-flex; align-items:center; gap:5px; cursor:pointer; flex:0 0 auto;
@@ -952,6 +952,7 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 .rnp-mtbl tr.rnp-m-strong .rnp-vc-v { font-weight:400; color:var(--text); }
 /* сворачиваемая группа «Все удержания, %»: заголовок кликабелен, дети с лёгким отступом */
 .rnp-mtbl td.rnp-m-holds-head.is-clickable,
+.rnp-mtbl td.rnp-tgrp-head.is-clickable,
 .rnp-mtbl td.rnp-m-promo-head.is-clickable,
 .rnp-mtbl td.rnp-m-payout-head.is-clickable { cursor:pointer; }
 .rnp-mtbl td.rnp-m-name.rnp-m-holds-child { padding-left:calc(var(--rnp-mname-pad, 28px) + 16px); }
@@ -2331,3 +2332,9 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 /* Загружаемая расчётная — рекомендация, плановый синий, жирная. */
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl td.pm-calc .sp-cell .sp-plan { color: var(--plan-blue); font-weight: 700; }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl td.pm-calc .sp-cell .sp-plan.sp-plan-empty { color: #c2c9d0; font-weight: 400; }
+
+/* «Ozon тест» — подписи блоков карточки (Воронка / Деньги / На единицу / Структура) */
+.rnp-mtbl-test tr.rnp-t-cap td { padding-top:10px; padding-bottom:2px; border-bottom:none; }
+.rnp-mtbl-test tr.rnp-t-cap td.rnp-m-name { font-size:10px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--text-mute); }
+.rnp-mtbl-test tr.rnp-t-total td { border-top:1px solid var(--border, #E3E8EE); }
