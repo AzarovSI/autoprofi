@@ -2353,3 +2353,7 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .t-arrow { display:inline-block; width:9px; }
 /* «Ozon тест»: правый отступ ячеек карточки = строк узлов — числа и треугольники на одной вертикали по всей таблице */
 .rnp-mtbl-test td.num { padding-right:10px; }
+/* «Ozon тест»: треугольник прижат к числу изменения (не посередине между значением и изменением):
+   в своей ячейке — по правому краю; перед изменением — отступ от значения метрики. */
+.t-arrow { width:10px; text-align:right; margin-right:1px; font-size:9px; top:0; }
+.rnp-vc-d.t-delta, .rnp-hd-d.t-delta { padding-left:5px; box-sizing:content-box; }
