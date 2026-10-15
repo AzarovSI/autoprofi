@@ -4808,20 +4808,24 @@ const Views = (() => {
 
   // Изменение к прошлой неделе в «Ozon тест»: треугольник ▲/▼ — направление
   // изменения, его цвет — хорошо/плохо с учётом полярности (рост расходов — красный);
-  // число — чёрное нежирное, без знака: у %-показателей п.п. без единиц, иначе «%».
+  // число — чёрное нежирное, без знака и без «%» (п.п. или % — в подсказке).
   // cls — класс контейнера (rnp-vc-d в карточке, rnp-hd-d в строке узла).
   const T_NEG_KEYS = new Set(['p_cogs_pct', 'p_holds_pct', 'p_promo_pct', 'p_storage_pct', 'p_fines_rub', 'p_fines_pct']);
   function tArrowDelta(d, pol, cls) {
-    if (!d) return `<span class="${cls} flat"></span>`;
-    const num = Math.abs(d.val * 100).toFixed(1).replace('.', ',') + (d.mode === 'pp' ? '' : '%');
-    const title = d.mode === 'pp' ? ' title="Изменение в процентных пунктах"' : '';
-    if (d.val === 0 || num === '0,0' || num === '0,0%') {
-      return `<span class="${cls} t-delta flat"${title}>${num}</span>`;
+    // t-delta — у всех вариантов: фиксированная ширина колонки изменения (числа по правому краю,
+    // треугольники на одной вертикали). Число без «%»: смысл — в подсказке.
+    if (!d) return `<span class="${cls} t-delta flat"></span>`;
+    const num = Math.abs(d.val * 100).toFixed(1).replace('.', ',');
+    const title = d.mode === 'pp' ? ' title="Изменение к прошлой неделе, процентных пунктов"'
+                                  : ' title="Изменение к прошлой неделе, %"';
+    if (d.val === 0 || num === '0,0') {
+      return `<span class="${cls} t-delta flat"${title}><span class="t-arrow"></span>${num}</span>`;
     }
     const good = (pol === 'neg') ? d.val < 0 : d.val > 0;
     const arrow = `<span class="t-arrow ${good ? 'good' : 'bad'}">${d.val > 0 ? '▲' : '▼'}</span>`;
     return `<span class="${cls} t-delta"${title}>${arrow}${num}</span>`;
   }
+
 
   function tValCell(cur, prev, row) {
     const valTxt = rnpFmtProduct(cur, row.kind, row.key || '');
@@ -4830,7 +4834,7 @@ const Views = (() => {
     if (row.bold) st += 'font-weight:700;';
     const sa = st ? ` style="${st}"` : '';
     if (row.pol === 'none') {
-      return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span><span class="rnp-vc-d flat"></span></span>`;
+      return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span><span class="rnp-vc-d t-delta flat"></span></span>`;
     }
     const d = calcDelta(cur, prev, row.kind);
     return `<span class="rnp-vc"><span class="rnp-vc-v"${sa}>${valTxt}</span>`
@@ -4858,7 +4862,9 @@ const Views = (() => {
         ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
         : U.esc(r.label);
       const cls = (isChild ? ' rnp-t-child-name' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
-      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk + (isChild ? ' rnp-t-child' : '')}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
+      // вложенные строки приглушены; исключение — блок «на единицу» (решение владельца 15.10)
+      const dim = isChild && r.g !== 'unit';
+      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk + (dim ? ' rnp-t-child' : '')}"><td class="rnp-m-name${cls}"${isHead ? ` data-g="${r.g}"` : ''}${nameStyle}>${nameInner}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
         const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;
