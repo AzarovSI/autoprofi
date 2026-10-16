@@ -1469,7 +1469,12 @@ const Views = (() => {
         const prevHtml = expBtn.innerHTML;
         expBtn.disabled = true; expBtn.innerHTML = '<span class="btn-spin"></span>Выгружаю…';
         try {
-          const url = API.catalogExportUrl({ marketplace: catMpName() });
+          // Тот же фильтр, что у таблицы (loadCatalog): нераспределённые / поиск / список из РНП.
+          const undistMode = Array.isArray(catState.undistArticles);
+          const url = API.catalogExportUrl(undistMode
+            ? { marketplace: catMpName(), articles: catState.undistArticles.join('\n') }
+            : { marketplace: catMpName(), search: catState.search || null,
+                only_uncategorized: catState.only_unc ? 'true' : null });
           const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + API.getToken() } });
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           const cd = resp.headers.get('Content-Disposition') || '';

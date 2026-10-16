@@ -74,6 +74,27 @@ def _check_update(user, sa, mp, payload):
         auth.check(user, "catalog.edit")
 
 
+def _items_where(mp, search=None, only_uncategorized=False, articles=None):
+    """Отбор строк справочника — общий для таблицы (/items) и выгрузки (/export),
+    чтобы в Excel попадало ровно то, что видно на странице."""
+    where = ["cm.marketplace = %s"]
+    params = [mp]
+    if articles is not None:
+        # режим «нераспределённые из РНП / юнит-экономики»: точный список артикулов
+        where.append("cm.seller_article = ANY(%s)")
+        params.append(list(articles))
+    else:
+        if search:
+            where.append("cm.seller_article ILIKE %s")
+            params.append(f"%{search.strip()}%")
+        if only_uncategorized:
+            # «нераспределённые» = нет полной цепочки категорий ЛИБО нет статуса по этому МП
+            where.append(
+                "(ci.category_l1 IS NULL OR ci.category_l2 IS NULL OR ci.category_l3 IS NULL OR cm.status IS NULL)"
+            )
+    return where, params
+
+
 @router.get("/items")
 def items(
     marketplace: str = Query("Ozon"),
@@ -89,16 +110,7 @@ def items(
     catalog_marketplace для этого МП (т.е. участвуют в данном маркетплейсе).
     """
     mp = _norm_mp(marketplace)
-    where = ["cm.marketplace = %s"]
-    params = [mp]
-    if search:
-        where.append("cm.seller_article ILIKE %s")
-        params.append(f"%{search.strip()}%")
-    if only_uncategorized:
-        # «нераспределённые» = нет полной цепочки категорий ЛИБО нет статуса по этому МП
-        where.append(
-            "(ci.category_l1 IS NULL OR ci.category_l2 IS NULL OR ci.category_l3 IS NULL OR cm.status IS NULL)"
-        )
+    where, params = _items_where(mp, search, only_uncategorized)
     params.append(int(limit))
     rows = db.query_all(
         f"""
@@ -207,19 +219,31 @@ def update_item(payload: dict = Body(...), user=Depends(auth.get_current_user)):
 
 
 @router.get("/export")
-def export_items(marketplace: str = Query("Ozon"), user=Depends(_require("catalog.export"))):
-    """Выгрузка справочника выбранного маркетплейса в Excel."""
+def export_items(
+    marketplace: str = Query("Ozon"),
+    search: str = Query(None),
+    only_uncategorized: bool = Query(False),
+    articles: str = Query(None),
+    user=Depends(_require("catalog.export")),
+):
+    """Выгрузка справочника выбранного маркетплейса в Excel — с тем же фильтром, что
+    на странице: «только нераспределённые», поиск по артикулу или точный список артикулов
+    (articles — через перевод строки; режим «нераспределённые из РНП»). Без фильтра — весь
+    справочник площадки. Обратная загрузка (/import) обновляет только строки файла."""
     import openpyxl
     mp = _norm_mp(marketplace)
+    # articles передан (даже пустой) — только эти артикулы; пустой список = пустой файл
+    arts = [canon_article(a) for a in articles.split("\n") if a.strip()] if articles is not None else None
+    where, params = _items_where(mp, search, only_uncategorized, arts)
     rows = db.query_all(
-        """SELECT cm.seller_article, ci.sample_name,
+        f"""SELECT cm.seller_article, ci.sample_name,
                   ci.category_l1, ci.category_l2, ci.category_l3,
                   cm.status, cm.manager, cm.product_url
            FROM catalog_marketplace cm
            LEFT JOIN catalog_items ci ON ci.seller_article = cm.seller_article
-           WHERE cm.marketplace = %s
+           WHERE {' AND '.join(where)}
            ORDER BY cm.seller_article""",
-        (mp,),
+        tuple(params),
     )
     wb = openpyxl.Workbook()
     ws = wb.active
