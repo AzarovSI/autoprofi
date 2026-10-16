@@ -134,3 +134,15 @@ def l1_sort_key(name):
 def cat_sort_key(name):
     """Ключ сортировки L2/L3: алфавит (регистронезависимо)."""
     return (name or "").strip().lower()
+
+
+# Нераспределённый товар — единое правило для РНП, юнит-экономики и фильтра
+# «только нераспределённые» в «Товарах»: не заполнена хотя бы одна группа
+# (К1/К2/К3), статус по маркетплейсу или менеджер. Пустая строка = не заполнено.
+def is_undistributed(l1, l2, l3, status, manager) -> bool:
+    return any(not (v or "").strip() for v in (l1, l2, l3, status, manager))
+
+
+UNDISTRIBUTED_SQL = "(" + " OR ".join(
+    f"COALESCE(TRIM({c}), '') = ''" for c in (
+        "ci.category_l1", "ci.category_l2", "ci.category_l3", "cm.status", "cm.manager")) + ")"

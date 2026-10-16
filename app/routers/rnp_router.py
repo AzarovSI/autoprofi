@@ -15,7 +15,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from .. import db, auth, fastjson
-from ..util import l1_sort_key, cat_sort_key
+from ..util import l1_sort_key, cat_sort_key, is_undistributed
 
 router = APIRouter(prefix="/api/rnp", tags=["rnp"])
 
@@ -124,6 +124,13 @@ def _product_metrics_payload():
 
 def _f(v):
     return float(v) if v is not None else 0.0
+
+
+def _row_moved(r):
+    """Движение в строке факта: любое ненулевое из выручки, продаж, заказов,
+    возвратов, прибыли или удержаний."""
+    return bool(_f(r.get("revenue")) or _f(r.get("sales_qty")) or _f(r.get("orders_qty"))
+                or _f(r.get("returns_qty")) or _f(r.get("profit")) or _f(r.get("holds_total")))
 
 
 def _div(a, b):
@@ -710,9 +717,8 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
             if not a or a in existing_arts:
                 continue
             # Пропускаем не полностью распределённые карточки.
-            if (not cr.get("category_l1") or not cr.get("category_l2")
-                    or not cr.get("category_l3") or not cr.get("status")
-                    or not cr.get("manager")):
+            if is_undistributed(cr.get("category_l1"), cr.get("category_l2"),
+                                cr.get("category_l3"), cr.get("status"), cr.get("manager")):
                 continue
             existing_arts.add(a)
             rows.append({
@@ -740,7 +746,9 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         }
 
     root = new_node("__root__", "Итоги", 0)
-    undistributed = {}  # seller_article -> item_name (нераспределённые)
+    # Нераспределённые с движением: seller_article -> {item_name, periods: {wk: продажи}}.
+    # Счётчик и сумму за выбранный период считает страница по видимым колонкам.
+    undistributed = {}
 
     # Предпроход: артикулы, у которых ЕСТЬ движение хотя бы в одной неделе
     # загруженного периода. «Движение» = любое ненулевое из revenue / sales_qty /
@@ -753,8 +761,7 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         art0 = r.get("seller_article") or ""
         if not art0 or art0 in moved:
             continue
-        if (_f(r.get("revenue")) or _f(r.get("sales_qty")) or _f(r.get("orders_qty"))
-                or _f(r.get("returns_qty")) or _f(r.get("profit")) or _f(r.get("holds_total"))):
+        if _row_moved(r):
             moved.add(art0)
 
     for r in rows:
@@ -772,14 +779,12 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         if st_norm == "-" and art and art not in moved:
             continue
 
-        # Единое правило (Ozon и Wildberries): товар считается НЕраспределённым,
-        # если выполнено хотя бы одно условие —
-        #   • не заполнена хотя бы одна категория (L1/L2/L3);
-        #   • отсутствует статус;
-        #   • отсутствует менеджер.
-        is_undist = (not l1 or not l2 or not l3 or not st or not mgr)
-        if is_undist and art and art not in undistributed:
-            undistributed[art] = r.get("item_name")
+        # Единое правило (app/util.is_undistributed): нет группы К1/К2/К3,
+        # статуса или менеджера. В сообщение попадают только периоды с движением.
+        is_undist = is_undistributed(l1, l2, l3, st, mgr)
+        if is_undist and art and _row_moved(r):
+            u = undistributed.setdefault(art, {"item_name": r.get("item_name"), "periods": {}})
+            u["periods"][wk] = round(u["periods"].get(wk, 0.0) + _f(r.get("revenue")), 2)
 
         # Строка «Итоги» (root) включает ВСЕ товары — и распределённые,
         # и нераспределённые (обороты нераспределённых учитываются в итоге).
@@ -909,7 +914,7 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
 
     tree = finalize(root)
 
-    undist_list = [{"seller_article": a, "item_name": n} for a, n in undistributed.items()]
+    undist_list = [{"seller_article": a, **u} for a, u in undistributed.items()]
 
     # Справочники для фильтров (менеджеры/статусы) — уникальные значения
     # из справочника товаров, отсортированные (как в прод-API).
@@ -1066,8 +1071,7 @@ def _collect_mp_raw(mp):
         a0 = r.get("seller_article") or ""
         if not a0 or a0 in moved:
             continue
-        if (_f(r.get("revenue")) or _f(r.get("sales_qty")) or _f(r.get("orders_qty"))
-                or _f(r.get("returns_qty")) or _f(r.get("profit")) or _f(r.get("holds_total"))):
+        if _row_moved(r):
             moved.add(a0)
 
     for r in rows:
@@ -1079,7 +1083,7 @@ def _collect_mp_raw(mp):
         art = r.get("seller_article") or ""
         if (st or "").strip() == "-" and art and art not in moved:
             continue
-        is_undist = (not l1 or not l2 or not l3 or not st or not mgr)
+        is_undist = is_undistributed(l1, l2, l3, st, mgr)
         _add_row(root["_agg"][wk], r)
         if is_undist:
             continue

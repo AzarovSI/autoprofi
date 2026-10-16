@@ -31,11 +31,11 @@ class CatalogExportFilterTests(unittest.TestCase):
     def test_full_export_without_filter(self):
         sql, params, _ = self.run_export()
         self.assertEqual(params, ("Wildberries",))
-        self.assertNotIn("category_l1 IS NULL", sql)
+        self.assertNotIn(catalog.UNDISTRIBUTED_SQL, sql)
 
     def test_only_uncategorized_same_condition_as_table(self):
         sql, params, body = self.run_export(only_uncategorized=True, search="AK")
-        self.assertIn("ci.category_l1 IS NULL OR ci.category_l2 IS NULL OR ci.category_l3 IS NULL OR cm.status IS NULL", sql)
+        self.assertIn(catalog.UNDISTRIBUTED_SQL, sql)
         self.assertEqual(params, ("Wildberries", "%AK%"))
         ws = openpyxl.load_workbook(io.BytesIO(body)).active
         self.assertEqual(ws.max_row, 2)  # шапка + отобранная строка

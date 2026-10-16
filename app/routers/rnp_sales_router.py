@@ -36,7 +36,7 @@ from fastapi.responses import Response
 from .. import db, auth, fastjson
 from .. import cache
 from .. import daily_pi
-from ..util import l1_sort_key, cat_sort_key
+from ..util import l1_sort_key, cat_sort_key, is_undistributed
 from . import rnp_router
 
 router = APIRouter(prefix="/api/rnp_sales", tags=["rnp_sales"])
@@ -593,7 +593,8 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
                 "_name_len": 0, "_sku": None}
 
     root = new_node("__root__", "Итоги", 0)
-    undistributed = {}  # art -> item_name
+    undistributed = {}  # art -> {item_name, orders_rub} (только с активностью за период)
+    total_orders_rub = 0.0  # заказы «Итогов» — для доли нераспределённых в сообщении
 
     def acc(node, r, day_key, mk):
         node["arts"].add((r.get("seller_article") or "").upper())
@@ -652,10 +653,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
         day_key = d.isoformat()
         mk = f"{d.year}-{d.month:02d}"
 
-        missing_status = not st_norm if is_wb else not st
-        is_undist = (not l1 or not l2 or not l3 or missing_status or not mgr)
-        if is_undist and art and art not in undistributed:
-            undistributed[art] = r.get("item_name")
+        # Единое правило (app/util.is_undistributed). В сообщение — только товары
+        # с активностью за выбранный период (заказы/реклама/остаток МП).
+        is_undist = is_undistributed(l1, l2, l3, st, mgr)
+        total_orders_rub += _f(r.get("orders_rub"))
+        if is_undist and art and art in active:
+            u = undistributed.setdefault(art, {"item_name": r.get("item_name"), "orders_rub": 0.0})
+            u["orders_rub"] += _f(r.get("orders_rub"))
 
         # Итоги включают все товары (в т.ч. нераспределённые).
         acc(root, r, day_key, mk)
@@ -919,7 +923,8 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
     tree = finalize(root)
     _mark_neg(tree)
 
-    undist_list = [{"seller_article": a, "item_name": n} for a, n in sorted(undistributed.items())]
+    undist_list = [{"seller_article": a, "item_name": u["item_name"], "orders_rub": round(u["orders_rub"], 2)}
+                   for a, u in sorted(undistributed.items())]
 
     # Пороги светофора оборачиваемости из anomaly_rules (настраиваются в шестерёнке).
     # red — недостаточно (< threshold), blue — излишек (> threshold2), между — зелёный.
@@ -948,7 +953,9 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
                          **({"as_of": turn_anchor.isoformat() if turn_anchor else None}
                             if not is_ya else {})},
         "tree": tree,
-        "undistributed": {"count": len(undist_list), "articles": undist_list},
+        "undistributed": {"count": len(undist_list), "articles": undist_list,
+                          "orders_rub": round(sum(u["orders_rub"] for u in undist_list), 2),
+                          "total_orders_rub": round(total_orders_rub, 2)},
         "managers": sorted(managers),
         "statuses": sorted(statuses),
     }

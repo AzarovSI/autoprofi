@@ -156,12 +156,19 @@ class TreeTests(unittest.TestCase):
                 self.assertEqual(cell["delivery_time_hours"], 42)
                 self.assertIsNone(cell["orders_qty"])
 
-    def test_blank_status_rule_does_not_change_other_marketplaces(self):
-        for mp in ("ozon", "ya"):
+    def test_warning_counts_only_active_undistributed_with_order_share(self):
+        # Сообщение — только товары с активностью за выбранный период (все МП);
+        # сумма их заказов и заказы «Итогов» — для доли в сообщении.
+        for mp in ("ozon", "ya", "wb"):
             with self.subTest(mp=mp):
-                daily = row(delivery_time_hours=42)
-                daily.update(status=None, manager=None)
-                self.assertEqual(tree(mp, [daily])["undistributed"]["count"], 1)
+                idle = row(delivery_time_hours=42)
+                idle.update(status=None, manager=None)
+                self.assertEqual(tree(mp, [idle])["undistributed"]["count"], 0)
+                busy = row(orders_qty=3, orders_rub=1500)
+                busy["manager"] = None
+                u = tree(mp, [busy, row(art="SKU-2", orders_qty=1, orders_rub=500)])["undistributed"]
+                self.assertEqual([a["seller_article"] for a in u["articles"]], ["SKU-1"])
+                self.assertEqual((u["count"], u["orders_rub"], u["total_orders_rub"]), (1, 1500, 2000))
 
     def test_today_without_orders_keeps_values_and_dashes(self):
         for mp in ("ozon", "wb"):

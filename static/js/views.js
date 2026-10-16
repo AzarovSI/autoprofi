@@ -1427,7 +1427,7 @@ const Views = (() => {
         <div class="subtabs" id="cat-subtabs" style="margin-bottom:14px;">${subtabs}</div>
         <div class="ctl" style="margin-bottom:14px; gap:14px; flex-wrap:wrap;">
           <input class="input-sm" id="cat-search" placeholder="Поиск по артикулу…" value="${U.esc(catState.search)}">
-          <label class="ctl" style="cursor:pointer;"><input type="checkbox" id="cat-unc" ${catState.only_unc ? 'checked' : ''}> только нераспределённые</label>
+          <label class="ctl" style="cursor:pointer;"><input type="checkbox" id="cat-unc" ${catState.only_unc ? 'checked' : ''}> <span title="Не заполнены группы К1/К2/К3, статус или менеджер">только нераспределённые</span></label>
           <span style="flex:1"></span>
           ${App.can('catalog.add') ? `<button class="btn btn-primary" id="cat-add-btn" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">➕ Добавить товар</button>` : ''}
           ${App.can('catalog.export') ? `<button class="btn" id="cat-export" style="width:auto; min-width:170px; padding:8px 14px; text-align:center;">⬇️ Выгрузить Excel</button>` : ''}
@@ -1657,7 +1657,7 @@ const Views = (() => {
     // Плашка активного фильтра «нераспределённые из РНП» с кнопкой сброса.
     if (undistMode) {
       h += `<div class="cat-undist-bar">
-        Фильтр: нераспределённые из РНП${catState.undistMp ? ' · ' + U.esc(catState.undistMp) : ''} — <b>${items.length}</b>
+        Фильтр: нераспределённые за период отчёта${catState.undistMp ? ' · ' + U.esc(catState.undistMp) : ''} — <b>${items.length}</b>
         <button class="btn-link" id="cat-undist-reset" type="button">Сбросить</button>
       </div>`;
     }
@@ -3332,6 +3332,51 @@ const Views = (() => {
   // Это и есть «хотя бы один день недели попадает в фильтр». Если диапазон
   // не задан — возвращаем все недели. Если у недели нет дат (period_start/end
   // null) — не прячем её (безопасный fallback).
+  // Сообщение «Требуют распределения»: число-ссылка, их сумма и доля от «Итогов».
+  // what — «продажи» (юнит-экономика) или «заказы» (РНП).
+  function undistWarnHtml(count, linkId, sum, total, what) {
+    if (!count) return '';
+    const share = total > 0 ? sum / total * 100 : null;
+    const shareTxt = share === null ? '' : ` (${share > 0 && share < 0.1 ? 'менее 0,1%' : U.fmtPct(share)} от «Итогов»)`;
+    return `<div class="rnp-warn">
+        <div class="rnp-warn-h">⚠️ Требуют распределения в справочнике: <a href="#" id="${linkId}" class="rnp-warn-count">${count}</a></div>
+        <div class="rnp-warn-d">Их ${what} за выбранный период — <b>${U.fmtMoney(sum)}</b>${shareTxt}. У этих товаров не заполнены группы (К1/К2/К3), статус или менеджер, поэтому они не попадают в группы, но учтены в строке «Итоги». Заполните данные в разделе «Товары».</div>
+      </div>`;
+  }
+
+  // Юнит-экономика: нераспределённые с движением в ВИДИМЫХ колонках периода.
+  // Пересчитывается при каждой смене периода (из renderRnpMatrix).
+  function rnpRenderUndist(vWeeks) {
+    const host = document.getElementById('rnp-undist-host');
+    if (!host) return;
+    const data = rnpState.data || {};
+    const keys = vWeeks.map(w => w.key);
+    const arts = [];
+    let sum = 0;
+    ((data.undistributed || {}).articles || []).forEach(a => {
+      const per = a.periods || {};
+      const hit = keys.filter(k => k in per);
+      if (!hit.length) return;
+      arts.push(a.seller_article);
+      hit.forEach(k => { sum += per[k] || 0; });
+    });
+    const rootCells = (data.tree && data.tree.cells) || {};
+    const total = keys.reduce((t, k) => t + ((rootCells[k] || {}).p_revenue || 0), 0);
+    host.innerHTML = undistWarnHtml(arts.length, 'rnp-undist-link', sum, total, 'продажи');
+    const link = host.querySelector('#rnp-undist-link');
+    if (link) link.addEventListener('click', (e) => {
+      e.preventDefault();
+      catState.search = '';
+      catState.only_unc = false;
+      catState.undistArticles = arts;
+      // Справочник открываем на том же маркетплейсе, что и юнит-экономика.
+      catState.mp = rnpMpParam();
+      catState.tree = null;  // дерево фильтров зависит от МП — перезагрузится
+      catState.undistMp = catMpName();
+      App.setView('catalog');
+    });
+  }
+
   function rnpVisibleWeeks(weeks) {
     const from = rnpState.periodFrom, to = rnpState.periodTo;
     if (!from && !to) return weeks;
@@ -3687,7 +3732,6 @@ const Views = (() => {
     const metrics = data.metrics || [];
     // отдельный набор метрик для ТОВАРОВ (листьев дерева)
     rnpState.productMetrics = data.product_metrics || [];
-    const undist = data.undistributed || { count: 0, articles: [] };
 
     if (!weeks.length) {
       const lbl = rnpState.mp === 'cross' ? 'данным'
@@ -3696,16 +3740,6 @@ const Views = (() => {
       root.innerHTML = `<div class="card rnp-card mp-${rnpMpCls()}"><div class="rnp-toolbar"><div class="subtabs" id="rnp-subtabs"></div></div><div class="empty" style="padding:40px;">Нет загруженных недель по ${lbl}.</div></div>`;
       rnpSubtabs(root.querySelector('#rnp-subtabs'));
       return;
-    }
-
-    // служебное сообщение о нераспределённых товарах.
-    // Число кликабельно: ведёт в Справочник с включённым фильтром «только нераспределённые».
-    let undistHtml = '';
-    if (undist.count > 0) {
-      undistHtml = `<div class="rnp-warn">
-        <div class="rnp-warn-h">⚠️ Требуют распределения в справочнике: <a href="#" id="rnp-undist-link" class="rnp-warn-count">${undist.count}</a></div>
-        <div class="rnp-warn-d">Эти товары есть в справочнике, но у них не заполнены группы (К1/К2/К3), статус или менеджер, поэтому не попадают в иерархию (их обороты учтены только в строке «Итоги»). Заполните группы, статус и менеджера в разделе «Справочник».</div>
-      </div>`;
     }
 
     // легенда недель — выровнена ровно над колонками РНП в строках узлов.
@@ -3743,7 +3777,7 @@ const Views = (() => {
     // панели фильтров внутри карточки (см. ниже после buildRnpFilters).
 
     root.innerHTML = `
-      ${undistHtml}
+      <div id="rnp-undist-host"></div>
       <div class="card rnp-card mp-${rnpMpCls()}">
         <div class="rnp-toolbar">
           <div class="subtabs" id="rnp-subtabs"></div>
@@ -3765,25 +3799,6 @@ const Views = (() => {
         </div>
         <div class="rnp-hscroll-bar" data-rnp-scroll><div class="rnp-hscroll-phantom"></div></div>
       </div>`;
-
-    // Клик по числу нераспределённых → Справочник, отфильтрованный РОВНО по тем
-    // артикулам, что РНП пометил нераспределёнными для текущего маркетплейса.
-    // Так число строк в справочнике совпадает со счётчиком в РНП.
-    const undistLink = root.querySelector('#rnp-undist-link');
-    if (undistLink) {
-      undistLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        const arts = (undist.articles || []).map(a => a.seller_article).filter(Boolean);
-        catState.search = '';
-        catState.only_unc = false;
-        catState.undistArticles = arts;
-        // Справочник открываем на том же маркетплейсе, что и РНП.
-        catState.mp = rnpMpParam();
-        catState.tree = null;  // дерево фильтров зависит от МП — перезагрузится
-        catState.undistMp = catMpName();
-        App.setView('catalog');
-      });
-    }
 
     // Вкладки маркетплейсов (WB → OZON) и фильтры строим ВНУТРИ тулбара карточки.
     const subtabsHost = root.querySelector('#rnp-subtabs');
@@ -4325,6 +4340,7 @@ const Views = (() => {
     // диапазоном. Рендерим по этому набору И перестраиваем легенду (шапку) недель,
     // чтобы шапка и строки показывали одни и те же колонки.
     const vWeeks = rnpVisibleWeeks(weeks);
+    rnpRenderUndist(vWeeks);
     const legHost = document.querySelector('.rnp-card .rnp-wk-legend');
     if (legHost) legHost.innerHTML = vWeeks.map(w => `<span class="rnp-wk-leg">${weekColHead(w)}</span>`).join('');
     if (!vWeeks.length) {
@@ -7237,14 +7253,9 @@ const Views = (() => {
     const data = rnpSalesState.data || {};
     const undist = data.undistributed || { count: 0, articles: [] };
 
-    // Плашка нераспределённых.
-    let undistHtml = '';
-    if (undist.count > 0) {
-      undistHtml = `<div class="rnp-warn">
-        <div class="rnp-warn-h">⚠️ Требуют распределения в справочнике: <a href="#" id="rnps-undist-link" class="rnp-warn-count">${undist.count}</a></div>
-        <div class="rnp-warn-d">Эти товары есть в справочнике, но у них не заполнены группы (К1/К2/К3), статус или менеджер, поэтому не попадают в иерархию (их обороты учтены только в строке «Итоги»). Заполните данные в разделе «Справочник».</div>
-      </div>`;
-    }
+    // Плашка нераспределённых: только товары с активностью за выбранный период.
+    const undistHtml = undistWarnHtml(undist.count, 'rnps-undist-link',
+      undist.orders_rub || 0, undist.total_orders_rub || 0, 'заказы');
 
     // Опции фильтров.
     const mgrOpts = ['<option value="">Все менеджеры</option>']
@@ -7300,6 +7311,7 @@ const Views = (() => {
         catState.undistArticles = arts;
         catState.mp = isWb ? 'wb' : isYa ? 'yandex' : 'ozon';
         catState.tree = null;
+        catState.undistMp = catMpName();
         App.setView('catalog');
       });
     }

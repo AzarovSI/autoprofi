@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Body, UploadFile, File, HTTPException, Q
 from fastapi.responses import StreamingResponse
 
 from .. import db, auth, cache
-from ..util import canon_article
+from ..util import canon_article, UNDISTRIBUTED_SQL
 
 # Кэш дерева РНП-продаж зависит от справочника (категории/статус/менеджер в JOIN).
 # При любой правке справочника бампаем его версию (должно совпадать с CACHE_NS роутера).
@@ -88,10 +88,8 @@ def _items_where(mp, search=None, only_uncategorized=False, articles=None):
             where.append("cm.seller_article ILIKE %s")
             params.append(f"%{search.strip()}%")
         if only_uncategorized:
-            # «нераспределённые» = нет полной цепочки категорий ЛИБО нет статуса по этому МП
-            where.append(
-                "(ci.category_l1 IS NULL OR ci.category_l2 IS NULL OR ci.category_l3 IS NULL OR cm.status IS NULL)"
-            )
+            # «нераспределённые» — то же правило, что в РНП и юнит-экономике
+            where.append(UNDISTRIBUTED_SQL)
     return where, params
 
 
