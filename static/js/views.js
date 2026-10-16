@@ -3377,6 +3377,12 @@ const Views = (() => {
     });
   }
 
+  // Отчёт по менеджеру: строки общих удержаний — его доля (пропорционально продажам).
+  function rnpNoartLabel(key, label) {
+    const isNoart = key === 'noart_exp_rub' || key === 'noart_pay_pct';
+    return (isNoart && rnpState.data && rnpState.data.manager) ? label + ' — доля менеджера' : label;
+  }
+
   function rnpVisibleWeeks(weeks) {
     const from = rnpState.periodFrom, to = rnpState.periodTo;
     if (!from && !to) return weeks;
@@ -3717,9 +3723,12 @@ const Views = (() => {
     // по режиму) наборе верхних метрик — сбрасываем на 'rnp'. Покрывает и cross,
     // и переключение WB→Ozon (когда выбрана была недоступная там «Штрафы, руб.»).
     if (!rnpTopMetrics().some(m => m.key === rnpState.topMetric)) rnpState.topMetric = 'rnp';
-    const data = isCross
-      ? await API.rnpTreeCross()
-      : await API.rnpTree(rnpIsMonth() ? { marketplace: rnpMpParam(), period: 'month' } : { marketplace: rnpMpParam() });
+    // Менеджер уходит на сервер: группы и «Итоги» считаются из его товаров,
+    // общие удержания — его доля (Сводная фильтрует только список).
+    const treeParams = { marketplace: rnpMpParam() };
+    if (rnpIsMonth()) treeParams.period = 'month';
+    if (rnpState.mgrFilter) treeParams.manager = rnpState.mgrFilter;
+    const data = isCross ? await API.rnpTreeCross() : await API.rnpTree(treeParams);
     rnpState.data = data;
 
     // Узел «Итоги» (корень) раскрыт по умолчанию при первой загрузке,
@@ -3974,7 +3983,8 @@ const Views = (() => {
     });
     mgrFilterEl.addEventListener('change', () => {
       rnpState.mgrFilter = mgrFilterEl.value;
-      applyFilters();
+      if (rnpState.mp === 'cross') applyFilters();
+      else App.renderView();  // пересчёт на сервере по товарам менеджера
     });
     statusFilterEl.addEventListener('change', () => {
       rnpState.statusFilter = statusFilterEl.value;
@@ -4948,7 +4958,7 @@ const Views = (() => {
       const nameStyle = nameSt ? ` style="${nameSt}"` : '';
       const nameInner = isHead
         ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
-        : U.esc(r.label);
+        : U.esc(rnpNoartLabel(r.key, r.label));
       const cls = (isChild ? ' rnp-t-child-name' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
       // вложенные строки приглушены; исключения — «на единицу» и «удержания площадки»
       // (решения владельца 15.10: там обычный шрифт, как было)
@@ -5024,7 +5034,7 @@ const Views = (() => {
       if (m.color) nameSt += `color:#${m.color};`;
       if (m.bold)  nameSt += 'font-weight:700;';
       const nameStyle = nameSt ? ` style="${nameSt}"` : '';
-      let row = `<tr class="${(strong + sepCls).trim()}"><td class="rnp-m-name${strong}"${nameStyle}>${U.esc(m.label)}</td>`;
+      let row = `<tr class="${(strong + sepCls).trim()}"><td class="rnp-m-name${strong}"${nameStyle}>${U.esc(rnpNoartLabel(m.key, m.label))}</td>`;
       weeks.forEach((w, i) => {
         const cell = node.cells[w.key] || {};
         const prevCell = i > 0 ? (node.cells[weeks[i - 1].key] || {}) : null;
@@ -6669,12 +6679,14 @@ const Views = (() => {
     rnpSalesState.loading = true;
     rnpSalesState.error = '';
     try {
-      // Даты меняют набор данных/месяцев — идут на бэкенд. Статус/менеджер/поиск
-      // фильтруем на клиенте, чтобы списки фильтров оставались полными.
+      // Даты и менеджер идут на бэкенд (менеджер пересчитывает группы и «Итоги»;
+      // списки фильтров сервер собирает до фильтра). Статус/поиск — на клиенте.
       // Маркетплейс берём из state (ozon | wb) — бэкенд выбирает источник данных.
       const p = { marketplace: myMp };
       if (rnpSalesState.from) p.date_from = rnpSalesState.from;
       if (rnpSalesState.to) p.date_to = rnpSalesState.to;
+      // Менеджер — на сервер: группы и «Итоги» только из его товаров.
+      if (rnpSalesState.mgrFilter) p.manager = rnpSalesState.mgrFilter;
       // Server checks persisted Pi revision, including another manager's imports.
       // Do not let the tab's indefinite promise cache bypass that check.
       if (myMp !== 'yandex' && API.cacheClear) API.cacheClear('/api/rnp_sales/tree');
@@ -7325,8 +7337,6 @@ const Views = (() => {
         t = setTimeout(() => { rnpSalesState.searchArt = searchEl.value.trim(); rnpsRenderMatrix(); }, 250);
       });
     }
-    const mgrEl = root.querySelector('#rnps-mgr');
-    if (mgrEl) mgrEl.addEventListener('change', () => { rnpSalesState.mgrFilter = mgrEl.value; rnpsRenderMatrix(); });
     const statusEl = root.querySelector('#rnps-status');
     if (statusEl) statusEl.addEventListener('change', () => { rnpSalesState.statusFilter = statusEl.value; rnpsRenderMatrix(); });
     const reload = async () => {
@@ -7336,6 +7346,9 @@ const Views = (() => {
       const _fresh = await rnpsLoad();
       if (_fresh) App.renderView();
     };
+    const mgrEl = root.querySelector('#rnps-mgr');
+    // менеджер — на сервер: rnpSales() сам перезапросит дерево с ним
+    if (mgrEl) mgrEl.addEventListener('change', () => { rnpSalesState.mgrFilter = mgrEl.value; App.renderView(); });
     // Единый компонент выбора периода (справа): даты уходят на бэкенд → reload.
     bindRnpsPeriod(root.querySelector('.rnp-filters-host'), reload);
     alignRnpToolbarPeriod(root, 'rnps-subtabs', 'rnps-period');

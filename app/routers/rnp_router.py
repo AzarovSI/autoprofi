@@ -156,9 +156,13 @@ def _compute_cell(agg, mp="Ozon"):
     # fallback на старую формулу: заказы (шт.) × средняя цена продажи, где
     # средняя цена = выручка / продано (шт.) — на группах это взвешенная по
     # выручке средняя (Σrevenue / Σsales_qty). При нулевых продажах = None.
+    # У групп и «Итогов» дерева — orders_rub_sum: сумма тех же значений по товарам
+    # (иначе оценка «шт × средняя цена» группы не равна сумме товаров; Ozon).
     _avg_price = _div(rev, qty)
     _orders_rub_db = agg.get("orders_rub")
-    if _orders_rub_db is not None and _f(_orders_rub_db) > 0:
+    if agg.get("orders_rub_sum") is not None:
+        orders_rub = agg["orders_rub_sum"]
+    elif _orders_rub_db is not None and _f(_orders_rub_db) > 0:
         orders_rub = _f(_orders_rub_db)
     else:
         orders_rub = (orders * _avg_price) if _avg_price is not None else None
@@ -377,6 +381,7 @@ def _empty_agg():
     a["noart_pay"] = None
     a["noart_pay_plain"] = None
     a["noart_profit"] = None
+    a["orders_rub_sum"] = None
     return a
 
 
@@ -590,15 +595,19 @@ def rnp_metrics(user=Depends(auth.require("unit.open"))):
 
 @router.get("/tree")
 def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
-             user=Depends(auth.require_tab("unit"))):
+             manager: str = Query(None), user=Depends(auth.require_tab("unit"))):
     """Иерархическое дерево юнит-экономики со всеми неделями-колонками.
 
     period=month — те же расчёты по месячным отчётам (fact_monthly; пока только
     тестовые вкладки «WB тест» / «Ozon тест»). Колонки отдаются в том же списке
     weeks (ключ «год-месяц», поле week = номер месяца) + month и partial_through
     (неполный месяц: «Факт по дату» из журнала загрузок).
+
+    manager — отчёт только по товарам менеджера: группы и «Итоги» из его сумм,
+    общие удержания — его доля пропорционально продажам (решение владельца 16.10).
     """
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
+    mgr_sel = (manager or "").strip() or None
     monthly = (period == "month")
     tbl, pc = ("fact_monthly", "month") if monthly else ("fact_weekly", "week")
 
@@ -693,7 +702,9 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
     # Недельный план продаж по этому МП (та же раскладка, что в Сводной, но с
     # фильтром sales_plan.marketplace = текущий МП). Ключи plan_map совпадают с
     # ключами узлов дерева (__root__, l1, l1|l2, l1|l2|l3, l1|l2|l3|art).
-    plan_map = _plan_by_node_week(weeks, mp)
+    plan_map = _plan_by_node_week(weeks, mp, arts=(
+        {cr["seller_article"] for cr in cat_only_rows if (cr.get("manager") or "").strip() == mgr_sel}
+        if mgr_sel else None))
 
     # 2-) Синтетические строки-заглушки для вручную заведённых
     # артикулов, которых ещё НЕТ в fact_weekly. Добавляем по одной
@@ -743,12 +754,17 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
             "_agg": {wk: _empty_agg() for wk in week_keys},
             "children": {}, "leaf_info": None,
             "_abc": {},   # только для листьев: ABC-класс по выручке по неделям {wk: 'A'/'B'/'C'}
+            "_arts": set(),  # артикулы узла — для «Заказы, руб» как суммы по товарам
         }
 
     root = new_node("__root__", "Итоги", 0)
     # Нераспределённые с движением: seller_article -> {item_name, periods: {wk: продажи}}.
     # Счётчик и сумму за выбранный период считает страница по видимым колонкам.
     undistributed = {}
+    # Продажи по менеджерам в каждой колонке — база доли общих удержаний.
+    mgr_rev = {wk: {} for wk in week_keys}
+    managers, statuses = set(), set()     # списки фильтров — по всему МП
+    art_ord = {}  # (art, wk) -> [заказы шт, продажи руб, продажи шт, заказы руб]
 
     # Предпроход: артикулы, у которых ЕСТЬ движение хотя бы в одной неделе
     # загруженного периода. «Движение» = любое ненулевое из revenue / sales_qty /
@@ -782,6 +798,15 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         # Единое правило (app/util.is_undistributed): нет группы К1/К2/К3,
         # статуса или менеджера. В сообщение попадают только периоды с движением.
         is_undist = is_undistributed(l1, l2, l3, st, mgr)
+        m_norm = (mgr or "").strip()
+        if not is_undist:
+            managers.add(mgr)
+            statuses.add(st)
+        if m_norm:
+            mgr_rev[wk][m_norm] = mgr_rev[wk].get(m_norm, 0.0) + _f(r.get("revenue"))
+        # Режим менеджера: дерево, «Итоги» и сообщение — только из его товаров.
+        if mgr_sel and m_norm != mgr_sel:
+            continue
         if is_undist and art and _row_moved(r):
             u = undistributed.setdefault(art, {"item_name": r.get("item_name"), "periods": {}})
             u["periods"][wk] = round(u["periods"].get(wk, 0.0) + _f(r.get("revenue")), 2)
@@ -789,6 +814,10 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         # Строка «Итоги» (root) включает ВСЕ товары — и распределённые,
         # и нераспределённые (обороты нераспределённых учитываются в итоге).
         _add_row(root["_agg"][wk], r)
+        root["_arts"].add(art)
+        o = art_ord.setdefault((art, wk), [0.0, 0.0, 0.0, 0.0])
+        o[0] += _f(r.get("orders_qty")); o[1] += _f(r.get("revenue"))
+        o[2] += _f(r.get("sales_qty")); o[3] += _f(r.get("orders_rub"))
 
         # В дерево групп нераспределённые товары НЕ попадают.
         if is_undist:
@@ -800,18 +829,21 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         if not n1:
             n1 = new_node(k1, l1, 1); root["children"][k1] = n1
         _add_row(n1["_agg"][wk], r)
+        n1["_arts"].add(art)
         # L2
         k2 = f"{l1}|{l2}"
         n2 = n1["children"].get(k2)
         if not n2:
             n2 = new_node(k2, l2, 2); n1["children"][k2] = n2
         _add_row(n2["_agg"][wk], r)
+        n2["_arts"].add(art)
         # L3
         k3 = f"{l1}|{l2}|{l3}"
         n3 = n2["children"].get(k3)
         if not n3:
             n3 = new_node(k3, l3, 3); n2["children"][k3] = n3
         _add_row(n3["_agg"][wk], r)
+        n3["_arts"].add(art)
         # Item
         k4 = f"{l1}|{l2}|{l3}|{art}"
         n4 = n3["children"].get(k4)
@@ -873,22 +905,39 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
             "children": children,
         }
 
+    # Доля менеджера в общих удержаниях колонки = его продажи / продажи всех
+    # менеджеров (отрицательные продажи — 0). Сумма долей всех менеджеров = 1, поэтому
+    # отчёты менеджеров в сумме дают магазин (кроме товаров без менеджера). Нет продаж
+    # ни у кого — поровну. Общий отчёт — доля 1.
+    all_mgrs = {m for per in mgr_rev.values() for m in per}
+    noart_share = {}
+    for wk in week_keys:
+        if not mgr_sel:
+            noart_share[wk] = 1.0
+            continue
+        pos = {m: max(v, 0.0) for m, v in mgr_rev[wk].items()}
+        tot = sum(pos.values())
+        noart_share[wk] = (pos.get(mgr_sel, 0.0) / tot if tot > 0
+                           else (1.0 / len(all_mgrs) if mgr_sel in all_mgrs else 0.0))
+
     # Расходы без разбивки по артикулам (строки row_type='Общие удержания')
     # отображаются ТОЛЬКО на уровне Итоги. Доля = удержания / выручка товаров.
     # noart_rows получены выше параллельно; применяем к корневому агрегату.
     for nr in noart_rows:
         wk = f"{nr['year']}-{nr['week']}"
-        if wk in root["_agg"] and nr.get("holds") is not None:
-            root["_agg"][wk]["noart_exp"] = _f(nr["holds"])
+        if wk not in root["_agg"]:
+            continue
+        sh = noart_share[wk]
+        if nr.get("holds") is not None:
+            root["_agg"][wk]["noart_exp"] = _f(nr["holds"]) * sh
         # К оплате на р/с «Итогов» = Σ товаров + выплата строки общих удержаний.
-        if wk in root["_agg"]:
-            root["_agg"][wk]["payout"] += _f(nr.get("pay"))
-            root["_agg"][wk]["wb_payout_with_ads"] += _f(nr.get("wpay"))
-            # тестовые вкладки: удержания без разбивки = −выплата общей строки (WB — «с рекл.»:
-            # удержанная WB реклама уже разнесена по товарам в продвижении)
-            root["_agg"][wk]["noart_pay"] = -_f(nr.get("wpay") if mp == "Wildberries" else nr.get("pay"))
-            root["_agg"][wk]["noart_pay_plain"] = -_f(nr.get("pay"))   # WB без рекламы по товарам
-            root["_agg"][wk]["noart_profit"] = _f(nr.get("prof"))
+        root["_agg"][wk]["payout"] += _f(nr.get("pay")) * sh
+        root["_agg"][wk]["wb_payout_with_ads"] += _f(nr.get("wpay")) * sh
+        # тестовые вкладки: удержания без разбивки = −выплата общей строки (WB — «с рекл.»:
+        # удержанная WB реклама уже разнесена по товарам в продвижении)
+        root["_agg"][wk]["noart_pay"] = -_f(nr.get("wpay") if mp == "Wildberries" else nr.get("pay")) * sh
+        root["_agg"][wk]["noart_pay_plain"] = -_f(nr.get("pay")) * sh   # WB без рекламы по товарам
+        root["_agg"][wk]["noart_profit"] = _f(nr.get("prof")) * sh
 
     # Для Wildberries прибыль узла берётся из готовой колонки wb_profit_with_ads
     # (см. _compute_cell). Строка «Общие удержания» имеет СВОЁ значение
@@ -910,26 +959,35 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         for nr in noart_wpa:
             wk = f"{nr['year']}-{nr['week']}"
             if wk in root["_agg"] and nr.get("wpa") is not None:
-                root["_agg"][wk]["wb_profit_with_ads"] += _f(nr["wpa"])
+                root["_agg"][wk]["wb_profit_with_ads"] += _f(nr["wpa"]) * noart_share[wk]
+
+    # «Заказы, руб» групп и «Итогов» = сумма значений их товаров (как у товара:
+    # из отчёта, если > 0, иначе шт × средняя цена товара; Ozon сумм не грузит).
+    art_val = {}
+    for (a, wk), (oq, rv, sq, orub) in art_ord.items():
+        if orub > 0:
+            art_val[(a, wk)] = orub
+        elif sq:
+            art_val[(a, wk)] = oq * rv / sq
+
+    def set_orders_sum(node):
+        if node["level"] == 4:
+            return
+        for wk in week_keys:
+            vals = [art_val[(a, wk)] for a in node["_arts"] if (a, wk) in art_val]
+            node["_agg"][wk]["orders_rub_sum"] = sum(vals) if vals else None
+        for c in node["children"].values():
+            set_orders_sum(c)
+    set_orders_sum(root)
 
     tree = finalize(root)
 
     undist_list = [{"seller_article": a, **u} for a, u in undistributed.items()]
 
-    # Справочники для фильтров (менеджеры/статусы) — уникальные значения
-    # из справочника товаров, отсортированные (как в прод-API).
-    managers = set()
-    statuses = set()
-    def collect(n):
-        li = n.get("leaf_info")
-        if li:
-            if li.get("manager"):
-                managers.add(li["manager"])
-            if li.get("status"):
-                statuses.add(li["status"])
-        for c in n.get("children", []):
-            collect(c)
-    collect(tree)
+    # Справочники для фильтров (менеджеры/статусы) — по распределённым товарам
+    # всего МП (собраны в цикле до фильтра по менеджеру), отсортированные.
+    managers.discard(None); managers.discard("")
+    statuses.discard(None); statuses.discard("")
 
     # Готовые байты (fastjson): ~7 МБ через jsonable_encoder FastAPI заметно медленнее.
     return fastjson.json_response({
@@ -944,6 +1002,9 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         "undistributed": {"count": len(undist_list), "articles": undist_list},
         "managers": sorted(managers),
         "statuses": sorted(statuses),
+        "manager": mgr_sel,
+        # доля менеджера в общих удержаниях по колонкам (только в режиме менеджера)
+        "noart_share": ({wk: round(v, 6) for wk, v in noart_share.items()} if mgr_sel else None),
     })
 
 
@@ -1142,7 +1203,7 @@ def _collect_mp_raw(mp):
     return node_map, weeks
 
 
-def _plan_by_node_week(weeks, marketplace=None):
+def _plan_by_node_week(weeks, marketplace=None, arts=None):
     """Подневная раскладка месячного плана продаж по узлам/неделям.
 
     Возвращает plan_map[node_key][wk] = план_шт (float). Узлы дерева строятся
@@ -1152,6 +1213,7 @@ def _plan_by_node_week(weeks, marketplace=None):
 
     marketplace=None → суммарный план по обоим МП (как в Сводной).
     marketplace='Ozon'/'Wildberries' → план только по этому МП (Ozon/WB РНП).
+    arts — только эти артикулы (юнит-экономика по менеджеру).
     """
     import calendar, datetime
 
@@ -1218,6 +1280,8 @@ def _plan_by_node_week(weeks, marketplace=None):
             d[wk] = d.get(wk, 0.0) + val
 
     for art, per in daily.items():
+        if arts is not None and art not in arts:
+            continue
         ci = cat.get(art) or {}
         l1, l2, l3 = ci.get("category_l1"), ci.get("category_l2"), ci.get("category_l3")
         # Только полностью распределённые артикулы попадают в дерево групп

@@ -45,7 +45,7 @@ def ue_tree(rows):
             return [dict(r) for r in rows]
         return []
     with patch.object(db, "query_all", side_effect=query), patch.object(db, "query_one", return_value=None):
-        return json.loads(ue.rnp_tree(marketplace="wb", period="week", user=ADMIN).body)
+        return json.loads(ue.rnp_tree(marketplace="wb", period="week", manager=None, user=ADMIN).body)
 
 
 class UnitEconomyTests(unittest.TestCase):
