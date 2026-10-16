@@ -3119,7 +3119,7 @@ const Views = (() => {
   // topMetric — ключ показателя «верхнего уровня» в строке-заголовке узла
   //             (дефолт 'rnp' = Маржинальность %; выбирается селектором,
   //              хранится только на время сессии, как остальные фильтры).
-  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, payoutOpen: false, tOpen: {}, uiSnap: {} };
+  const rnpState = { mp: 'ozon', expanded: {}, metricsOpen: {}, data: null, searchArt: '', mgrFilter: '', statusFilter: '', managers: [], statuses: [], weeks: [], metrics: [], marginNegOn: true, marginTarget: '', periodFrom: '', periodTo: '', topMetric: 'rnp', filterExpandSig: '', holdsOpen: false, promoOpen: false, payoutOpen: false, tOpen: {}, period: 'week', pranges: {}, uiSnap: {} };
 
   // ── Память состояния дерева РНП по маркетплейсам (на время открытой вкладки).
   // Проблема: при переключении подтаба МП (Ozon/WB/Сводная) раскрытие групп,
@@ -3243,7 +3243,18 @@ const Views = (() => {
   }
 
   // helper: трёхстрочный заголовок недели (как в эталоне): дата начала / дата конца / номер крупно
+  const RNP_MONTHS_SHORT = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
   function weekColHead(w) {
+    // Месячный вид («WB/Ozon тест»): год / «по ДД.ММ» у неполного месяца / месяц
+    if (w.month) {
+      const pt = w.partial_through;
+      const d2 = pt ? `по ${pt.slice(8, 10)}.${pt.slice(5, 7)}` : '&nbsp;';
+      return `<span class="rnp-wkh">`
+        + `<span class="rnp-wkh-d1">${U.esc(String(w.year))}</span>`
+        + `<span class="rnp-wkh-d2${pt ? ' rnp-wkh-partial' : ''}"${pt ? ' title="Неполный месяц: факт по этой дате"' : ''}>${d2}</span>`
+        + `<span class="rnp-wkh-n">${RNP_MONTHS_SHORT[w.month - 1]}</span>`
+        + `</span>`;
+    }
     const dt = weekDates(w.period_text);
     return `<span class="rnp-wkh">`
       + `<span class="rnp-wkh-d1">${U.esc(dt.start)}</span>`
@@ -3479,6 +3490,8 @@ const Views = (() => {
   // тернарники (иначе Яндекс «утекал» бы в ozon).
   // Тестовые вкладки: «WB тест» = данные WB, «Ozon тест» = данные Ozon.
   function rnpIsTest() { return rnpState.mp === 'oz_test' || rnpState.mp === 'wb_test'; }
+  // Месячный вид юнит-экономики — пока только в тестовых вкладках (переключатель «Недели / Месяцы»).
+  function rnpIsMonth() { return rnpIsTest() && rnpState.period === 'month'; }
   function rnpMpParam() {
     return (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
@@ -3656,7 +3669,7 @@ const Views = (() => {
     if (!rnpTopMetrics().some(m => m.key === rnpState.topMetric)) rnpState.topMetric = 'rnp';
     const data = isCross
       ? await API.rnpTreeCross()
-      : await API.rnpTree({ marketplace: rnpMpParam() });
+      : await API.rnpTree(rnpIsMonth() ? { marketplace: rnpMpParam(), period: 'month' } : { marketplace: rnpMpParam() });
     rnpState.data = data;
 
     // Узел «Итоги» (корень) раскрыт по умолчанию при первой загрузке,
@@ -3705,8 +3718,19 @@ const Views = (() => {
     // По умолчанию при первой загрузке — текущий месяц (относительно базовой
     // даты = последняя загруженная неделя). Выставляем только если период
     // ещё не выбран пользователем (чтобы не сбрасывать его выбор при переключении МП).
+    // Период у недель и месяцев свой: при смене вида запоминаем текущий и
+    // восстанавливаем период нового вида (у месяцев по умолчанию — текущий год).
+    const pmode = rnpIsMonth() ? 'month' : 'week';
+    if (rnpState._pmode && rnpState._pmode !== pmode) {
+      rnpState.pranges[rnpState._pmode] = { from: rnpState.periodFrom, to: rnpState.periodTo };
+      const saved = rnpState.pranges[pmode];
+      const r = saved || presetRange(pmode === 'month' ? 'year' : 'month');
+      rnpState.periodFrom = r.from;
+      rnpState.periodTo = r.to;
+    }
+    rnpState._pmode = pmode;
     if (!rnpState.periodFrom && !rnpState.periodTo && weeks.length) {
-      const r = presetRange('month');
+      const r = presetRange(pmode === 'month' ? 'year' : 'month');
       rnpState.periodFrom = r.from;
       rnpState.periodTo = r.to;
     }
@@ -3721,7 +3745,7 @@ const Views = (() => {
           <div class="rnp-filters-host" id="rnp-filters-host"></div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">Юнит-экономика по неделям</div>
+          <div class="rnp-card-title">Юнит-экономика по ${rnpIsMonth() ? 'месяцам' : 'неделям'}</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             ${rnpState.mp === 'cross'
@@ -3878,7 +3902,13 @@ const Views = (() => {
     const wrap = document.createElement('div');
     wrap.className = 'rnp-filters';
     const negChecked = rnpState.marginNegOn ? ' checked' : '';
+    const pkindHtml = rnpIsTest()
+      ? `<div class="seg rnp-pkind" title="Юнит-экономика по неделям или по месяцам">`
+        + `<button class="seg-btn${rnpIsMonth() ? '' : ' active'}" data-pk="week">Недели</button>`
+        + `<button class="seg-btn${rnpIsMonth() ? ' active' : ''}" data-pk="month">Месяцы</button></div>`
+      : '';
     wrap.innerHTML = `
+      ${pkindHtml}
       <input class="input-sm" id="rnp-search-art" placeholder="Поиск по артикулу…" value="${U.esc(rnpState.searchArt || '')}">
       <select id="rnp-mgr-filter">${mgrOptions}</select>
       <select id="rnp-status-filter">${statusOptions}</select>
@@ -3944,6 +3974,16 @@ const Views = (() => {
     // поле «целевая» (оранжевый). Оба сохраняют состояние в rnpState
     // и перерисовывают матрицу (общие для обоих маркетплейсов).
     const marginNegEl = wrap.querySelector('#rnp-margin-neg');
+    // «Недели / Месяцы» (тестовые вкладки): перезагрузка дерева в выбранном виде
+    wrap.querySelectorAll('.rnp-pkind .seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pk = btn.getAttribute('data-pk');
+        if (pk === rnpState.period) return;
+        rnpState.period = pk;
+        rnpState.data = null; rnpState.filterExpandSig = '';
+        App.renderView();
+      });
+    });
     const marginTargetEl = wrap.querySelector('#rnp-margin-target');
     marginNegEl.addEventListener('change', () => {
       rnpState.marginNegOn = marginNegEl.checked;

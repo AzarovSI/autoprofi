@@ -173,7 +173,14 @@ def _compute_cell(agg, mp="Ozon"):
         #   товар SH-040W = 17,8%, итого нед.24 = 23,29% (как в строке «Итого» файла).
         # noart_exp и wb_ads_total ДЛЯ WB НЕ вычитаются — иначе реклама
         # учлась бы дважды (она уже внутри wb_profit_with_ads).
-        profit = _f(agg.get("wb_profit_with_ads"))
+        if _f(agg.get("wb_ads_total")):
+            profit = _f(agg.get("wb_profit_with_ads"))
+        else:
+            # Нет рекламы по товарам (месяцы 06.2024–01.2025, 03–06.2025: MPPROFIT её не
+            # разнёс) — «(с рекл.)» не вычитает рекламу вовсе, берём обычную прибыль; у корня
+            # плюс прибыль строки общих удержаний (там удержанная WB реклама). Как в ABC
+            # (abc_router.WB_NO_ADS_MONTHS). У товара без рекламы обе прибыли совпадают.
+            profit = _f(agg.get("profit")) + _f(agg.get("noart_profit"))
     else:
         # === Ozon ===
         # Общие удержания маркетплейса (строки row_type='Общие удержания') —
@@ -183,7 +190,12 @@ def _compute_cell(agg, mp="Ozon"):
         # в profit (promo_total отрицательный), поэтому дополнительно
         # рекламу не вычитаем — только общие удержания у «Итого».
         noart_exp_val = agg.get("noart_exp")
-        if noart_exp_val is not None:
+        if agg.get("noart_profit") is not None:
+            # Прибыль строки общих удержаний (= −удержания, если в строке нет выручки).
+            # Месячный Ozon 12.2024: в строке есть выручка 222 008 ₽ (только в ИТОГО) —
+            # вычитание удержаний её теряло. Недели не меняются (там прибыль = −удержания).
+            profit = profit + _f(agg.get("noart_profit"))
+        elif noart_exp_val is not None:
             profit = profit - _f(noart_exp_val)
 
     cogs        = _f(agg.get("cogs"))
@@ -280,7 +292,8 @@ def _compute_cell(agg, mp="Ozon"):
     # Продажи − удержания − продвижение = К оплате на р/с (WB «с рекл.», Ozon — выплата).
     mp_holds = _f(agg.get("holds_total")) + (0.0 if mp == "Wildberries" else promo)
     ads_paid = _f(agg.get("wb_ads_balance")) if mp == "Wildberries" else -promo
-    noart_pay = agg.get("noart_pay")  # только корень: −выплата строки общих удержаний
+    # только корень: −выплата строки общих удержаний (WB без рекламы по товарам — обычная выплата)
+    noart_pay = agg.get("noart_pay") if (mp != "Wildberries" or wb_ads) else agg.get("noart_pay_plain")
     cell.update({
         "p_mp_holds_pct":       _div(mp_holds, rev),
         "p_acceptance_pct":     _div(_f(agg.get("wb_acceptance")), rev),
@@ -355,6 +368,8 @@ def _empty_agg():
     a["spp_w"] = 0.0
     a["noart_exp"] = None
     a["noart_pay"] = None
+    a["noart_pay_plain"] = None
+    a["noart_profit"] = None
     return a
 
 
@@ -567,26 +582,35 @@ def rnp_metrics(user=Depends(auth.require("unit.open"))):
 
 
 @router.get("/tree")
-def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("unit"))):
-    """Иерархическое дерево юнит-экономики со всеми неделями-колонками."""
+def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
+             user=Depends(auth.require_tab("unit"))):
+    """Иерархическое дерево юнит-экономики со всеми неделями-колонками.
+
+    period=month — те же расчёты по месячным отчётам (fact_monthly; пока только
+    тестовые вкладки «WB тест» / «Ozon тест»). Колонки отдаются в том же списке
+    weeks (ключ «год-месяц», поле week = номер месяца) + month и partial_through
+    (неполный месяц: «Факт по дату» из журнала загрузок).
+    """
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
+    monthly = (period == "month")
+    tbl, pc = ("fact_monthly", "month") if monthly else ("fact_weekly", "week")
 
     # 3 независимых запроса — последовательно на тёплом пуле: недели (колонки),
     # товарные строки и общие удержания. noart_wpa (только для WB) — ниже, как есть.
     wk_rows = db.query_all(
-        """
-        SELECT DISTINCT year, week, period_text,
+        f"""
+        SELECT DISTINCT year, {pc} AS week, period_text,
                MIN(period_start) AS period_start, MIN(period_end) AS period_end
-        FROM fact_weekly
+        FROM {tbl}
         WHERE marketplace = %s
-        GROUP BY year, week, period_text
-        ORDER BY year, week
+        GROUP BY year, {pc}, period_text
+        ORDER BY year, {pc}
         """,
         (mp,),
     )
     rows = db.query_all(
-        """
-        SELECT f.year, f.week, f.seller_article, f.sku_ozon, f.item_name,
+        f"""
+        SELECT f.year, f.{pc} AS week, f.seller_article, f.sku_ozon, f.item_name,
                ci.category_l1, ci.category_l2, ci.category_l3,
                cm.status, cm.manager,
                f.orders_qty, f.orders_rub, f.returns_qty, f.holds_total,
@@ -597,7 +621,7 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
                f.oz_pay_per_click, f.oz_pay_per_order, f.oz_special_placement, f.wb_ads_total,
                f.wb_profit_with_ads, f.payout, f.wb_payout_with_ads,
                f.wb_ads_balance, f.wb_acceptance
-        FROM fact_weekly f
+        FROM {tbl} f
         LEFT JOIN catalog_items ci ON ci.seller_article = f.seller_article
         LEFT JOIN catalog_marketplace cm
                ON cm.seller_article = f.seller_article AND cm.marketplace = f.marketplace
@@ -607,12 +631,12 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
         (mp,),
     )
     noart_rows = db.query_all(
-        """
-        SELECT year, week, SUM(holds_total) AS holds,
-               SUM(payout) AS pay, SUM(wb_payout_with_ads) AS wpay
-        FROM fact_weekly
+        f"""
+        SELECT year, {pc} AS week, SUM(holds_total) AS holds,
+               SUM(payout) AS pay, SUM(wb_payout_with_ads) AS wpay, SUM(profit) AS prof
+        FROM {tbl}
         WHERE marketplace = %s AND row_type = 'Общие удержания'
-        GROUP BY year, week
+        GROUP BY year, {pc}
         """,
         (mp,),
     )
@@ -639,13 +663,25 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
     for r in wk_rows:
         wkey = f"{r['year']}-{r['week']}"
         weeks.append({
-            "year": r["year"], "week": r["week"],
+            "year": r["year"], "week": r["week"], "month": (r["week"] if monthly else None),
             "period_text": r["period_text"],
             "period_start": r["period_start"].isoformat() if r.get("period_start") else None,
             "period_end": r["period_end"].isoformat() if r.get("period_end") else None,
-            "key": wkey, "label": f"Неделя {r['week']}",
+            "key": wkey, "label": (f"Месяц {r['week']}.{r['year']}" if monthly else f"Неделя {r['week']}"),
         })
     week_keys = [w["key"] for w in weeks]
+    # Неполный месяц: «Факт по дату» последней удачной загрузки месяца этого МП.
+    if monthly and weeks:
+        for u in db.query_all(
+            """SELECT DISTINCT ON (year, month) year, month, fact_through_date
+               FROM report_uploads
+               WHERE marketplace = %s AND period_kind = 'monthly' AND status = 'OK'
+               ORDER BY year, month, id DESC""",
+            (mp,),
+        ):
+            for w in weeks:
+                if w["year"] == u["year"] and w["week"] == u["month"] and u.get("fact_through_date"):
+                    w["partial_through"] = u["fact_through_date"].isoformat()
 
     # Недельный план продаж по этому МП (та же раскладка, что в Сводной, но с
     # фильтром sales_plan.marketplace = текущий МП). Ключи plan_map совпадают с
@@ -846,6 +882,8 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
             # тестовые вкладки: удержания без разбивки = −выплата общей строки (WB — «с рекл.»:
             # удержанная WB реклама уже разнесена по товарам в продвижении)
             root["_agg"][wk]["noart_pay"] = -_f(nr.get("wpay") if mp == "Wildberries" else nr.get("pay"))
+            root["_agg"][wk]["noart_pay_plain"] = -_f(nr.get("pay"))   # WB без рекламы по товарам
+            root["_agg"][wk]["noart_profit"] = _f(nr.get("prof"))
 
     # Для Wildberries прибыль узла берётся из готовой колонки wb_profit_with_ads
     # (см. _compute_cell). Строка «Общие удержания» имеет СВОЁ значение
@@ -856,11 +894,11 @@ def rnp_tree(marketplace: str = Query("ozon"), user=Depends(auth.require_tab("un
     # в корневой агрегат. Для Ozon эта колонка = 0/NULL — влияния нет.
     if mp == "Wildberries":
         noart_wpa = db.query_all(
-            """
-            SELECT year, week, SUM(wb_profit_with_ads) AS wpa
-            FROM fact_weekly
+            f"""
+            SELECT year, {pc} AS week, SUM(wb_profit_with_ads) AS wpa
+            FROM {tbl}
             WHERE marketplace = %s AND row_type = 'Общие удержания'
-            GROUP BY year, week
+            GROUP BY year, {pc}
             """,
             (mp,),
         )

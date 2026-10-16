@@ -2357,3 +2357,7 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    в своей ячейке — по правому краю; перед изменением — отступ от значения метрики. */
 .t-arrow { width:10px; text-align:right; margin-right:1px; font-size:9px; top:0; }
 .rnp-vc-d.t-delta, .rnp-hd-d.t-delta { padding-left:5px; box-sizing:content-box; }
+/* «WB/Ozon тест»: переключатель «Недели / Месяцы» и пометка неполного месяца в шапке колонки */
+.rnp-filters .rnp-pkind { flex:0 0 auto; }
+.rnp-filters .rnp-pkind .seg-btn { padding:5px 10px; font-size:12px; }
+.rnp-wkh-d2.rnp-wkh-partial { color:#e08a00; font-weight:600; }
