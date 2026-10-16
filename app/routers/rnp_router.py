@@ -311,6 +311,7 @@ def _compute_cell(agg, mp="Ozon"):
         "p_ads_paid_pct":       _div(ads_paid, rev),
         "p_ads_paid_orders_pct": _div(ads_paid, orders_rub),
         "noart_pay_pct":        (_div(_f(noart_pay), rev) if noart_pay is not None else None),
+        "noart_pay_rub":        (_f(noart_pay) if noart_pay is not None else None),
     })
 
     cell.update({

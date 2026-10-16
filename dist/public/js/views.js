@@ -3379,7 +3379,7 @@ const Views = (() => {
 
   // Отчёт по менеджеру: строки общих удержаний — его доля (пропорционально продажам).
   function rnpNoartLabel(key, label) {
-    const isNoart = key === 'noart_exp_rub' || key === 'noart_pay_pct';
+    const isNoart = key === 'noart_exp_rub' || key === 'noart_pay_pct' || key === 'noart_pay_rub';
     return (isNoart && rnpState.data && rnpState.data.manager) ? label + ' — доля менеджера' : label;
   }
 
@@ -4866,7 +4866,8 @@ const Views = (() => {
     { b: 'm', key: 'p_acceptance_pct', label: 'Приёмка, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Платная приёмка ÷ Продажи, руб' },
     { b: 'm', key: 'p_fines_pct', label: 'Штрафы, %', kind: 'pct', pol: 'neg', color: 'D11414', g: 'holds', tip: 'Штрафы ÷ Продажи, руб' },
     { b: 'm', calc: tOtherHolds, label: 'Другие удержания, %', kind: 'pct', pol: 'neg', g: 'holds', tip: 'Остальные удержания площадки по товарам, не вошедшие в строки выше' },
-    { b: 'm', key: 'noart_pay_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', lv: [T_LEVEL_ROOT], tip: 'Удержания площадки, не привязанные к товарам (только в «Итогах») ÷ Продажи, руб' },
+    { b: 'm', key: 'noart_pay_pct', label: '− Удержания без разбивки по товарам, %', kind: 'pct', pol: 'neg', color: '980000', g: 'noart', head: true, lv: [T_LEVEL_ROOT], tip: 'Удержания площадки, не привязанные к товарам (только в «Итогах») ÷ Продажи, руб' },
+    { b: 'm', key: 'noart_pay_rub', label: 'Удержания без разбивки по товарам, руб', kind: 'rub', pol: 'neg', color: '980000', g: 'noart', lv: [T_LEVEL_ROOT], tip: 'Сумма удержаний площадки, не привязанных к товарам, руб (по менеджеру — его доля пропорционально продажам)' },
     { b: 'm', key: 'p_ads_paid_pct', label: '− Продвижение, % от продаж', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', head: true, tip: 'Реклама, оплаченная деньгами, ÷ Продажи, руб (WB — «Баланс», без промо-бонусов; Ozon — «Продвижение всего»)' },
     { b: 'm', key: 'p_ads_paid_orders_pct', label: 'Продвижение, % от заказов', kind: 'pct', pol: 'neg', color: '9900FF', g: 'promo', tip: 'Реклама ÷ Заказы, руб' },
     { b: 'm', key: 'p_payout', label: '= К оплате на р/с, руб', kind: 'rub', pol: 'pos', color: '1E7D34', bold: true, tip: 'Продажи − удержания − продвижение: сколько площадка перечисляет на расчётный счёт' },
@@ -4957,7 +4958,7 @@ const Views = (() => {
       if (r.bold) nameSt += 'font-weight:700;';
       const nameStyle = nameSt ? ` style="${nameSt}"` : '';
       const nameInner = isHead
-        ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(r.label)}`
+        ? `<button class="rnp-exp-btn rnp-tgrp-toggle" data-g="${r.g}" title="Показать/скрыть">${open[r.g] ? '▾' : '▸'}</button>${U.esc(rnpNoartLabel(r.key, r.label))}`
         : U.esc(rnpNoartLabel(r.key, r.label));
       const cls = (isChild ? ' rnp-t-child-name' : '') + (isHead ? ' rnp-tgrp-head is-clickable' : '');
       // вложенные строки приглушены; исключения — «на единицу» и «удержания площадки»

@@ -59,6 +59,8 @@ class ManagerSplitTests(unittest.TestCase):
         self.assertEqual((root(m1, "profit"), root(m2, "profit")), (100, 300))
         self.assertEqual((root(m1, "p_payout"), root(m2, "p_payout")), (600, 1700))
         self.assertEqual((root(m1, "noart_exp_rub"), root(m2, "noart_exp_rub")), (100, 300))
+        self.assertEqual((root(m1, "noart_pay_rub"), root(m2, "noart_pay_rub"), root(store, "noart_pay_rub")),
+                         (100, 300, 400))   # строка «Удержания без разбивки, руб» (тестовые вкладки)
         self.assertEqual((m1["noart_share"]["2026-40"], m2["noart_share"]["2026-40"]), (0.25, 0.75))
         for key, unassigned in (("profit", 50), ("p_payout", 300), ("p_revenue", 600), ("p_orders_rub", 600)):
             with self.subTest(key=key):

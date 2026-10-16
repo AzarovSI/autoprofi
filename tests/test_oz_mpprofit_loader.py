@@ -1,5 +1,8 @@
 """Загрузчик MPPROFIT Ozon: индекс заголовков, сверка с ИТОГО, общие удержания (без БД)."""
+import os
+import tempfile
 import unittest
+from unittest.mock import MagicMock
 
 import openpyxl
 
@@ -8,20 +11,20 @@ from app import loader_core as lc
 # Раскладка как в отчёте MPPROFIT Ozon: секция «Налог» стоит над «Налоговой базой».
 IDS = ["Артикул продавца", "SKU", "Наименование"]
 METRICS = [  # (секция строки 4 или None, метрика строки 5)
-    ("Продажи", "Заказы шт."), (None, "Выкупы шт."), (None, "Выкупы, руб."),
+    ("Продажи", "Заказы шт."), (None, "Заказы, руб."), (None, "Выкупы шт."), (None, "Выкупы, руб."),
     (None, "Возвраты руб."), (None, "Продажи руб."), (None, "Продажи шт."),
     ("Себестоимость", "Себестоимость"), ("Комиссии", "Комиссия"),
     ("Логистика", "Прямая логистика"), (None, "Выдача товара"), (None, "Вся логистика"),
     ("Удержания OZON", "Хранение"), (None, "Временное размещение"),
     ("Все удержания OZON", "Все удержания OZON"), ("Налог", "Налоговая база"), (None, "Налог"),
-    ("Финансы", "Выплата на р/с"), (None, "Прибыль"),
+    ("Финансы", "Выплата на р/с"), (None, "Прибыль"), (None, "Марж-ность"),
 ]
 
 
 def item(art, sku, revenue, commission, logistics, temp=0.0):
     holds = commission + logistics + temp
     return {"Артикул продавца": art, "SKU": sku, "Наименование": "Товар " + art,
-            "Заказы шт.": 5, "Выкупы шт.": 4, "Выкупы, руб.": revenue, "Возвраты руб.": 0,
+            "Заказы шт.": 5, "Заказы, руб.": revenue * 1.3, "Выкупы шт.": 4, "Выкупы, руб.": revenue, "Возвраты руб.": 0,
             "Продажи руб.": revenue, "Продажи шт.": 4, "Себестоимость": 100,
             "Комиссия": commission, "Прямая логистика": logistics, "Вся логистика": logistics,
             "Временное размещение": temp, "Все удержания OZON": holds,
@@ -35,10 +38,10 @@ def holds_row(holds, extra_revenue=0.0):
             "Выплата на р/с": extra_revenue - holds, "Прибыль": extra_revenue - holds}
 
 
-def make_ws(rows, total_override=None):
+def make_ws(rows, total_override=None, drop=()):
     ws = openpyxl.Workbook().active
     ws.cell(2, 3, "Период: 2026-09-01 - 2026-09-30")
-    cols = IDS + [m for _, m in METRICS]
+    cols = IDS + [m for _, m in METRICS if m not in drop]
     sections = dict((m, s) for s, m in METRICS)
     for c, name in enumerate(cols, 1):
         if name in IDS:
@@ -96,6 +99,18 @@ class OzCheckTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertIn("«Невыкупы/отмены шт.»: в ИТОГО 2,00, сумма строк 4,00", warnings[0])
 
+    def test_orders_rub_total_mismatch_only_warns(self):
+        errors, warnings, _ = self.check(total_override={"Заказы, руб.": 1})
+        self.assertEqual(errors, [])
+        self.assertIn("«Заказы, руб.»: в ИТОГО 1,00, сумма строк 3 900,00", warnings[0])
+
+    def test_old_report_without_orders_rub_warns(self):
+        # Отчёты Ozon до ~07.2026: колонки нет — грузим, на сайте остаётся оценка.
+        ws = make_ws(ROWS, drop=("Заказы, руб.",))
+        errors, warnings, _ = lc.check_oz_report(ws, idx_of(ws))
+        self.assertEqual(errors, [])
+        self.assertIn("«Заказы, руб.»", warnings[0])
+
     def test_handout_sign_quirk_ignored(self):
         rows = [dict(ROWS[0], **{"Выдача товара": -90.55}), ROWS[1], ROWS[2]]
         self.assertEqual(self.check(rows, total_override={"Выдача товара": 90.55})[0], [])
@@ -128,6 +143,34 @@ class OzCheckTest(unittest.TestCase):
         self.assertEqual((get("logistics_total"), round(get("payout"), 2)), (269.07, 1230.93))
         self.assertIn("sku 202", warnings[0])
         self.assertIn("к товару B-2", warnings[0])
+
+
+class OzLoadOrdersRubTest(unittest.TestCase):
+    def load(self, drop=()):
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        try:
+            ws = make_ws(ROWS, drop=drop)
+            ws.parent.save(path)
+            conn = MagicMock()
+            cur = conn.cursor.return_value.__enter__.return_value
+            res = lc.load_report(conn, path, "ozon")
+        finally:
+            os.remove(path)
+        ins = [c for c in cur.execute.call_args_list if "INSERT INTO fact_" in c.args[0]]
+        self.assertTrue(ins, res)
+        sql, flat = ins[0].args
+        cols = sql[sql.index("(") + 1:sql.index(")")].split(",")
+        rows = [flat[i:i + len(cols)] for i in range(0, len(flat), len(cols))]
+        return {r[cols.index("seller_article")]: r[cols.index("orders_rub")] for r in rows}
+
+    def test_orders_rub_written_from_report(self):
+        got = self.load()
+        self.assertEqual((got["A-1"], got["B-2"]), (1300, 2600))
+
+    def test_old_report_leaves_orders_rub_empty(self):
+        got = self.load(drop=("Заказы, руб.",))
+        self.assertEqual((got["A-1"], got["B-2"]), (None, None))
 
 
 if __name__ == "__main__":
