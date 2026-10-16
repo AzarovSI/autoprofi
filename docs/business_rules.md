@@ -183,7 +183,9 @@
 
 ## Юнит-экономика (недельная)
 
-Код: `app/routers/rnp_router.py:rnp_tree`, `_compute_cell`, `_add_row`; сводная — `rnp_tree_cross`, `_collect_mp_raw`. Источник — `fact_weekly` (`row_type='Товар'`). Тестов нет.
+Код: `app/routers/rnp_router.py:rnp_tree`, `_compute_cell`, `_add_row`; сводная — `rnp_tree_cross`, `_collect_mp_raw`. Источник — `fact_weekly` (`row_type='Товар'`), помесячно — `fact_monthly` (право `unit.month`). Тесты: `tests/test_ue_manager.py`, `tests/test_undistributed.py`.
+
+Подача (16.10.2026): Wildberries и OZON — новая карточка (`views.js:testMetricTable`, `T_ROWS`; `rnpIsTest()` = вкладка wb/ozon), Yandex и «… (старый вид)» (`wb_old` / `oz_old`) — прежняя (`productMetricRows`). Данные и расчёт ячеек одни и те же.
 
 - **Агрегация**: рублёвые и штучные колонки суммируются по товарам узла. Доли = сумма руб / выручка, удельные = сумма руб / шт. Выкуп и СПП — Σ(доля × выручка) / Σвыручки. При нулевой выручке доли = NULL.
 - **Прибыль WB** = Σ`wb_profit_with_ads` («Прибыль (с рекл.)» из отчёта). В корень дополнительно прибавляется `wb_profit_with_ads` строк «Общие удержания». Реклама и `noart_exp` повторно не вычитаются.

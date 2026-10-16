@@ -104,5 +104,18 @@ class ManagerSplitTests(unittest.TestCase):
         self.assertEqual(root(m1, "profit"), -10 - 200)
 
 
+class MonthViewPermissionTest(unittest.TestCase):
+    def test_month_view_needs_permission(self):
+        from fastapi import HTTPException
+        user = {"id": 2, "is_admin": False, "permissions": ["unit.open", "unit.tab.wb"]}
+        with patch.object(db, "query_all", return_value=[]):
+            with self.assertRaises(HTTPException) as cm:
+                ue.rnp_tree(marketplace="wb", period="month", manager=None, user=user)
+            self.assertEqual(cm.exception.status_code, 403)
+            ue.rnp_tree(marketplace="wb", period="week", manager=None, user=user)   # недели — как раньше
+            ue.rnp_tree(marketplace="wb", period="month", manager=None,
+                        user=dict(user, permissions=user["permissions"] + ["unit.month"]))
+
+
 if __name__ == "__main__":
     unittest.main()

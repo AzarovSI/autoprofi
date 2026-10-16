@@ -610,6 +610,8 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
     mp = MP_MAP.get(marketplace.lower(), "Ozon")
     mgr_sel = (manager or "").strip() or None
     monthly = (period == "month")
+    if monthly:
+        auth.check(user, "unit.month")
     tbl, pc = ("fact_monthly", "month") if monthly else ("fact_weekly", "week")
 
     # 3 независимых запроса — последовательно на тёплом пуле: недели (колонки),

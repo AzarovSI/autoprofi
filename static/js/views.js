@@ -3544,21 +3544,23 @@ const Views = (() => {
   // Хелперы маппинга текущего МП юнит-экономики (rnpState.mp) → параметр API
   // и → значение маркетплейса в БД. Единая точка правды, чтобы не плодить
   // тернарники (иначе Яндекс «утекал» бы в ozon).
-  // Тестовые вкладки: «WB тест» = данные WB, «Ozon тест» = данные Ozon.
-  function rnpIsTest() { return rnpState.mp === 'oz_test' || rnpState.mp === 'wb_test'; }
+  // Wildberries и OZON — новая подача (testMetricTable, с 16.10.2026); «… (старый вид)»
+  // (wb_old / oz_old, только по праву №102–103) и Yandex — прежняя. Данные те же.
+  function rnpIsTest() { return rnpState.mp === 'ozon' || rnpState.mp === 'wb'; }
   // Месячный вид юнит-экономики — пока только в тестовых вкладках (переключатель «Недели / Месяцы»).
-  function rnpIsMonth() { return rnpIsTest() && rnpState.period === 'month'; }
+  function rnpCanMonth() { return rnpIsTest() && App.can('unit.month'); }
+  function rnpIsMonth() { return rnpCanMonth() && rnpState.period === 'month'; }
   function rnpMpParam() {
-    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'wb'
+    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
   function rnpMpDbName() {
-    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'Wildberries'
+    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'Wildberries'
          : rnpState.mp === 'yandex' ? 'Yandex' : 'Ozon';
   }
   function rnpMpCls() {
     return rnpState.mp === 'cross' ? 'cross'
-         : (rnpState.mp === 'wb' || rnpState.mp === 'wb_test') ? 'wb'
+         : (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
 
@@ -3583,10 +3585,9 @@ const Views = (() => {
   function rnpTabs() {
     const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
                   ['yandex', 'Yandex', 'yandex']].filter(([id]) => App.canTab('unit', id));
-    // «Ozon тест» — макет новой подачи юнит-экономики (функция №102, только администратор).
-    // Данные те же, что у OZON (rnpMpParam для неизвестной вкладки даёт 'ozon').
-    if (App.can('unit.tab.wb_test')) tabs.push(['wb_test', 'WB тест', 'wb']);
-    if (App.can('unit.tab.oz_test')) tabs.push(['oz_test', 'Ozon тест', 'ozon']);
+    // Прежняя подача — на время перехода (№102–103, по умолчанию только администратор).
+    if (App.can('unit.tab.wb_old')) tabs.push(['wb_old', 'Wildberries (старый вид)', 'wb']);
+    if (App.can('unit.tab.oz_old')) tabs.push(['oz_old', 'OZON (старый вид)', 'ozon']);
     if (App.can('unit.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
     return tabs;
   }
@@ -3931,7 +3932,7 @@ const Views = (() => {
     const wrap = document.createElement('div');
     wrap.className = 'rnp-filters';
     const negChecked = rnpState.marginNegOn ? ' checked' : '';
-    const pkindHtml = rnpIsTest()
+    const pkindHtml = rnpCanMonth()
       ? `<div class="seg rnp-pkind" title="Юнит-экономика по неделям или по месяцам">`
         + `<button class="seg-btn${rnpIsMonth() ? '' : ' active'}" data-pk="week">Недели</button>`
         + `<button class="seg-btn${rnpIsMonth() ? ' active' : ''}" data-pk="month">Месяцы</button></div>`
