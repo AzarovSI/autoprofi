@@ -1612,16 +1612,33 @@ window.ABCDash = (function () {
     fillList('list-star', groups.STAR.sort((a,b)=>(b.ozon_revenue+b.vb_revenue)-(a.ozon_revenue+a.vb_revenue)), 'both');
 
     const impact = document.getElementById('impact');
-    const ozRemoveLost = groups.REMOVE_FROM_OZON.reduce((s,r)=>s+(r.ozon_revenue||0),0);
-    const ozRemoveSavedLoss = groups.REMOVE_FROM_OZON.reduce((s,r)=>s+(r.ozon_profit<0?-r.ozon_profit:0),0);
-    const vbRemoveLost = groups.REMOVE_FROM_VB.reduce((s,r)=>s+(r.vb_revenue||0),0);
-    const vbRemoveSavedLoss = groups.REMOVE_FROM_VB.reduce((s,r)=>s+(r.vb_profit<0?-r.vb_profit:0),0);
-    const bothRemoveLost = groups.REMOVE_BOTH.reduce((s,r)=>s+(r.ozon_revenue||0)+(r.vb_revenue||0),0);
-    const bothRemoveSavedLoss = groups.REMOVE_BOTH.reduce((s,r)=>{
-      const ozL = r.ozon_profit<0?-r.ozon_profit:0;
-      const vbL = r.vb_profit<0?-r.vb_profit:0;
-      return s + ozL + vbL;
-    },0);
+    // Эффект по группе: выручка и прибыль выводимых товаров (только с тех МП, откуда выводятся).
+    // Прибыль = −(прибыль прибыльных) + (убыток убыточных); итог совпадает с прогнозом на «Обзоре».
+    const fx = (rows, sides) => rows.reduce((a, r) => {
+      sides.forEach(mp => {
+        const rev = r[mp + '_revenue'] || 0, prof = r[mp + '_profit'] || 0;
+        a.rev += rev;
+        if (prof > 0) a.lost += prof; else a.saved += -prof;
+      });
+      return a;
+    }, { rev: 0, lost: 0, saved: 0 });
+    const gBoth = fx(groups.REMOVE_BOTH, ['ozon', 'vb']);
+    const gOz = fx(groups.REMOVE_FROM_OZON, ['ozon']);
+    const gVb = fx(groups.REMOVE_FROM_VB, ['vb']);
+    const gAll = { rev: gBoth.rev + gOz.rev + gVb.rev, lost: gBoth.lost + gOz.lost + gVb.lost,
+                   saved: gBoth.saved + gOz.saved + gVb.saved };
+    // «−» красным — теряем прибыль, «+» зелёным — уходит больше убытка, чем прибыли.
+    const effHtml = (g) => {
+      const v = g.saved - g.lost;
+      const cls = v > 0 ? 'good' : (v < 0 ? 'bad' : '');
+      return `<span class="val ${cls}">${v > 0 ? '+' : (v < 0 ? '−' : '')}${rub(Math.abs(v))}</span>`;
+    };
+    const groupHtml = (title, g, cls = '') => `
+      <div class="impact-head ${cls}">${title}</div>
+      <div class="impact-row"><span class="label">Выручка, которая уйдёт</span><span class="val">${rub(g.rev)}</span></div>
+      <div class="impact-row"><span class="label">Эффект на прибыль</span>${effHtml(g)}</div>
+      <div class="impact-row sub"><span class="label">теряем прибыль прибыльных товаров</span><span class="val${g.lost ? ' bad' : ''}">${g.lost ? '−' : ''}${rub(g.lost)}</span></div>
+      <div class="impact-row sub"><span class="label">прекращаем убыток убыточных</span><span class="val${g.saved ? ' good' : ''}">${g.saved ? '+' : ''}${rub(g.saved)}</span></div>`;
     const ozRecords = STATE.computed.ozon.length;
     const vbRecords = STATE.computed.vb.length;
     const removedSku = groups.REMOVE_BOTH.length + groups.REMOVE_FROM_OZON.length + groups.REMOVE_FROM_VB.length;
@@ -1630,12 +1647,10 @@ window.ABCDash = (function () {
     impact.innerHTML = `
       <div class="impact-row"><span class="label">Записей в матрице (ОЗОН + ВБ)</span><span class="val">${ozRecords + vbRecords}</span></div>
       <div class="impact-row"><span class="label">К сокращению</span><span class="val">${removedSku} (−${reductionPct.toFixed(1)}%)</span></div>
-      <div class="impact-row"><span class="label">Выручка, теряемая при выводе с обоих МП</span><span class="val">${rub(bothRemoveLost)}</span></div>
-      <div class="impact-row"><span class="label">Прекращаемый убыток (полное удаление)</span><span class="val good">+${rub(bothRemoveSavedLoss)}</span></div>
-      <div class="impact-row"><span class="label">Выручка, которая уйдёт с ОЗОН</span><span class="val">${rub(ozRemoveLost)}</span></div>
-      <div class="impact-row"><span class="label">Прекращаемый убыток (вывод с ОЗОН)</span><span class="val good">+${rub(ozRemoveSavedLoss)}</span></div>
-      <div class="impact-row"><span class="label">Выручка, которая уйдёт с ВБ</span><span class="val">${rub(vbRemoveLost)}</span></div>
-      <div class="impact-row"><span class="label">Прекращаемый убыток (вывод с ВБ)</span><span class="val good">+${rub(vbRemoveSavedLoss)}</span></div>
+      ${groupHtml('1. Удалить с обоих МП', gBoth)}
+      ${groupHtml('2. Убрать с ОЗОН', gOz)}
+      ${groupHtml('3. Убрать с ВБ', gVb)}
+      ${groupHtml('Итого по плану', gAll, 'total')}
     `;
 
     // Bind export buttons (re-bind every time because group data changes)

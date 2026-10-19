@@ -513,6 +513,10 @@
 .abc-dash .impact-row .val { font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .abc-dash .impact-row .val.good { color: var(--good); }
 .abc-dash .impact-row .val.bad { color: var(--bad); }
+.abc-dash .impact-head { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+.abc-dash .impact-head.total { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 2px solid var(--border); }
+.abc-dash .impact-row.sub .label { padding-left: 14px; font-size: var(--text-xs); }
+.abc-dash .impact-row.sub .val { font-weight: 500; font-size: var(--text-sm); }
 .abc-dash .modal-overlay {
   position: fixed; inset: 0; background: rgba(20,30,46,.45); backdrop-filter: blur(4px);
   z-index: 100; display: flex; align-items: center; justify-content: center;
