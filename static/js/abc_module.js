@@ -987,7 +987,8 @@ window.ABCDash = (function () {
 
       // Итоги по всем годам — для строк
       // Для margin: total = sum(profit)/sum(revenue)*100; arr[i] = profit[i]/revenue[i]*100 (или null)
-      const yearTotals = allYears.map(y => {
+      // Год без данных площадки (Яндекс до 07.2025) не показываем строкой «0 ₽».
+      const yearTotals = allYears.filter(y => card.pk === 'all' || card.rev[y]).map(y => {
         if (isMargin) {
           const r = card.rev[y] || new Array(12).fill(0);
           const p = card.prof[y] || new Array(12).fill(0);
@@ -1180,6 +1181,7 @@ window.ABCDash = (function () {
         datasets: [
           { label: 'ОЗОН', backgroundColor: '#2f6bff', data: cats.map(cat => c.ozon.filter(r=>r.abc_revenue===cat).length) },
           { label: 'Wildberries', backgroundColor: '#cb11ab', data: cats.map(cat => c.vb.filter(r=>r.abc_revenue===cat).length) },
+          { label: 'Яндекс', backgroundColor: '#e8a200', data: cats.map(cat => c.ya.filter(r=>r.abc_revenue===cat).length) },
         ]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', align: 'end' } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(20,30,46,0.05)' } }, x: { grid: { display: false } } } }
@@ -1193,6 +1195,7 @@ window.ABCDash = (function () {
         datasets: [
           { label: 'ОЗОН', backgroundColor: '#2f6bff', data: cats.map(cat => c.ozon.filter(r=>r.abc_profit===cat).length) },
           { label: 'Wildberries', backgroundColor: '#cb11ab', data: cats.map(cat => c.vb.filter(r=>r.abc_profit===cat).length) },
+          { label: 'Яндекс', backgroundColor: '#e8a200', data: cats.map(cat => c.ya.filter(r=>r.abc_profit===cat).length) },
         ]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', align: 'end' } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(20,30,46,0.05)' } }, x: { grid: { display: false } } } }
@@ -1207,6 +1210,7 @@ window.ABCDash = (function () {
         datasets: [
           { label: 'ОЗОН', backgroundColor: '#2f6bff', data: recOrder.map(rc => c.ozon.filter(r=>r.rec_code===rc).length) },
           { label: 'Wildberries', backgroundColor: '#cb11ab', data: recOrder.map(rc => c.vb.filter(r=>r.rec_code===rc).length) },
+          { label: 'Яндекс', backgroundColor: '#e8a200', data: recOrder.map(rc => c.ya.filter(r=>r.rec_code===rc).length) },
         ]
       },
       options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', align: 'end' } }, scales: { x: { beginAtZero: true, grid: { color: 'rgba(20,30,46,0.05)' } }, y: { grid: { display: false } } } }
@@ -1628,9 +1632,9 @@ window.ABCDash = (function () {
       <div class="impact-row"><span class="label">К сокращению</span><span class="val">${removedSku} (−${reductionPct.toFixed(1)}%)</span></div>
       <div class="impact-row"><span class="label">Выручка, теряемая при выводе с обоих МП</span><span class="val">${rub(bothRemoveLost)}</span></div>
       <div class="impact-row"><span class="label">Прекращаемый убыток (полное удаление)</span><span class="val good">+${rub(bothRemoveSavedLoss)}</span></div>
-      <div class="impact-row"><span class="label">Выручка, переносимая с ОЗОН на ВБ</span><span class="val">${rub(ozRemoveLost)}</span></div>
+      <div class="impact-row"><span class="label">Выручка, которая уйдёт с ОЗОН</span><span class="val">${rub(ozRemoveLost)}</span></div>
       <div class="impact-row"><span class="label">Прекращаемый убыток (вывод с ОЗОН)</span><span class="val good">+${rub(ozRemoveSavedLoss)}</span></div>
-      <div class="impact-row"><span class="label">Выручка, переносимая с ВБ на ОЗОН</span><span class="val">${rub(vbRemoveLost)}</span></div>
+      <div class="impact-row"><span class="label">Выручка, которая уйдёт с ВБ</span><span class="val">${rub(vbRemoveLost)}</span></div>
       <div class="impact-row"><span class="label">Прекращаемый убыток (вывод с ВБ)</span><span class="val good">+${rub(vbRemoveSavedLoss)}</span></div>
     `;
 
@@ -2228,7 +2232,7 @@ window.ABCDash = (function () {
   <section id="tab-overview" class="tab-panel active">
     <div class="page-intro">
       <h2>Сводка по товарной матрице</h2>
-      <p class="lede">Помесячная агрегация продаж по двум маркетплейсам. Каждый товар классифицирован по ABC (выручка и прибыль) и получил рекомендацию: оставить, пересмотреть, вывести с конкретного МП или удалить совсем.</p>
+      <p class="lede">Помесячная агрегация продаж по трём маркетплейсам (ОЗОН, Wildberries, Яндекс). Каждый товар классифицирован по ABC (выручка и прибыль) и получил рекомендацию: оставить, пересмотреть, вывести с конкретного МП или удалить совсем.</p>
     </div>
 
     <div class="kpi-grid kpi-grid-4">
@@ -2363,14 +2367,14 @@ window.ABCDash = (function () {
       </div>
       <div class="forecast-kpi-grid">
         <div class="fkpi oz">
-          <div class="fkpi-head"><span class="fkpi-dot"></span><span class="fkpi-title">Уйдёт с ОЗОН</span><span class="fkpi-help" tabindex="0" aria-label="Как считается" data-tip="Финансовый эффект вывода товаров с OZON за выбранный период.\n\nВыручка — сумма выручки на OZON по всем SKU, которым «План действий» присвоил вывод (рекомендации REMOVE / REMOVE_HERE). Показывается со знаком минус — эта выручка будет потеряна.\n\nПрибыль — сумма фактической прибыли (выручка минус себестоимость и все удержания МП) тех же выводимых товаров на OZON.\n• Красный «−» — вместе с товарами уходит прибыль (теряем).\n• Зелёный «+» — выводимые товары были убыточны, уходит убыток (эффект в плюс).\n\n% под суммой — доля этого эффекта от общей прибыли/выручки OZON за период.">?</span></div>
+          <div class="fkpi-head"><span class="fkpi-dot"></span><span class="fkpi-title">Уйдёт с ОЗОН</span><span class="fkpi-help" tabindex="0" aria-label="Как считается" data-tip="Финансовый эффект вывода товаров с OZON за выбранный период.\n\nВыручка — сумма выручки на OZON по всем SKU, которым «План действий» присвоил вывод (рекомендации «Вывести совсем», «Убрать с этого МП», «Рассмотреть перенос»). Показывается со знаком минус — эта выручка будет потеряна.\n\nПрибыль — сумма фактической прибыли (выручка минус себестоимость и все удержания МП) тех же выводимых товаров на OZON.\n• Красный «−» — вместе с товарами уходит прибыль (теряем).\n• Зелёный «+» — выводимые товары были убыточны, уходит убыток (эффект в плюс).\n\n% под суммой — доля этого эффекта от общей прибыли/выручки OZON за период.">?</span></div>
           <div class="fkpi-pair">
             <div class="fkpi-cell"><div class="fkpi-label">Выручка</div><div class="fkpi-value neg" id="fc-rev-off-oz">—</div><div class="fkpi-sub" id="fc-rev-off-oz-pct">—</div></div>
             <div class="fkpi-cell"><div class="fkpi-label">Прибыль</div><div class="fkpi-value" id="fc-prof-off-oz">—</div><div class="fkpi-sub" id="fc-prof-off-oz-pct">—</div></div>
           </div>
         </div>
         <div class="fkpi vb">
-          <div class="fkpi-head"><span class="fkpi-dot"></span><span class="fkpi-title">Уйдёт с ВБ</span><span class="fkpi-help" tabindex="0" aria-label="Как считается" data-tip="Финансовый эффект вывода товаров с Wildberries за выбранный период.\n\nВыручка — сумма выручки на ВБ по всем SKU, которым «План действий» присвоил вывод (рекомендации REMOVE / REMOVE_HERE). Показывается со знаком минус — эта выручка будет потеряна.\n\nПрибыль — сумма фактической прибыли (выручка минус себестоимость и все удержания МП) тех же выводимых товаров на ВБ.\n• Красный «−» — вместе с товарами уходит прибыль (теряем).\n• Зелёный «+» — выводимые товары были убыточны, уходит убыток (эффект в плюс).\n\n% под суммой — доля этого эффекта от общей прибыли/выручки ВБ за период.">?</span></div>
+          <div class="fkpi-head"><span class="fkpi-dot"></span><span class="fkpi-title">Уйдёт с ВБ</span><span class="fkpi-help" tabindex="0" aria-label="Как считается" data-tip="Финансовый эффект вывода товаров с Wildberries за выбранный период.\n\nВыручка — сумма выручки на ВБ по всем SKU, которым «План действий» присвоил вывод (рекомендации «Вывести совсем», «Убрать с этого МП», «Рассмотреть перенос»). Показывается со знаком минус — эта выручка будет потеряна.\n\nПрибыль — сумма фактической прибыли (выручка минус себестоимость и все удержания МП) тех же выводимых товаров на ВБ.\n• Красный «−» — вместе с товарами уходит прибыль (теряем).\n• Зелёный «+» — выводимые товары были убыточны, уходит убыток (эффект в плюс).\n\n% под суммой — доля этого эффекта от общей прибыли/выручки ВБ за период.">?</span></div>
           <div class="fkpi-pair">
             <div class="fkpi-cell"><div class="fkpi-label">Выручка</div><div class="fkpi-value neg" id="fc-rev-off-vb">—</div><div class="fkpi-sub" id="fc-rev-off-vb-pct">—</div></div>
             <div class="fkpi-cell"><div class="fkpi-label">Прибыль</div><div class="fkpi-value" id="fc-prof-off-vb">—</div><div class="fkpi-sub" id="fc-prof-off-vb-pct">—</div></div>
@@ -2388,7 +2392,7 @@ window.ABCDash = (function () {
 
     <div class="row-2">
       <div class="card">
-        <div class="card-head"><h3>ABC-распределение по выручке</h3><p class="muted">A — 80% выручки, B — следующие 15%, C — последние 5%, Z — нет продаж, D — убыток.</p></div>
+        <div class="card-head"><h3>ABC-распределение по выручке</h3><p class="muted">A — 80% выручки, B — следующие 15%, C — последние 5%, Z — нет продаж, D — выручка меньше нуля (возвраты больше продаж).</p></div>
         <div class="chart-wrap"><canvas id="chart-abc-rev"></canvas></div>
       </div>
       <div class="card">
@@ -2398,7 +2402,7 @@ window.ABCDash = (function () {
     </div>
 
     <div class="card">
-      <div class="card-head"><h3>Структура рекомендаций</h3><p class="muted">Каждый SKU получил один из 5 типов рекомендации. Цвета совпадают на всех экранах.</p></div>
+      <div class="card-head"><h3>Структура рекомендаций</h3><p class="muted">Каждый SKU получил один из 6 типов рекомендации. Цвета совпадают на всех экранах.</p></div>
       <div class="chart-wrap tall"><canvas id="chart-recs"></canvas></div>
     </div>
   </section>
@@ -2430,7 +2434,7 @@ window.ABCDash = (function () {
   <section id="tab-vb" class="tab-panel">
     <div class="page-intro">
       <h2>Wildberries — детальный анализ</h2>
-      <p class="lede">Матрица ВБ примерно в 2.3× шире ОЗОН — там основной потенциал для сокращения.</p>
+      <p class="lede">Все товары на Wildberries с ABC-классификацией и рекомендациями. Используйте фильтры и поиск.</p>
     </div>
     <div class="filters" data-mp="vb">
       <input type="search" class="search" placeholder="Поиск по артикулу или названию…" />
@@ -2620,7 +2624,7 @@ window.ABCDash = (function () {
           </div>
         </div>
       </div>
-      <p class="recs-legend-foot muted">ABC-классификация по принципу 80/15/5: <b>A</b> — топ-80% выручки/прибыли, <b>B</b> — следующие 15%, <b>C</b> — оставшиеся 5%, <b>D</b> — единичные продажи, <b>Z</b> — нет продаж. Все рекомендации пересчитываются в браузере при смене периода.</p>
+      <p class="recs-legend-foot muted">ABC-классификация по принципу 80/15/5: <b>A</b> — топ-80% выручки/прибыли, <b>B</b> — следующие 15%, <b>C</b> — оставшиеся 5%, <b>D</b> — отрицательное значение (убыток или возвраты больше продаж), <b>Z</b> — нет продаж. Все рекомендации пересчитываются в браузере при смене периода.</p>
     </div>
   </template>
 
