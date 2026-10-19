@@ -314,12 +314,22 @@ window.ABCDash = (function () {
       else cnt_unchanged++;
     });
 
-    // summary
+    // summary. Общие удержания МП (без артикула) за выбранные месяцы — только для KPI прибыли
+    // площадки (решение владельца 19.10.2026, как «Год к году» и «Итоги» юнит-экономики);
+    // классы ABC, рекомендации и прогноз считаются по прибыли товаров.
+    const holdsOf = (mp) => (raw.holds || []).filter(h => h.mp === mp && monthsSet.has(h.ym))
+      .reduce((s, h) => s + h.profit, 0);
+    const withHolds = (k, mp) => {
+      k.holds_profit = holdsOf(mp);
+      k.mp_profit = k.total_profit + k.holds_profit;
+      k.mp_margin = k.total_revenue > 0 ? k.mp_profit / k.total_revenue : 0;
+      return k;
+    };
     const summary = {
       months,
-      ozon: kpi(ozonArr),
-      vb: kpi(vbArr),
-      ya: kpi(yaArr),
+      ozon: withHolds(kpi(ozonArr), 'ozon'),
+      vb: withHolds(kpi(vbArr), 'vb'),
+      ya: withHolds(kpi(yaArr), 'ya'),
       cross: {
         total_skus: cross.length,
         on_both: cross.filter(c => c.on_ozon && c.on_vb).length,
@@ -1126,21 +1136,17 @@ window.ABCDash = (function () {
     document.getElementById('kpi-only-oz').textContent = s.cross.only_ozon;
     document.getElementById('kpi-only-vb').textContent = s.cross.only_vb;
 
-    document.getElementById('kpi-oz-rev').textContent = rub(s.ozon.total_revenue);
-    document.getElementById('kpi-oz-profit').textContent = rub(s.ozon.total_profit);
-    document.getElementById('kpi-oz-margin').textContent = fmtPct(s.ozon.avg_margin);
-    const ozDrrEl = document.getElementById('kpi-oz-drr'); if (ozDrrEl) ozDrrEl.textContent = fmtPct(s.ozon.avg_drr || 0);
-
-    document.getElementById('kpi-vb-rev').textContent = rub(s.vb.total_revenue);
-    document.getElementById('kpi-vb-profit').textContent = rub(s.vb.total_profit);
-    document.getElementById('kpi-vb-margin').textContent = fmtPct(s.vb.avg_margin);
-    const vbDrrEl = document.getElementById('kpi-vb-drr'); if (vbDrrEl) vbDrrEl.textContent = fmtPct(s.vb.avg_drr || 0);
-
-    // KPI Яндекс — такая же карточка, как ОЗОН/ВБ (без участия в пересечениях).
-    const yaRev = document.getElementById('kpi-ya-rev'); if (yaRev) yaRev.textContent = rub(s.ya.total_revenue);
-    const yaProfit = document.getElementById('kpi-ya-profit'); if (yaProfit) yaProfit.textContent = rub(s.ya.total_profit);
-    const yaMargin = document.getElementById('kpi-ya-margin'); if (yaMargin) yaMargin.textContent = fmtPct(s.ya.avg_margin);
-    const yaDrrEl = document.getElementById('kpi-ya-drr'); if (yaDrrEl) yaDrrEl.textContent = fmtPct(s.ya.avg_drr || 0);
+    // Карточки ОЗОН / ВБ / Яндекс: прибыль и маржа площадки — с общими удержаниями; ниже —
+    // из чего она состоит (прибыль товаров + общие удержания).
+    [['oz', s.ozon], ['vb', s.vb], ['ya', s.ya]].forEach(([p, k]) => {
+      const set = (id, v) => { const el = document.getElementById('kpi-' + p + '-' + id); if (el) el.textContent = v; };
+      set('rev', rub(k.total_revenue));
+      set('profit', rub(k.mp_profit));
+      set('margin', fmtPct(k.mp_margin));
+      set('drr', fmtPct(k.avg_drr || 0));
+      set('profit-items', rub(k.total_profit));
+      set('holds', rub(k.holds_profit));
+    });
 
     // «Пересечение ассортимента» — блок Venn
     renderVennBlock(s.cross);
@@ -1962,7 +1968,7 @@ window.ABCDash = (function () {
     // Общие (нераспределённые) удержания МП — для итоговой прибыли/маржи в YoY.
     const holdRows = payload && payload.holds ? payload.holds : [];
     const holds = holdRows.map((h) => ({
-      mp: h.mp, month: h.month, year: h.year || null, profit: +h.profit || 0,
+      mp: h.mp, month: h.month, year: h.year || null, ym: ymKey(h.month, h.year || null), profit: +h.profit || 0,
     }));
     const meta = (payload && payload.months ? payload.months : [])
       .slice()
@@ -2234,17 +2240,20 @@ window.ABCDash = (function () {
       <div class="kpi-card">
         <div class="kpi-label">Выручка ОЗОН</div>
         <div class="kpi-value oz" id="kpi-oz-rev">—</div>
-        <div class="kpi-foot">Прибыль: <span id="kpi-oz-profit">—</span> · Маржа <span id="kpi-oz-margin">—</span> · ДРР <span id="kpi-oz-drr">—</span></div>
+        <div class="kpi-foot" title="Прибыль и маржа площадки: прибыль товаров плюс общие удержания МП (строка без артикула в отчёте MPPROFIT)">Прибыль: <span id="kpi-oz-profit">—</span> · Маржа <span id="kpi-oz-margin">—</span> · ДРР <span id="kpi-oz-drr">—</span></div>
+        <div class="kpi-foot kpi-foot-sub">товары <span id="kpi-oz-profit-items">—</span> · общие удержания <span id="kpi-oz-holds">—</span></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Выручка Wildberries</div>
         <div class="kpi-value vb" id="kpi-vb-rev">—</div>
-        <div class="kpi-foot">Прибыль: <span id="kpi-vb-profit">—</span> · Маржа <span id="kpi-vb-margin">—</span> · ДРР <span id="kpi-vb-drr">—</span></div>
+        <div class="kpi-foot" title="Прибыль и маржа площадки: прибыль товаров плюс общие удержания МП (строка без артикула в отчёте MPPROFIT)">Прибыль: <span id="kpi-vb-profit">—</span> · Маржа <span id="kpi-vb-margin">—</span> · ДРР <span id="kpi-vb-drr">—</span></div>
+        <div class="kpi-foot kpi-foot-sub">товары <span id="kpi-vb-profit-items">—</span> · общие удержания <span id="kpi-vb-holds">—</span></div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Выручка Яндекс</div>
         <div class="kpi-value ya" id="kpi-ya-rev">—</div>
-        <div class="kpi-foot">Прибыль: <span id="kpi-ya-profit">—</span> · Маржа <span id="kpi-ya-margin">—</span> · ДРР <span id="kpi-ya-drr">—</span></div>
+        <div class="kpi-foot" title="Прибыль и маржа площадки: прибыль товаров плюс общие удержания МП (строка без артикула в отчёте MPPROFIT)">Прибыль: <span id="kpi-ya-profit">—</span> · Маржа <span id="kpi-ya-margin">—</span> · ДРР <span id="kpi-ya-drr">—</span></div>
+        <div class="kpi-foot kpi-foot-sub">товары <span id="kpi-ya-profit-items">—</span> · общие удержания <span id="kpi-ya-holds">—</span></div>
       </div>
     </div>
 

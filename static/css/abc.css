@@ -286,7 +286,8 @@
 .abc-dash .kpi-value.vb { color: var(--vb); }
 .abc-dash .kpi-value.ya { color: #b8860b; }
 .abc-dash .kpi-foot { font-size: var(--text-xs); color: var(--text-faint); }
-.abc-dash .kpi-foot span { color: var(--text); font-weight: 500; }
+.abc-dash .kpi-foot span { color: var(--text); font-weight: 500; white-space: nowrap; }
+.abc-dash .kpi-foot-sub { margin-top: 3px; }
 .abc-dash .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4); }
 .abc-dash .card {
   background: var(--bg-elev);
