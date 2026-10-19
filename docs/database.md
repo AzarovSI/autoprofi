@@ -58,6 +58,7 @@
 | `ya_daily_sales` | РНП Яндекс: воронка, CTR, остаток FBY (`stock_ya_qty`) | День × артикул (уникальность в коде не используется) | 25 209 |
 | `rnp_comments` | Комментарии к ячейкам РНП | `id`; индекс `(date, seller_article)` | 2 |
 | `anomaly_rules` | Общие для команды пороги аномалий РНП | PK `rule_key` | 17 |
+| `abc_rules` | Пороги рекомендаций ABC (⚙): рубли в месяц по площадке, общие маржа и кратности, кто и когда менял (миграция `2026_10_19_abc_rules`, рабочая БД — 19.10.2026) | PK `(param, marketplace)`, marketplace `ozon`/`vb`/`ya`/`all` | 11 |
 
 ### Остатки и склады
 
@@ -138,6 +139,7 @@
 | `migrations/2026_09_21_daily_pi.sql` | `price_index_daily`, `price_index_revision`, функции и триггеры daily Pi, backfill | Выполняется `daily_pi.migrate()` на старте (advisory lock + проверка записи). В `app_schema_migrations`: `2026_09_21_daily_pi`, 21.09.2026 18:31 МСК — **единственная запись** |
 | `migrations/2026_10_12_access_roles.sql` | `app_roles`, `app_role_permissions`, `app_users.role_id`; 8 ролей и права из xlsx (`docs/access_roles.md`) | Выполняется `permissions.migrate()` на старте, как daily Pi. В рабочей БД TimeWeb применена 12.10.2026 под `gen_user` до выкладки (запись в `app_schema_migrations`) |
 | `migrations/2026_10_13_price_model.sql` | `price_model_category` — цена категории «Ценовой модели» | `price_model.migrate()` на старте. В рабочей БД TimeWeb применена 13.10.2026 под `gen_user` до выкладки: права `autoprofi_app`/`autoprofi_ro` выдают default privileges |
+| `migrations/2026_10_19_abc_rules.sql` | `abc_rules` — пороги рекомендаций ABC с исходными значениями | `abc_rules.migrate()` на старте. В рабочей БД TimeWeb применена 19.10.2026 под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` проверены |
 | `migrations/2026_10_14_wb_payout_with_ads.sql` | `fact_weekly`, `fact_monthly`: колонки WB `wb_payout_with_ads` («Выплата на р/с (с рекл.)»), `wb_ads_balance` («Баланс»), `wb_ads_bonus` («Промо бонусы») | `fact_schema.migrate()` на старте. ALTER существующих таблиц. В рабочей БД TimeWeb применена 14.10.2026 14:32 МСК под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` на новые колонки есть (табличные) |
 | `migrations/2026_10_14_oz_temp_placement.sql` | `fact_weekly`, `fact_monthly`: `oz_temp_placement` (Ozon «Временное размещение») | `fact_schema.migrate()` на старте (список `MIGRATIONS`). ALTER. В рабочей БД TimeWeb применена 15.10.2026 11:07 МСК под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` есть |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
