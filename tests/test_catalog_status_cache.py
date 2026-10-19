@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import openpyxl
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.testclient import TestClient
 from app import auth, cache, db
 from app.routers import catalog_router as catalog
@@ -79,3 +79,56 @@ class CatalogStatusCacheTests(unittest.TestCase):
                 "seller_article": "SKU/1", "marketplace": "Wildberries", "status": "CORE"})
         self.assertEqual(response.status_code, 401)
         execute.assert_not_called()
+
+
+def _book(statuses):
+    book = openpyxl.Workbook()
+    book.active.append(["Артикул", "Наименование", "У1", "У2", "У3", "Статус"])
+    for i, st in enumerate(statuses, start=1):
+        book.active.append([f"SKU/{i}", "Item", "C1", "C2", "C3", st])
+    data = io.BytesIO()
+    book.save(data)
+    data.seek(0)
+    return UploadFile(filename="fixture.xlsx", file=data)
+
+
+class CatalogStatusListTests(unittest.TestCase):
+    """Статус — только из списка: регистр приводится, прочее отклоняется (19.10.2026)."""
+    ADMIN = {"id": 1, "is_admin": True}
+
+    def test_norm_status(self):
+        for raw, want in (("core", "CORE"), ("SALE", "Sale"), (" new ", "NEW"), ("closeout", "Closeout"),
+                          ("?", "?"), ("-", "-"), ("", None), (None, None)):
+            self.assertEqual(catalog._norm_status(raw), want)
+        for bad in ("0", "выведен", "Активный"):
+            with self.assertRaises(ValueError):
+                catalog._norm_status(bad)
+
+    def test_update_normalizes_case(self):
+        with patch.object(db, "execute") as execute:
+            catalog.update_item({"seller_article": "SKU/1", "marketplace": "wb", "status": "sale"}, user=self.ADMIN)
+        upd = [c for c in execute.call_args_list if "UPDATE catalog_marketplace" in c.args[0]]
+        self.assertEqual(upd[0].args[1][0], "Sale")
+
+    def test_update_rejects_unknown_status_without_writes(self):
+        with patch.object(db, "execute") as execute:
+            with self.assertRaises(HTTPException) as cm:
+                catalog.update_item({"seller_article": "SKU/1", "marketplace": "wb", "status": "0"}, user=self.ADMIN)
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("«0»", cm.exception.detail)
+        execute.assert_not_called()
+
+    def test_import_normalizes_case(self):
+        with patch.object(db, "execute_values") as ev:
+            catalog.import_items(_book(["core", "SALE", "new", None]), marketplace="Wildberries", user=self.ADMIN)
+        mp_rows = ev.call_args_list[1].args[1]
+        self.assertEqual([r[2] for r in mp_rows], ["CORE", "Sale", "NEW", None])
+
+    def test_import_rejects_file_with_unknown_status(self):
+        with patch.object(db, "execute_values") as ev:
+            with self.assertRaises(HTTPException) as cm:
+                catalog.import_items(_book(["CORE", "0", "выведен"]), marketplace="Ozon", user=self.ADMIN)
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("строка 3, SKU/2: «0»", cm.exception.detail)
+        self.assertIn("строка 4, SKU/3: «выведен»", cm.exception.detail)
+        ev.assert_not_called()

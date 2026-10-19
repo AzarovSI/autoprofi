@@ -32,6 +32,27 @@ def _invalidate_rnp_trees():
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
+# Список статусов (как STATUS_PRESETS во фронтенде). Импорт 12.10.2026 записал 'core', 'SALE',
+# 'new', '0', 'выведен' как есть — с 19.10 регистр приводится к списку, прочее отклоняется.
+STATUS_LIST = ("CORE", "NEW", "Closeout", "Sale", "?", "-")
+
+
+def _norm_status(v):
+    """Статус → значение из STATUS_LIST без учёта регистра; пусто → None; не из списка → ValueError."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s:
+        return None
+    for p in STATUS_LIST:
+        if p.lower() == s.lower():
+            return p
+    raise ValueError(s)
+
+
+def _bad_status_detail(values):
+    return ("Статус не из списка (" + ", ".join(STATUS_LIST) + "): " + "; ".join(values))
+
 # Допустимые маркетплейсы (как в fact_weekly / rnp_router).
 _MP_ALLOWED = {"Ozon", "Wildberries"}
 
@@ -169,6 +190,11 @@ def update_item(payload: dict = Body(...), user=Depends(auth.get_current_user)):
         raise HTTPException(status_code=400, detail="Не указан артикул")
     mp = _norm_mp(payload.get("marketplace"))
     _check_update(user, sa, mp, payload)
+    if "status" in payload:
+        try:
+            payload["status"] = _norm_status(payload["status"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=_bad_status_detail([f"«{e}»"]))
 
     # 1) Общие поля (категории + наименование) → catalog_items
     common_fields, common_params = [], []
@@ -296,7 +322,7 @@ def import_items(
     # Собираем все строки в памяти и делаем ДВА пакетных запроса
     # (вместо 2 запросов на каждую строку) — иначе на сотнях строк
     # открывалось бы сотни TLS-соединений и запрос рвался по таймауту.
-    items_rows, mp_rows = [], []
+    items_rows, mp_rows, bad_status = [], [], []
     seen = set()
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
@@ -310,8 +336,19 @@ def import_items(
             continue
         seen.add(sa)
         vals = list(row) + [None] * (8 - len(row))
+        try:
+            status = _norm_status(vals[5])
+        except ValueError as e:
+            bad_status.append(f"строка {i + 1}, {sa}: «{e}»")
+            continue
         items_rows.append((sa, _clean(vals[1]), _clean(vals[2]), _clean(vals[3]), _clean(vals[4])))
-        mp_rows.append((sa, mp, _clean(vals[5]), _clean(vals[6]), _clean(vals[7])))
+        mp_rows.append((sa, mp, status, _clean(vals[6]), _clean(vals[7])))
+
+    # Статус не из списка — файл не загружается целиком (ничего не записано).
+    if bad_status:
+        more = f"; и ещё {len(bad_status) - 20}" if len(bad_status) > 20 else ""
+        raise HTTPException(status_code=400,
+                            detail=_bad_status_detail(bad_status[:20]) + more + ". Файл не загружен.")
 
     # 1) Общие поля (наименование + категории) → catalog_items — одним пакетом
     db.execute_values(
