@@ -47,6 +47,12 @@ def migrate_price_model():
 
 
 @app.on_event("startup")
+def migrate_abc_rules():
+    from .abc_rules import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def migrate_fact_schema():
     from .fact_schema import migrate
     migrate()

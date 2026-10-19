@@ -802,3 +802,40 @@
   .abc-dash .abc-cal .rnp-cal-presets { flex-wrap: wrap; }
   .abc-dash .abc-cal .rnp-cal-preset { flex: 1 1 40%; }
 }
+/* ⚙ Пороги рекомендаций (19.10.2026) */
+.abc-dash .abc-rules { position: relative; }
+.abc-dash .abc-rules-btn {
+  height: 34px; width: 34px; font-size: 16px; line-height: 1; cursor: pointer;
+  color: var(--text-muted); background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 8px;
+}
+.abc-dash .abc-rules-btn:hover, .abc-dash .abc-rules-btn.open { color: var(--accent); border-color: var(--accent); }
+.abc-dash .abc-rules-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: min(560px, calc(100vw - 32px));
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(20,22,48,.16); padding: 14px 16px;
+}
+.abc-dash .abc-rules-panel[hidden] { display: none; }
+.abc-dash .abc-rules-title { font-weight: 700; font-size: var(--text-sm); margin-bottom: 8px; }
+.abc-dash .abc-rules-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+.abc-dash .abc-rules-table th { text-align: right; color: var(--text-muted); font-weight: 600; padding: 4px; }
+.abc-dash .abc-rules-table td { padding: 4px; text-align: right; vertical-align: middle; }
+.abc-dash .abc-rules-table td.lbl { text-align: left; color: var(--text); }
+.abc-dash .abc-rules-table td[colspan="3"] { text-align: left; }
+.abc-dash .abc-rules-table tr.sep td { text-align: left; padding-top: 10px; color: var(--text-muted); font-weight: 600; }
+.abc-dash .abc-rule-in {
+  width: 92px; height: 28px; padding: 0 6px; text-align: right; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border); border-radius: 6px; background: #fff;
+}
+.abc-dash .abc-rule-in:disabled { background: var(--bg-elev-2); color: var(--text-muted); }
+.abc-dash .abc-rules-note { font-size: var(--text-xs); margin: 10px 0 0; line-height: 1.45; }
+.abc-dash .abc-rules-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+/* Телефон: панель — во всю ширину панели инструментов (кнопка ⚙ справа, иначе вылезает за экран). */
+@media (max-width: 600px) {
+  .abc-dash .abc-toolbar { position: relative; }
+  .abc-dash .abc-rules { position: static; }
+  .abc-dash .abc-rules-panel { left: 0; right: 0; width: auto; overflow-x: auto; padding: 12px; }
+  .abc-dash .abc-rules-table td, .abc-dash .abc-rules-table th { padding: 3px 2px; }
+  .abc-dash .abc-rule-in { width: 66px; padding: 0 4px; }
+}
+.abc-dash .abc-rule-in { -moz-appearance: textfield; appearance: textfield; }
+.abc-dash .abc-rule-in::-webkit-inner-spin-button, .abc-dash .abc-rule-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

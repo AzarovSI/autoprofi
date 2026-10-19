@@ -155,6 +155,10 @@ const API = (() => {
     rnpTrend: (p) => cget('/api/rnp/trend' + qs(p)),
     // ABC (анализ товарной матрицы)
     abcData: () => cget('/api/abc/data'),
+    abcRulesSave: (rules) => request('/api/abc/rules', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules }),
+    }),
     // catalog
     catalogItems: (p) => cget('/api/catalog/items' + qs(p)),
     // дерево/справочники фильтров: статусы/менеджеры зависят от marketplace

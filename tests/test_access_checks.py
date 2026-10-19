@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from test_wb_prices import prepare_local_db
 from test_access_roles import reset_roles
-from app import auth, db, permissions, price_model
+from app import abc_rules, auth, db, permissions, price_model
 from app.main import app
 from app.routers import prices_router, rnp_comments_router, users_router
 
@@ -110,6 +110,7 @@ CASES = [
      ["sales.open", tab("sales", YA), "sales.plan.import"], [YA]),
     # ABC
     ("GET", "/api/abc/data", {}, ["abc.open"], []),
+    ("PUT", "/api/abc/rules", {"json": {"rules": {"consider_mult": {"all": 3}}}}, ["abc.rules.edit"], []),
     # Склады
     up("/api/upload/wb_stock", "stock.upload.wb"),
     up("/api/upload/ozon_wh_stock", "stock.upload.ozon"),
@@ -181,6 +182,7 @@ class AccessChecksTest(unittest.TestCase):
         reset_roles()
         permissions.migrate()
         price_model.migrate()
+        abc_rules.migrate()
         cls.roles = db.query_all(
             """SELECT r.id, r.name, r.is_admin, r.marketplaces,
                       ARRAY(SELECT permission FROM app_role_permissions p WHERE p.role_id = r.id)

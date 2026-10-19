@@ -85,5 +85,38 @@ class PartialMonthTest(unittest.TestCase):
         self.assertEqual(got[(2026, 10)], {})
 
 
+
+class RulesTest(unittest.TestCase):
+    """Пороги рекомендаций (⚙): исходные значения, проверка присланных (решение владельца 19.10.2026)."""
+
+    def test_defaults_in_data_when_table_empty(self):
+        with patch.object(db, "query_all", return_value=[]):
+            res = abc.abc_data(user=ADMIN)
+        self.assertEqual(res["rules"]["tail_rev"], {"ozon": 30000, "vb": 30000, "ya": 15000})
+        self.assertEqual(res["rules"]["remove_here_rev"], {"ozon": 100000, "vb": 100000})
+        self.assertEqual(res["rules_defaults"]["low_margin_pct"], {"all": 0.05})
+
+    def test_saved_value_overrides_default(self):
+        with patch.object(db, "query_all", return_value=[
+                dict(param="tail_rev", marketplace="ya", value=12000),
+                dict(param="unknown", marketplace="ya", value=1)]):
+            rules = abc.abc_rules.load()
+        self.assertEqual(rules["tail_rev"]["ya"], 12000.0)
+        self.assertNotIn("unknown", rules)
+
+    def test_validate(self):
+        ok = abc.abc_rules.validate({"tail_rev": {"ya": "15000"}, "low_margin_pct": {"all": 0.05}})
+        self.assertEqual(ok, [("tail_rev", "ya", 15000.0), ("low_margin_pct", "all", 0.05)])
+        for bad in ({"nope": {"ya": 1}}, {"remove_here_rev": {"ya": 1}}, {"tail_rev": {"ozon": -1}},
+                    {"low_margin_pct": {"all": 5}}, {"consider_mult": {"all": 0.5}}, {"tail_rev": {"vb": "x"}}):
+            with self.assertRaises(ValueError):
+                abc.abc_rules.validate(bad)
+
+    def test_save_endpoint_rejects_bad_value(self):
+        with self.assertRaises(abc.HTTPException) as cm:
+            abc.save_rules({"rules": {"tail_rev": {"ozon": -5}}}, user=ADMIN)
+        self.assertEqual(cm.exception.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

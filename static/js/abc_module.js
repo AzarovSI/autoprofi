@@ -20,6 +20,8 @@ window.ABCDash = (function () {
     period: { from: '', to: '' },
     loaded: false,        // данные уже получены с API в этой сессии страницы (кэш)
     activeTab: 'overview', // активная под-вкладка — восстанавливаем при возврате
+    rules: null,          // пороги рекомендаций {param: {ozon|vb|ya|all: value}} — из /api/abc/data
+    rulesDefaults: null,  // исходные значения (кнопка «Сбросить к исходным»)
   };
 
 
@@ -178,6 +180,7 @@ window.ABCDash = (function () {
     renderTable('ya', STATE.computed.ya);
     renderCross();
     renderActions();
+    fillRuleTexts();
   }
 
   function computeAll(raw, months) {
@@ -217,18 +220,18 @@ window.ABCDash = (function () {
 
     Object.values(ozAgg).forEach(s => {
       const other = vbAgg[s.sku];
-      const [code, reason] = makeRecommendation(s, other);
+      const [code, reason] = makeRecommendation(s, other, 'ozon', months.length);
       s.rec_code = code; s.rec_reason = reason;
     });
     Object.values(vbAgg).forEach(s => {
       const other = ozAgg[s.sku];
-      const [code, reason] = makeRecommendation(s, other);
+      const [code, reason] = makeRecommendation(s, other, 'vb', months.length);
       s.rec_code = code; s.rec_reason = reason;
     });
     // Рекомендации Яндекса — только по собственной ABC (other=null): МП не
     // участвует в логике переноса/разделения ассортимента между ОЗОН и ВБ.
     Object.values(yaAgg).forEach(s => {
-      const [code, reason] = makeRecommendation(s, null);
+      const [code, reason] = makeRecommendation(s, null, 'ya', months.length);
       s.rec_code = code; s.rec_reason = reason;
     });
 
@@ -413,10 +416,24 @@ window.ABCDash = (function () {
     return result;
   }
 
-  function makeRecommendation(rec, other) {
+  // Пороги рекомендаций (⚙, таблица abc_rules): рубли — в месяц по площадке, за период ×
+  // число месяцев; marketplace 'all' — общие параметры.
+  function rule(param, mp) {
+    const r = (STATE.rules && STATE.rules[param]) || {};
+    return r[mp] != null ? r[mp] : (r.all != null ? r.all : 0);
+  }
+
+  function makeRecommendation(rec, other, mp, nMonths) {
     const rev = rec.revenue, prof = rec.profit;
     const abc_r = rec.abc_revenue, abc_p = rec.abc_profit;
     const margin = rec.margin || 0;
+    const n = Math.max(1, nMonths || 1);
+    const tailRev = rule('tail_rev', mp) * n;
+    const lowProfit = rule('low_margin_profit', mp) * n;
+    const lowPct = rule('low_margin_pct', 'all');
+    const rmRev = rule('remove_here_rev', mp) * n;
+    const rmMult = rule('remove_here_mult', 'all');
+    const consMult = rule('consider_mult', 'all');
 
     if (abc_r === 'A' && abc_p === 'A') return ['KEEP_STAR', 'Звёздный товар (AA): высокая выручка и прибыль — защищать и развивать'];
     if (abc_r === 'Z') return ['REMOVE', 'Нет продаж за период — вывести из матрицы'];
@@ -429,20 +446,20 @@ window.ABCDash = (function () {
     }
 
     if (other && other.profit > 0) {
-      if ((abc_r === 'B' || abc_r === 'C') && other.abc_revenue === 'A' && other.profit >= prof * 5) {
-        if (rev < 100000) return ['REMOVE_HERE', `Здесь только ${rub(rev)} выручки против ${rub(other.revenue)} на другом МП — сосредоточить там`];
+      if ((abc_r === 'B' || abc_r === 'C') && other.abc_revenue === 'A' && other.profit >= prof * rmMult) {
+        if (rev < rmRev) return ['REMOVE_HERE', `Здесь только ${rub(rev)} выручки против ${rub(other.revenue)} на другом МП — сосредоточить там`];
       }
-      if (abc_r === 'C' && (other.abc_revenue === 'A' || other.abc_revenue === 'B') && other.profit >= prof * 3) {
+      if (abc_r === 'C' && (other.abc_revenue === 'A' || other.abc_revenue === 'B') && other.profit >= prof * consMult) {
         return ['CONSIDER_REMOVE_HERE', 'Товар лучше работает на другом МП — рассмотреть концентрацию там'];
       }
     }
 
     if (abc_r === 'C' && abc_p === 'C') {
-      if (rev < 30000) return ['REMOVE', 'Длинный хвост (CC) с очень низкой выручкой — кандидат на вывод'];
+      if (rev < tailRev) return ['REMOVE', `Длинный хвост (CC): выручка ${rub(rev)} меньше порога ${rub(tailRev)} — кандидат на вывод`];
       return ['REVIEW', 'Длинный хвост (CC) — пересмотреть целесообразность'];
     }
-    if (margin < 0.05 && prof < 30000 && abc_r !== 'A') {
-      return ['REVIEW', `Низкая маржа (${(margin*100).toFixed(1)}%) и небольшая прибыль — рассмотреть вывод`];
+    if (margin < lowPct && prof < lowProfit && abc_r !== 'A') {
+      return ['REVIEW', `Низкая маржа (${(margin*100).toFixed(1)}%) и прибыль меньше ${rub(lowProfit)} — рассмотреть вывод`];
     }
     if (abc_r === 'A') return ['KEEP', 'Топ по выручке (A) — оставить'];
     if (abc_p === 'A') return ['KEEP', 'Топ по прибыли (A) — оставить'];
@@ -2010,6 +2027,8 @@ window.ABCDash = (function () {
       partial: m.partial || {},   // неполный месяц: { ozon|vb|ya: 'YYYY-MM-DD' | '' }
     }));
     STATE.allMonths = STATE.monthMeta.map((m) => m.key);
+    STATE.rules = (payload && payload.rules) || {};
+    STATE.rulesDefaults = (payload && payload.rules_defaults) || {};
     return { ozon, vb, yandex, holds, dashOzon: [], dashVb: [], dashYa: [] };
   }
 
@@ -2249,6 +2268,10 @@ window.ABCDash = (function () {
         <span class="abc-period-chev">▾</span>
       </button>
       <div class="abc-cal rnp-cal" id="abc-cal" hidden></div>
+    </div>
+    <div class="abc-rules" id="abc-rules">
+      <button class="abc-rules-btn" id="abc-rules-btn" type="button" title="Пороги рекомендаций" aria-haspopup="true" aria-expanded="false">⚙</button>
+      <div class="abc-rules-panel" id="abc-rules-panel" hidden></div>
     </div>
   </div>
 
@@ -2624,28 +2647,28 @@ window.ABCDash = (function () {
           <span class="pill rec-REVIEW">Пересмотреть</span>
           <div class="rl-text">
             <p class="rl-meaning">Серая зона — не звезда и не аутсайдер. Стоит вручную проверить: ассортиментная роль, цена, себестоимость, реклама.</p>
-            <p class="rl-criteria"><span class="rl-label">Критерий:</span> «Длинный хвост» CC с выручкой ≥ 30 000 ₽ <span class="rl-or">ИЛИ</span> маржа &lt; 5% при прибыли &lt; 30 000 ₽ и ABC по выручке ≠ A</p>
+            <p class="rl-criteria"><span class="rl-label">Критерий:</span> «Длинный хвост» CC с выручкой не ниже порога (<b data-rule="tail_rev"></b>) <span class="rl-or">ИЛИ</span> маржа &lt; <b data-rule="low_margin_pct"></b> при прибыли меньше <b data-rule="low_margin_profit"></b> и ABC по выручке ≠ A</p>
           </div>
         </div>
         <div class="recs-legend-item">
           <span class="pill rec-CONSIDER_REMOVE_HERE">Рассмотреть перенос</span>
           <div class="rl-text">
             <p class="rl-meaning">Здесь товар продаётся слабо, а на другом маркетплейсе ощутимо лучше. Имеет смысл сконцентрировать продажи там, а здесь — постепенно сворачивать.</p>
-            <p class="rl-criteria"><span class="rl-label">Критерий:</span> ABC по выручке = <b>C</b> на этом МП, при этом на другом МП — <b>A</b> или <b>B</b> и прибыль другого МП ≥ <b>3×</b> прибыли здесь</p>
+            <p class="rl-criteria"><span class="rl-label">Критерий:</span> ABC по выручке = <b>C</b> на этом МП, при этом на другом МП — <b>A</b> или <b>B</b> и прибыль другого МП ≥ <b data-rule="consider_mult"></b> прибыли здесь</p>
           </div>
         </div>
         <div class="recs-legend-item">
           <span class="pill rec-REMOVE_HERE">Убрать с этого МП</span>
           <div class="rl-text">
             <p class="rl-meaning">Здесь товар тянет вниз, а на другом маркетплейсе нормально работает. Снять с этого МП, оставить только на втором.</p>
-            <p class="rl-criteria"><span class="rl-label">Критерий:</span> Убыток здесь <span class="rl-and">И</span> прибыль на другом МП с ABC по выручке = A или B <span class="rl-or">ИЛИ</span> ABC = B/C здесь, A на другом МП, прибыль другого ≥ <b>5×</b> прибыли здесь и выручка здесь &lt; 100 000 ₽</p>
+            <p class="rl-criteria"><span class="rl-label">Критерий:</span> Убыток здесь <span class="rl-and">И</span> прибыль на другом МП с ABC по выручке = A или B <span class="rl-or">ИЛИ</span> ABC = B/C здесь, A на другом МП, прибыль другого ≥ <b data-rule="remove_here_mult"></b> прибыли здесь и выручка здесь меньше <b data-rule="remove_here_rev"></b></p>
           </div>
         </div>
         <div class="recs-legend-item">
           <span class="pill rec-REMOVE">Вывести совсем</span>
           <div class="rl-text">
             <p class="rl-meaning">SKU не приносит ни выручки, ни прибыли — и нет смысла держать его ни на одном маркетплейсе. Вывести из матрицы.</p>
-            <p class="rl-criteria"><span class="rl-label">Критерий:</span> ABC по выручке = <b>Z</b> (нет продаж за период) <span class="rl-or">ИЛИ</span> убыток без рабочей альтернативы на другом МП <span class="rl-or">ИЛИ</span> «длинный хвост» CC с выручкой &lt; 30 000 ₽</p>
+            <p class="rl-criteria"><span class="rl-label">Критерий:</span> ABC по выручке = <b>Z</b> (нет продаж за период) <span class="rl-or">ИЛИ</span> убыток без рабочей альтернативы на другом МП <span class="rl-or">ИЛИ</span> «длинный хвост» CC с выручкой меньше <b data-rule="tail_rev"></b></p>
           </div>
         </div>
       </div>
@@ -2657,6 +2680,104 @@ window.ABCDash = (function () {
     <p>ABC-методология (80/15/5) · данные за <span class="period-label">—</span></p>
   </footer>
 </div>`;
+  }
+
+  /* ============ Пороги рекомендаций (⚙) ============ */
+  const RULE_ROWS = [
+    { p: 'tail_rev', label: '«Длинный хвост» (CC): «Вывести совсем», если выручка меньше', unit: '₽', mps: ['ozon', 'vb', 'ya'] },
+    { p: 'low_margin_profit', label: 'Низкая маржа: «Пересмотреть», если прибыль меньше', unit: '₽', mps: ['ozon', 'vb', 'ya'] },
+    { p: 'remove_here_rev', label: '«Убрать с этого МП»: выручка здесь меньше', unit: '₽', mps: ['ozon', 'vb'] },
+  ];
+  const RULE_COMMON = [
+    { p: 'low_margin_pct', label: 'Порог низкой маржи', unit: '%' },
+    { p: 'remove_here_mult', label: '«Убрать с этого МП»: прибыль на другом МП не меньше', unit: '×' },
+    { p: 'consider_mult', label: '«Рассмотреть перенос»: прибыль на другом МП не меньше', unit: '×' },
+  ];
+  const RULE_MP_LABEL = { ozon: 'ОЗОН', vb: 'ВБ', ya: 'Яндекс' };
+
+  // Текст порога для легенды: «30 000 ₽/мес» или «ОЗОН 30 000 · ВБ 30 000 · Яндекс 15 000 ₽/мес».
+  function ruleText(param) {
+    const r = (STATE.rules && STATE.rules[param]) || {};
+    if (param === 'low_margin_pct') return ((r.all || 0) * 100).toLocaleString('ru-RU') + '%';
+    if ('all' in r) return r.all.toLocaleString('ru-RU') + '×';
+    const mps = Object.keys(RULE_MP_LABEL).filter(mp => mp in r);
+    const vals = mps.map(mp => r[mp]);
+    if (vals.every(v => v === vals[0])) return num(vals[0]) + ' ₽ в месяц';
+    return mps.map(mp => RULE_MP_LABEL[mp] + ' ' + num(r[mp])).join(' · ') + ' ₽ в месяц';
+  }
+  function fillRuleTexts() {
+    document.querySelectorAll('.abc-dash [data-rule]').forEach(el => { el.textContent = ruleText(el.dataset.rule); });
+  }
+
+  function renderRulesPanel(src) {
+    const panel = document.getElementById('abc-rules-panel');
+    if (!panel) return;
+    const R = src || STATE.rules || {};
+    const canEdit = App.can('abc.rules.edit');
+    const off = canEdit ? '' : ' disabled';
+    const inp = (p, mp, v, unit) => {
+      const shown = unit === '%' ? +(v * 100).toFixed(2) : v;
+      return `<input type="number" min="${unit === '×' ? 1 : 0}" step="${unit === '₽' ? 1000 : (unit === '%' ? 0.5 : 0.5)}" class="abc-rule-in" data-p="${p}" data-mp="${mp}" data-unit="${unit}" value="${shown}"${off}>`;
+    };
+    const head = `<tr><th></th>${['ozon', 'vb', 'ya'].map(mp => `<th>${RULE_MP_LABEL[mp]}</th>`).join('')}</tr>`;
+    const rows = RULE_ROWS.map(r => `<tr><td class="lbl">${r.label}, ₽ в месяц</td>${['ozon', 'vb', 'ya'].map(mp =>
+      `<td>${r.mps.includes(mp) ? inp(r.p, mp, (R[r.p] || {})[mp] ?? 0, r.unit) : '<span class="muted">—</span>'}</td>`).join('')}</tr>`).join('');
+    const common = RULE_COMMON.map(r => `<tr><td class="lbl">${r.label}, ${r.unit === '%' ? '%' : 'раз'}</td><td colspan="3">${inp(r.p, 'all', (R[r.p] || {}).all ?? 0, r.unit)}</td></tr>`).join('');
+    const n = STATE.selectedMonths.length;
+    panel.innerHTML = `
+      <div class="abc-rules-title">Пороги рекомендаций</div>
+      <table class="abc-rules-table"><thead>${head}</thead><tbody>${rows}
+        <tr class="sep"><td colspan="4">Общие для всех площадок</td></tr>${common}</tbody></table>
+      <p class="abc-rules-note muted">Рублёвые пороги — в месяц: за выбранный период умножаются на число его месяцев (сейчас ${n}).
+        Пороги общие для всех сотрудников.${canEdit ? '' : ' Менять их может пользователь с правом «ABC: менять пороги рекомендаций».'}</p>
+      ${canEdit ? `<div class="abc-rules-actions">
+        <button type="button" class="btn-secondary" id="abc-rules-reset">Сбросить к исходным</button>
+        <button type="button" class="btn-primary" id="abc-rules-save">Сохранить</button></div>` : ''}`;
+    if (!canEdit) return;
+    panel.querySelector('#abc-rules-reset').addEventListener('click', () => renderRulesPanel(STATE.rulesDefaults));
+    panel.querySelector('#abc-rules-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const rules = {};
+      for (const el of panel.querySelectorAll('.abc-rule-in')) {
+        let v = Number(el.value);
+        if (el.value === '' || !isFinite(v) || v < Number(el.min)) { el.focus(); App.toast('Проверьте значение: ' + el.closest('tr').querySelector('.lbl').textContent, 'err'); return; }
+        if (el.dataset.unit === '%') v = v / 100;
+        (rules[el.dataset.p] = rules[el.dataset.p] || {})[el.dataset.mp] = v;
+      }
+      btn.disabled = true;
+      try {
+        const api = window.API || API;
+        const res = await api.abcRulesSave(rules);
+        STATE.rules = res.rules;
+        if (api.cacheClear) api.cacheClear('/api/abc');
+        App.toast('Пороги рекомендаций сохранены', 'ok');
+        closeRulesPanel();
+        recomputeAndRender();
+      } catch (err) {
+        App.toast('Ошибка сохранения порогов: ' + ((err && err.message) || err), 'err');
+      } finally { btn.disabled = false; }
+    });
+  }
+  function closeRulesPanel() {
+    const panel = document.getElementById('abc-rules-panel'), btn = document.getElementById('abc-rules-btn');
+    if (panel) panel.hidden = true;
+    if (btn) { btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); }
+  }
+  function bindRulesPanel() {
+    const wrap = document.getElementById('abc-rules'), btn = document.getElementById('abc-rules-btn');
+    const panel = document.getElementById('abc-rules-panel');
+    if (!wrap || !btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!panel.hidden) { closeRulesPanel(); return; }
+      renderRulesPanel();
+      panel.hidden = false; btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+    });
+    // Клики внутри панели её не закрывают («Сбросить» перерисовывает панель — цель клика уже вне DOM).
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', (e) => { if (!panel.hidden && !wrap.contains(e.target)) closeRulesPanel(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) closeRulesPanel(); });
   }
 
   /* ============ Точка входа ============ */
@@ -2679,6 +2800,7 @@ window.ABCDash = (function () {
       }
       bindSubNav();
       bindAbcPeriod();
+      bindRulesPanel();
       bindModal();
       populateRecsLegend();
       refreshAbcPeriodLabel();
@@ -2724,6 +2846,7 @@ window.ABCDash = (function () {
 
     bindSubNav();
     bindAbcPeriod();
+    bindRulesPanel();
     bindModal();
     populateRecsLegend();
     refreshAbcPeriodLabel();

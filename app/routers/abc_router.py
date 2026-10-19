@@ -28,9 +28,9 @@
 import calendar
 import datetime as dt
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 
-from .. import db, auth
+from .. import db, auth, abc_rules
 
 router = APIRouter(prefix="/api/abc", tags=["abc"])
 
@@ -263,4 +263,15 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             }
     months = sorted(seen.values(), key=lambda x: (x["year"], x["month"]))
 
-    return {"rows": rows, "holds": holds, "months": months}
+    return {"rows": rows, "holds": holds, "months": months,
+            "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
+
+
+@router.put("/rules")
+def save_rules(payload: dict = Body(...), user=Depends(auth.require("abc.rules.edit"))):
+    """Пороги рекомендаций (кнопка ⚙): {"rules": {param: {mp: value}}} → все пороги после записи."""
+    try:
+        rules = abc_rules.save(payload.get("rules"), user.get("id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"rules": rules, "defaults": abc_rules.DEFAULTS}
