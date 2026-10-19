@@ -151,6 +151,24 @@ window.ABCDash = (function () {
     return parseInt(y, 10) * 100 + (fullIdx >= 0 ? fullIdx : 0);
   }
 
+  /* ============ Неполные месяцы ============ */
+  const MP_SHORT = { ozon: 'ОЗОН', vb: 'ВБ', ya: 'Яндекс' };
+  // Неполон ли месяц key («ГГГГ-ММ») у МП mp ('ozon'|'vb'|'ya'; 'all' — у любого МП).
+  function isPartial(key, mp) {
+    const m = STATE.monthMeta.find(x => x.key === key);
+    const p = (m && m.partial) || {};
+    return mp === 'all' ? Object.keys(p).length > 0 : (mp in p);
+  }
+  // « · неполный: Окт 2026 — ОЗОН по 15.10, ВБ по 13.10, Яндекс без даты» для выбранных месяцев.
+  function partialNote(keys) {
+    const parts = STATE.monthMeta.filter(m => keys.includes(m.key) && Object.keys(m.partial || {}).length)
+      .map(m => m.label + ' — ' + ['ozon', 'vb', 'ya'].filter(mp => mp in m.partial).map(mp => {
+        const d = m.partial[mp];
+        return MP_SHORT[mp] + (d ? ' по ' + d.slice(8, 10) + '.' + d.slice(5, 7) : ' без даты');
+      }).join(', '));
+    return parts.length ? ' · неполный месяц: ' + parts.join('; ') : '';
+  }
+
   /* ============ Compute pipeline ============ */
   function recomputeAndRender() {
     STATE.computed = computeAll(STATE.raw, STATE.selectedMonths);
@@ -937,10 +955,10 @@ window.ABCDash = (function () {
     }
 
     const cards = [
-      { selector: '.yoy-card[data-mp="oz"]',  map: ozMap,  rev: ozRevMap,  prof: ozProfMap,  presence: ozPresence,  color: '#2f6bff', name: 'ОЗОН' },
-      { selector: '.yoy-card[data-mp="vb"]',  map: vbMap,  rev: vbRevMap,  prof: vbProfMap,  presence: vbPresence,  color: '#cb11ab', name: 'Wildberries' },
-      { selector: '.yoy-card[data-mp="ya"]',  map: yaMap,  rev: yaRevMap,  prof: yaProfMap,  presence: yaPresence,  color: '#ffcc00', name: 'Yandex' },
-      { selector: '.yoy-card[data-mp="all"]', map: allMap, rev: allRevMap, prof: allProfMap, presence: allPresence, color: '#16a360', name: 'Общий (ОЗОН+ВБ+Яндекс)' },
+      { selector: '.yoy-card[data-mp="oz"]',  pk: 'ozon', map: ozMap,  rev: ozRevMap,  prof: ozProfMap,  presence: ozPresence,  color: '#2f6bff', name: 'ОЗОН' },
+      { selector: '.yoy-card[data-mp="vb"]',  pk: 'vb', map: vbMap,  rev: vbRevMap,  prof: vbProfMap,  presence: vbPresence,  color: '#cb11ab', name: 'Wildberries' },
+      { selector: '.yoy-card[data-mp="ya"]',  pk: 'ya', map: yaMap,  rev: yaRevMap,  prof: yaProfMap,  presence: yaPresence,  color: '#ffcc00', name: 'Yandex' },
+      { selector: '.yoy-card[data-mp="all"]', pk: 'all', map: allMap, rev: allRevMap, prof: allProfMap, presence: allPresence, color: '#16a360', name: 'Общий (ОЗОН+ВБ+Яндекс)' },
     ];
 
     // Годы для сравнения — отсортированы по возрастанию
@@ -984,6 +1002,18 @@ window.ABCDash = (function () {
         const aPresent = card.presence ? (card.presence[prev] || new Array(12).fill(0)) : a;
         const bPresent = card.presence ? (card.presence[curr] || new Array(12).fill(0)) : b;
         const monthsBoth = [];
+        // Неполный месяц (текущий, «факт по дату») в сопоставимые не берём: полмесяца против
+        // полного месяца прошлого года занижают YoY.
+        const mk = (y, i) => y + '-' + String(i + 1).padStart(2, '0');
+        const skipped = [];
+        const usable = (i) => {
+          if (!(aPresent[i] > 0 && bPresent[i] > 0)) return false;
+          if (isPartial(mk(prev, i), card.pk) || isPartial(mk(curr, i), card.pk)) {
+            skipped.push(MONTH_SHORT[MONTH_ORDER[i]] + ' ' + (isPartial(mk(curr, i), card.pk) ? curr : prev));
+            return false;
+          }
+          return true;
+        };
         if (isMargin) {
           // Для маржи: отдельно суммы prev/curr по revenue и profit в сопоставимых месяцах
           const aRev = card.rev[prev] || new Array(12).fill(0);
@@ -992,7 +1022,7 @@ window.ABCDash = (function () {
           const bProf = card.prof[curr] || new Array(12).fill(0);
           let prevR = 0, currR = 0, prevP = 0, currP = 0;
           for (let i = 0; i < 12; i++) {
-            if (aPresent[i] > 0 && bPresent[i] > 0) {
+            if (usable(i)) {
               monthsBoth.push(MONTH_SHORT[MONTH_ORDER[i]]);
               prevR += aRev[i]; currR += bRev[i];
               prevP += aProf[i]; currP += bProf[i];
@@ -1000,17 +1030,17 @@ window.ABCDash = (function () {
           }
           const prevSum = prevR > 0 ? (prevP / prevR * 100) : null;
           const currSum = currR > 0 ? (currP / currR * 100) : null;
-          comparable = { prev, curr, prevSum, currSum, monthsBoth };
+          comparable = { prev, curr, prevSum, currSum, monthsBoth, skipped };
         } else {
           let prevSum = 0, currSum = 0;
           for (let i = 0; i < 12; i++) {
-            if (aPresent[i] > 0 && bPresent[i] > 0) {
+            if (usable(i)) {
               monthsBoth.push(MONTH_SHORT[MONTH_ORDER[i]]);
               prevSum += a[i];
               currSum += b[i];
             }
           }
-          comparable = { prev, curr, prevSum, currSum, monthsBoth };
+          comparable = { prev, curr, prevSum, currSum, monthsBoth, skipped };
         }
       }
 
@@ -1042,6 +1072,7 @@ window.ABCDash = (function () {
         footTxt = isMargin
           ? `Сравнение по сопоставимым месяцам (${comparable.monthsBoth.join(', ')}): ${absTxt}. Не равно разнице годовых итогов.`
           : `Сопоставимо: ${comparable.monthsBoth.join(', ')} · ${absTxt}`;
+        if (comparable.skipped.length) footTxt += ` · без неполного месяца (${comparable.skipped.join(', ')})`;
       } else {
         footTxt = 'Данных для YoY-сравнения пока недостаточно';
       }
@@ -1127,9 +1158,10 @@ window.ABCDash = (function () {
     const lab = (k) => k2l.get(k) || k;
     const selLab = STATE.selectedMonths.map(lab);
     const allLab = STATE.allMonths.map(lab);
-    const periodTxt = STATE.selectedMonths.length === STATE.allMonths.length
+    const periodTxt = (STATE.selectedMonths.length === STATE.allMonths.length
       ? `все периоды (${allLab[0]} — ${allLab[allLab.length-1]})`
-      : (selLab.length <= 4 ? selLab.join(', ') : `${selLab.length} периодов: ${selLab[0]} … ${selLab[selLab.length-1]}`);
+      : (selLab.length <= 4 ? selLab.join(', ') : `${selLab.length} периодов: ${selLab[0]} … ${selLab[selLab.length-1]}`))
+      + partialNote(STATE.selectedMonths);
     document.querySelectorAll('.period-label').forEach(el => el.textContent = periodTxt);
 
     // ABC dist
@@ -1940,6 +1972,7 @@ window.ABCDash = (function () {
       // фильтр различал годы. Отображение по-прежнему через label.
       key: (m.year ? `${m.year}-${String(m.month).padStart(2, '0')}` : (MONTH_ORDER[m.month - 1] || String(m.month))),
       start: m.period_start, end: m.period_end, label: m.label,
+      partial: m.partial || {},   // неполный месяц: { ozon|vb|ya: 'YYYY-MM-DD' | '' }
     }));
     STATE.allMonths = STATE.monthMeta.map((m) => m.key);
     return { ozon, vb, yandex, holds, dashOzon: [], dashVb: [], dashYa: [] };
@@ -2631,14 +2664,13 @@ window.ABCDash = (function () {
       return;
     }
 
-    // По умолчанию — последние три месяца из доступных (только при первой загрузке)
+    // По умолчанию — текущий месяц (решение владельца 19.10.2026); если за него данных ещё
+    // нет — последний месяц с данными. Только при первой загрузке.
     var mm = STATE.monthMeta;
-    if (mm.length >= 3) {
-      var last3 = mm.slice(-3);
-      STATE.period = { from: last3[0].start || '', to: last3[last3.length - 1].end || '' };
-    } else {
-      STATE.period = { from: '', to: '' };
-    }
+    var now = new Date();
+    var curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    var defM = mm.find(function (m) { return m.key === curKey; }) || mm[mm.length - 1];
+    STATE.period = { from: defM.start || '', to: defM.end || '' };
     STATE.selectedMonths = selectedMonthsFromPeriod();
     STATE.loaded = true;   // данные получены — следующие заходы пойдут из кэша
 

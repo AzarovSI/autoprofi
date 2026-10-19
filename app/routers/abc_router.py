@@ -26,6 +26,7 @@
 в набор месяцев по пересечению интервалов.
 """
 import calendar
+import datetime as dt
 
 from fastapi import APIRouter, Depends
 
@@ -226,6 +227,24 @@ def abc_data(user=Depends(auth.require("abc.open"))):
         for r in hold_rows
     ]
 
+    # Неполные месяцы по МП: «Факт по дату» последней удачной месячной загрузки (как в РНП);
+    # текущий календарный месяц неполон всегда, даже если дату при загрузке не указали ("").
+    today = dt.date.today()
+    partial = {}  # (year, month) -> {mp: 'YYYY-MM-DD' | ''}
+    for u in db.query_all(
+        """SELECT DISTINCT ON (marketplace, year, month) marketplace, year, month, fact_through_date
+           FROM report_uploads
+           WHERE period_kind = 'monthly' AND status = 'OK'
+           ORDER BY marketplace, year, month, id DESC"""
+    ):
+        if u["fact_through_date"]:
+            partial.setdefault((int(u["year"]), int(u["month"])), {})[_HOLD_MP.get(u["marketplace"], "ozon")] = \
+                u["fact_through_date"].isoformat()
+    for mp, src in (("ozon", oz), ("vb", wb), ("ya", ya)):
+        for ym in {(int(r["year"]), int(r["month"])) for r in src}:
+            if ym >= (today.year, today.month):
+                partial.setdefault(ym, {}).setdefault(mp, "")
+
     # Уникальные месяцы с границами дат (для фильтра периода и базовой даты).
     seen = {}
     for r in oz + wb + ya:
@@ -239,6 +258,8 @@ def abc_data(user=Depends(auth.require("abc.open"))):
                 "label": "%s %d" % (MONTH_RU.get(m, str(m))[:3], y),
                 "period_start": "%04d-%02d-01" % (y, m),
                 "period_end": "%04d-%02d-%02d" % (y, m, last),
+                # Неполный месяц: {mp: дата «факт по» или ""}; пусто — месяц закрыт.
+                "partial": partial.get(key, {}),
             }
     months = sorted(seen.values(), key=lambda x: (x["year"], x["month"]))
 

@@ -1,8 +1,9 @@
-"""ABC (`/api/abc/data`): рекламный расход отдаётся положительным для всех площадок (без БД).
+"""ABC (`/api/abc/data`, без БД): рекламный расход положительный для всех площадок; неполные месяцы.
 
 Ozon и Яндекс хранят `promo_total` со знаком минус, WB `wb_ads_total` — плюсом; клиент считает
 ДРР = реклама / выручка, поэтому до 19.10.2026 ДРР Ozon и Яндекса в ABC была отрицательной.
 """
+import datetime
 import os
 import unittest
 from unittest.mock import patch
@@ -44,6 +45,44 @@ class AdSpendSignTest(unittest.TestCase):
         for r in res["rows"]:
             self.assertEqual(r["ad_spend"], 0.0)
             self.assertEqual(str(r["ad_spend"]), "0.0")  # не «-0.0»
+
+
+class PartialMonthTest(unittest.TestCase):
+    """Неполный месяц: «факт по дату» последней месячной загрузки; текущий календарный — всегда."""
+
+    def months(self, uploads, today):
+        def fake(sql, *a, **kw):
+            if sql is abc.SQL_OZON:
+                return [dict(row("OZ-1", -1.0), month=9), dict(row("OZ-1", -1.0), month=10)]
+            if sql is abc.SQL_WB:
+                return [dict(row("WB-1", 1.0), month=10)]
+            if sql is abc.SQL_YA:
+                return [dict(row("YA-1", -1.0), month=10)]
+            if "FROM report_uploads" in sql:
+                return uploads
+            return []
+
+        class FakeDate(datetime.date):
+            @classmethod
+            def today(cls):
+                return today
+
+        with patch.object(db, "query_all", side_effect=fake), patch.object(abc.dt, "date", FakeDate):
+            return {(m["year"], m["month"]): m["partial"] for m in abc.abc_data(user=ADMIN)["months"]}
+
+    def test_fact_through_and_current_month(self):
+        uploads = [dict(marketplace="Ozon", year=2026, month=10, fact_through_date=datetime.date(2026, 10, 15)),
+                   dict(marketplace="Wildberries", year=2026, month=10, fact_through_date=datetime.date(2026, 10, 13)),
+                   dict(marketplace="Yandex", year=2026, month=10, fact_through_date=None)]
+        got = self.months(uploads, datetime.date(2026, 10, 19))
+        self.assertEqual(got[(2026, 9)], {})
+        # Яндекс загружен без даты, но месяц текущий — всё равно неполный.
+        self.assertEqual(got[(2026, 10)], {"ozon": "2026-10-15", "vb": "2026-10-13", "ya": ""})
+
+    def test_closed_month_after_month_end(self):
+        got = self.months([dict(marketplace="Yandex", year=2026, month=10, fact_through_date=None)],
+                          datetime.date(2026, 11, 5))
+        self.assertEqual(got[(2026, 10)], {})
 
 
 if __name__ == "__main__":
