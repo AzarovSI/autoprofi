@@ -26,10 +26,19 @@ def matrix():
 
 
 def reset_roles():
-    """Убрать таблицы ролей, чтобы миграция выполнилась заново."""
+    """Убрать таблицы ролей, чтобы миграция выполнилась заново.
+
+    app_users пересоздаётся без role_id (строки сохраняются): DROP COLUMN оставлял удалённую
+    колонку в счётчике Postgres, и за ~200 прогонов таблица упиралась в лимит 1600 колонок.
+    """
     with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
-        conn.execute("ALTER TABLE app_users DROP COLUMN IF EXISTS role_id")
+        cols = "id, email, display_name, role, password_hash, created_at, last_seen_at"
+        users = conn.execute(f"SELECT {cols} FROM app_users").fetchall()
+        conn.execute("DROP TABLE app_users")  # первой: её role_id ссылается на app_roles
         conn.execute("DROP TABLE IF EXISTS app_role_permissions, app_roles")
+        conn.execute(Path(__file__).with_name("wb_test_schema.sql").read_text())
+        with conn.cursor() as cur:
+            cur.executemany(f"INSERT INTO app_users ({cols}) VALUES (%s, %s, %s, %s, %s, %s, %s)", users)
         if conn.execute("SELECT to_regclass('app_schema_migrations')").fetchone()[0]:
             conn.execute("DELETE FROM app_schema_migrations WHERE name=%s", (permissions.MIGRATION,))
 
