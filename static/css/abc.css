@@ -842,14 +842,14 @@
 /* Фильтр «Группа / Подгруппа» и строка итогов категории (19.10.2026) */
 .abc-dash .filters select.f-cat2, .abc-dash .filters select.f-cat3 { max-width: 240px; }
 .abc-dash .filters select.f-cat3:disabled { opacity: .55; }
-.abc-dash .cat-summary {
-  display: grid; gap: 4px; margin: 0 0 12px; padding: 10px 14px;
-  background: var(--bg-elev); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-  border-radius: 8px; font-size: var(--text-sm); color: var(--text-muted);
+/* Строка «Итого» таблиц ABC — первой строкой, по видимым строкам (19.10.2026) */
+.abc-dash .data-table tr.total-row td {
+  background: var(--bg-elev-2); font-weight: 700; color: var(--text);
+  border-bottom: 2px solid var(--border-strong); cursor: default;
 }
-.abc-dash .cat-summary[hidden] { display: none; }
-.abc-dash .cat-summary b { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.abc-dash .cat-summary b.neg { color: var(--bad); }
-.abc-dash .cat-summary .cs-name { color: var(--text); font-weight: 700; }
-.abc-dash .cat-summary .pill { font-size: 11px; padding: 0 6px; }
+.abc-dash .data-table tr.total-row:hover td { background: var(--bg-elev-2); }
+.abc-dash .data-table tr.total-row .sku-cell { font-family: var(--sans); font-size: var(--text-sm); }
+.abc-dash .data-table tr.total-row .tr-sub {
+  display: block; font-weight: 500; font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap;
+}
 @media (max-width: 600px) { .abc-dash .filters select.f-cat2, .abc-dash .filters select.f-cat3 { max-width: 100%; flex: 1 1 45%; } }

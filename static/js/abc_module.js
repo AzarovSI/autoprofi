@@ -1320,36 +1320,53 @@ window.ABCDash = (function () {
     const l2 = f.g.split(CAT_SEP)[1];
     return f.sub ? `${l2} → ${f.sub}` : l2;
   }
-  // Строка итогов выбранной категории над таблицей (классы — как по всей площадке).
-  function renderCatSummary(mp) {
-    const el = document.querySelector(`.abc-dash .cat-summary[data-mp="${mp}"]`);
-    if (!el) return;
-    if (!STATE.catFilter.g) { el.hidden = true; el.innerHTML = ''; return; }
-    const part = (rows, name, totalRev) => {
-      const rev = rows.reduce((s, r) => s + r.revenue, 0), prof = rows.reduce((s, r) => s + r.profit, 0);
-      const ad = rows.reduce((s, r) => s + (r.ad_spend || 0), 0);
-      const share = totalRev > 0 ? ` <span class="muted">(${(rev / totalRev * 100).toFixed(1)}% от ${name})</span>` : '';
-      return `выручка <b>${rub(rev)}</b>${share} · прибыль <b class="${prof < 0 ? 'neg' : ''}">${rub(prof)}</b>` +
-        ` · маржа <b>${rev > 0 ? fmtPct(prof / rev) : '—'}</b> · ДРР <b>${rev > 0 ? fmtPct(ad / rev) : '—'}</b>`;
+  /* ============ Строка «Итого» таблиц (по видимым строкам, все фильтры) ============ */
+  // Подпись: «Итого · <группа>»; классы и рекомендации — как по всей площадке, в итог не входят.
+  function totalTitle() { return 'Итого' + (STATE.catFilter.g ? ' · ' + escapeHtml(catLabel()) : ''); }
+  const sumBy = (rows, k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
+  const ratio = (a, b) => (b > 0 ? fmtPct(a / b) : '—');
+  function totalRowMp(mp, filtered, all) {
+    const rev = sumBy(filtered, 'revenue'), prof = sumBy(filtered, 'profit'), ad = sumBy(filtered, 'ad_spend');
+    const totalRev = sumBy(all, 'revenue');
+    const name = { ozon: 'ОЗОН', vb: 'ВБ', ya: 'Яндекса' }[mp];
+    const share = totalRev > 0 && filtered.length !== all.length ? ` · ${(rev / totalRev * 100).toFixed(1)}% выручки ${name}` : '';
+    const cell = {
+      sku: `<td class="sku-cell">${totalTitle()}</td>`,
+      name: `<td class="name-cell"><span class="tr-sub">${filtered.length} SKU${share}</span></td>`,
+      revenue: `<td class="num">${rub(rev)}</td>`,
+      profit: `<td class="num ${prof < 0 ? 'neg' : 'pos'}">${rub(prof)}</td>`,
+      margin: `<td class="num">${ratio(prof, rev)}</td>`,
+      drr: `<td class="num">${ratio(ad, rev)}</td>`,
+      sales_qty: `<td class="num">${num(sumBy(filtered, 'sales_qty'))}</td>`,
     };
-    let html;
-    if (mp === 'cross') {
-      const rows = STATE.computed.cross.filter(r => passCat(r.sku));
-      const pick = (side) => rows.filter(r => r['on_' + side]).map(r => ({ revenue: r[side + '_revenue'], profit: r[side + '_profit'], ad_spend: r[side + '_ad_spend'] }));
-      const both = rows.filter(r => r.on_ozon && r.on_vb).length;
-      html = `<div><span class="cs-name">${escapeHtml(catLabel())}</span> · SKU <b>${rows.length}</b>: на обоих ${both} · только ОЗОН ${rows.filter(r => r.on_ozon && !r.on_vb).length} · только ВБ ${rows.filter(r => r.on_vb && !r.on_ozon).length}</div>` +
-        `<div><span class="mp-tag oz">ОЗОН</span> ${part(pick('ozon'), 'ОЗОН', STATE.computed.summary.ozon.total_revenue)}</div>` +
-        `<div><span class="mp-tag vb">ВБ</span> ${part(pick('vb'), 'ВБ', STATE.computed.summary.vb.total_revenue)}</div>`;
-    } else {
-      const all = STATE.computed[mp], rows = all.filter(r => passCat(r.sku));
-      const name = { ozon: 'ОЗОН', vb: 'ВБ', ya: 'Яндекса' }[mp];
-      const total = all.reduce((s, r) => s + r.revenue, 0);
-      const cls = ['A', 'B', 'C', 'D', 'Z'].map(c => [c, rows.filter(r => r.abc_revenue === c).length]).filter(x => x[1])
-        .map(([c, n]) => `<span class="pill ${c}">${c}</span> ${n}`).join(' ');
-      html = `<div><span class="cs-name">${escapeHtml(catLabel())}</span> · SKU <b>${rows.length}</b>${cls ? ' · ABC выручки: ' + cls : ''}</div>` +
-        `<div>${part(rows, name, total)} <span class="muted">· прибыль товаров, без общих удержаний</span></div>`;
-    }
-    el.innerHTML = html; el.hidden = false;
+    return `<tr class="total-row">${TABLE_COLS_MP.map(c => cell[c.k] || '<td></td>').join('')}</tr>`;
+  }
+  function totalRowCross(filtered, cols) {
+    const side = {};
+    ['ozon', 'vb', 'ya'].forEach(p => {
+      const rows = filtered.filter(r => r['on_' + p]);
+      const rev = sumBy(rows, p + '_revenue'), sales = sumBy(rows, p + '_sales');
+      // У Яндекса в «Сравнении» нет суммы рекламы — восстанавливаем из ДРР строки.
+      const ad = p === 'ya' ? rows.reduce((s, r) => s + (r.ya_drr || 0) * (r.ya_revenue || 0), 0) : sumBy(rows, p + '_ad_spend');
+      side[p] = { rev, prof: sumBy(rows, p + '_profit'), ad, sales };
+    });
+    const both = filtered.filter(r => r.on_ozon && r.on_vb).length;
+    const onlyOz = filtered.filter(r => r.on_ozon && !r.on_vb).length, onlyVb = filtered.filter(r => r.on_vb && !r.on_ozon).length;
+    const td = (c, html) => `<td class="${c.cls || ''}">${html}</td>`;
+    return `<tr class="total-row">${cols.map(c => {
+      const m = /^(ozon|vb|ya)_(revenue|profit|margin|drr|sales|aov)$/.exec(c.k);
+      if (c.k === 'sku') return `<td class="sku-cell">${totalTitle()}<span class="tr-sub">${filtered.length} SKU · на обоих ${both} · только ОЗОН ${onlyOz} · только ВБ ${onlyVb}</span></td>`;
+      if (!m) return td(c, '');
+      const s = side[m[1]];
+      switch (m[2]) {
+        case 'revenue': return td(c, rub(s.rev));
+        case 'profit': return `<td class="${c.cls} ${s.prof < 0 ? 'neg' : 'pos'}">${rub(s.prof)}</td>`;
+        case 'margin': return td(c, ratio(s.prof, s.rev));
+        case 'drr': return td(c, ratio(s.ad, s.rev));
+        case 'sales': return td(c, num(s.sales));
+        default: return td(c, s.sales > 0 ? rub(s.rev / s.sales) : '');
+      }
+    }).join('')}</tr>`;
   }
 
   /* ============ Tables (single MP) ============ */
@@ -1414,14 +1431,13 @@ window.ABCDash = (function () {
     });
 
     filterArea.querySelector('.count').textContent = filtered.length;
-    renderCatSummary(mp);
 
     const thead = `<thead><tr>${TABLE_COLS_MP.map(c => {
       const sc = f.sortKey===c.k ? (f.sortDir==='asc'?'sort-asc':'sort-desc') : '';
       return `<th data-key="${c.k}" class="${sc}">${c.label}</th>`;
     }).join('')}</tr></thead>`;
 
-    const tbody = `<tbody>${filtered.map(r => {
+    const tbody = `<tbody>${totalRowMp(mp, filtered, rows)}${filtered.map(r => {
       return `<tr data-sku="${escapeAttr(r.sku)}" data-mp="${mp}">${TABLE_COLS_MP.map(c => {
         let v = r[c.k];
         let cls = c.cls || '';
@@ -1441,7 +1457,7 @@ window.ABCDash = (function () {
         renderTable(mp, rows);
       });
     });
-    table.querySelectorAll('tbody tr').forEach(tr => {
+    table.querySelectorAll('tbody tr[data-sku]').forEach(tr => {
       tr.addEventListener('click', () => openModal(tr.dataset.sku, tr.dataset.mp));
     });
     bindStatusSelects(table);
@@ -1637,7 +1653,6 @@ window.ABCDash = (function () {
     });
 
     document.querySelector('.filters[data-mp="cross"] .count').textContent = filtered.length;
-    renderCatSummary('cross');
 
     const noCell = '<span class="empty-cell">—</span>';
 
@@ -1683,7 +1698,7 @@ window.ABCDash = (function () {
         const sc = CROSS_F.sortKey===c.k ? (CROSS_F.sortDir==='asc'?'sort-asc':'sort-desc') : '';
         return `<th data-key="${c.k}" class="${[c.cls||'', sc].filter(Boolean).join(' ')}">${c.label}</th>`;
       }).join('')}</tr></thead>
-      <tbody>${filtered.map(r => `
+      <tbody>${totalRowCross(filtered, visibleCols)}${filtered.map(r => `
         <tr data-sku="${escapeAttr(r.sku)}" title="${escapeAttr(r.name||'')}">${visibleCols.map(c => renderCell(c, r)).join('')}</tr>`).join('')}
       </tbody>
     `;
@@ -1696,7 +1711,7 @@ window.ABCDash = (function () {
         renderCross();
       });
     });
-    table.querySelectorAll('tbody tr').forEach(tr => {
+    table.querySelectorAll('tbody tr[data-sku]').forEach(tr => {
       tr.addEventListener('click', () => {
         const sku = tr.dataset.sku;
         const cr = STATE.computed.cross.find(c => c.sku === sku);
@@ -2591,7 +2606,6 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
-    <div class="cat-summary" data-mp="ozon" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-ozon"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2618,7 +2632,6 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
-    <div class="cat-summary" data-mp="vb" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-vb"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2643,7 +2656,6 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
-    <div class="cat-summary" data-mp="ya" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-ya"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2689,7 +2701,6 @@ window.ABCDash = (function () {
         </div>
       </div>
     </div>
-    <div class="cat-summary" data-mp="cross" hidden></div>
     <div class="table-wrap"><table class="data-table cross" id="table-cross"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
