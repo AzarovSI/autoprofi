@@ -540,7 +540,8 @@ window.ABCDash = (function () {
     const dpr = window.devicePixelRatio || 1;
     const W = 460, H = 260;
     canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    // Высота — по пропорции холста: при сжатии ширины (max-width 100%) круги не становятся овалами.
+    canvas.style.width = W + 'px'; canvas.style.maxWidth = '100%'; canvas.style.height = 'auto';
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -773,7 +774,8 @@ window.ABCDash = (function () {
     const dpr = window.devicePixelRatio || 1;
     const W = 460, H = 260;
     canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    // Высота — по пропорции холста: при сжатии ширины (max-width 100%) круги не становятся овалами.
+    canvas.style.width = W + 'px'; canvas.style.maxWidth = '100%'; canvas.style.height = 'auto';
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -1104,6 +1106,14 @@ window.ABCDash = (function () {
           backgroundColor: yearColor(i),
           borderRadius: 3,
         }));
+        let marginAxis = {};
+        if (isMargin) {
+          const vals = datasets.flatMap(d => d.data).filter(v => v != null && isFinite(v));
+          if (vals.length) {
+            marginAxis = { min: Math.min(0, Math.floor(Math.min(...vals) / 10) * 10),
+                           max: Math.max(10, Math.ceil(Math.max(...vals) / 10) * 10) };
+          }
+        }
         const fmtTip = isMargin
           ? ((v) => v == null ? '—' : v.toFixed(1) + '%')
           : ((v) => rub(v));
@@ -1119,7 +1129,7 @@ window.ABCDash = (function () {
             scales: {
               x: { grid: { display: false }, ticks: { font: { size: 10 }, color: '#96a5af' } },
               y: isMargin
-                ? { grid: { color: 'rgba(20,30,46,0.06)' }, ticks: { font: { size: 10 }, color: '#96a5af', callback: (v) => v + '%' }, beginAtZero: true }
+                ? { grid: { color: 'rgba(20,30,46,0.06)' }, ticks: { font: { size: 10 }, color: '#96a5af', callback: (v) => v + '%', maxTicksLimit: 4 }, beginAtZero: true, ...marginAxis }
                 : { display: false, beginAtZero: true }
             }
           }
@@ -2023,11 +2033,6 @@ window.ABCDash = (function () {
     const [y, m, d] = s.split('-').map(Number);
     return new Date(y, m - 1, d);
   }
-  function fmtRu(iso) {
-    if (!iso) return '';
-    const [y, m, d] = iso.split('-');
-    return `${d}.${m}.${y}`;
-  }
   function abcBaseDate() {
     const mm = STATE.monthMeta;
     if (mm.length && mm[mm.length - 1].end) return parseISO(mm[mm.length - 1].end);
@@ -2053,11 +2058,14 @@ window.ABCDash = (function () {
     }).map((m) => m.key);
     return got.length ? got : STATE.allMonths.slice();
   }
+  // Подпись периода месяцами: «Октябрь 2026», «Август — Октябрь 2026», «Ноябрь 2025 — Февраль 2026».
   function abcPeriodLabel() {
     const f = STATE.period.from, t = STATE.period.to;
     if (!f && !t) return `Все месяцы (${STATE.allMonths.length})`;
-    if (f && t) return f === t ? fmtRu(f) : `${fmtRu(f)} — ${fmtRu(t)}`;
-    return fmtRu(f || t);
+    const ym = (iso) => ({ y: iso.slice(0, 4), m: MONTH_ORDER[Number(iso.slice(5, 7)) - 1] });
+    const a = ym(f || t), b = ym(t || f);
+    if (a.y === b.y && a.m === b.m) return `${a.m} ${a.y}`;
+    return a.y === b.y ? `${a.m} — ${b.m} ${b.y}` : `${a.m} ${a.y} — ${b.m} ${b.y}`;
   }
   function refreshAbcPeriodLabel() {
     const el = document.getElementById('abc-period-text');
@@ -2090,8 +2098,10 @@ window.ABCDash = (function () {
       fieldEl.classList.remove('open');
     }
     function applyPeriod() {
-      STATE.period.from = cal.from || '';
-      STATE.period.to = cal.to || '';
+      // ABC считается по целым месяцам — выбранные дни расширяем до границ месяцев.
+      const monthEnd = (iso) => { const [y, m] = iso.split('-').map(Number); return isoDate(new Date(y, m, 0)); };
+      STATE.period.from = cal.from ? cal.from.slice(0, 8) + '01' : '';
+      STATE.period.to = cal.to ? monthEnd(cal.to) : '';
       STATE.selectedMonths = selectedMonthsFromPeriod();
       refreshAbcPeriodLabel();
       closeCal();

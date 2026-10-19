@@ -69,8 +69,10 @@
   margin-bottom: var(--space-7);
 }
 .abc-dash .kpi-grid.kpi-grid-3 { grid-template-columns: repeat(3, 1fr); }
-.abc-dash .kpi-grid.kpi-grid-4 { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 1100px) { .abc-dash .kpi-grid.kpi-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+.abc-dash .kpi-grid.kpi-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .abc-dash .kpi-grid.kpi-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Телефон: одна колонка (правило «4 → 2» выше сильнее общего .kpi-grid в @media 600px). */
+@media (max-width: 600px) { .abc-dash .kpi-grid.kpi-grid-4 { grid-template-columns: minmax(0, 1fr); } }
 .abc-dash .venn-row {
   display: grid; grid-template-columns: 1fr auto; gap: var(--space-6);
   align-items: center; padding: var(--space-4) 0 var(--space-5);
@@ -117,6 +119,10 @@
 @media (max-width: 1100px) {
   .abc-dash .venn-row { grid-template-columns: 1fr; }
   .abc-dash .venn-canvas-wrap { order: -1; }
+}
+/* Телефон: плитки Венна в 2 колонки — в 3 не помещается «НА WILDBERRIES». */
+@media (max-width: 600px) {
+  .abc-dash .venn-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .abc-dash .forecast-card {
   border: 1px solid rgba(34, 197, 94, .25);
@@ -178,7 +184,7 @@
 }
 .abc-dash .forecast-kpi-head .muted { font-size: 12px; line-height: 1.5; margin: 0 0 var(--space-4); }
 .abc-dash .forecast-kpi-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4);
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4);
 }
 .abc-dash .fkpi {
   background: var(--bg-elev-2);
@@ -262,7 +268,7 @@
 }
 @media (max-width: 900px) {
   .abc-dash .forecast-summary { grid-template-columns: repeat(2, 1fr); }
-  .abc-dash .forecast-kpi-grid { grid-template-columns: 1fr; }
+  .abc-dash .forecast-kpi-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .abc-dash .kpi-card {
   background: var(--bg-elev);
@@ -563,25 +569,26 @@
   .abc-dash .modal .modal-dynamics .dyn-tab { flex: 1; text-align: center; }
   .abc-dash .modal .modal-chart { height: 220px; }
 }
+/* minmax(0, 1fr): колонка «1fr» не ужимается уже содержимого (график) — четвёртая карточка вылезала. */
 .abc-dash .yoy-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4);
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4);
 }
 @media (max-width: 1100px) {
-  .abc-dash .yoy-grid { grid-template-columns: 1fr; }
+  .abc-dash .yoy-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .abc-dash .yoy-card {
   background: var(--bg-elev); border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--space-4);
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 10px; min-width: 0;
 }
 .abc-dash .yoy-card[data-mp="oz"] { border-top: 3px solid #2f6bff; }
 .abc-dash .yoy-card[data-mp="vb"] { border-top: 3px solid #cb11ab; }
 .abc-dash .yoy-card[data-mp="ya"] { border-top: 3px solid #ffcc00; }
 .abc-dash .yoy-card[data-mp="all"] { border-top: 3px solid #16a360; }
 /* 4 карточки YoY (ОЗОН/ВБ/Яндекс/Общий) */
-.abc-dash .yoy-grid.yoy-grid-4 { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 1100px) { .abc-dash .yoy-grid.yoy-grid-4 { grid-template-columns: 1fr; } }
+.abc-dash .yoy-grid.yoy-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .abc-dash .yoy-grid.yoy-grid-4 { grid-template-columns: minmax(0, 1fr); } }
 /* Подпись «Яндекс не участвует» */
 .abc-dash .note-ya {
   margin-top: 8px; font-size: var(--text-sm); color: #9a6a00;
