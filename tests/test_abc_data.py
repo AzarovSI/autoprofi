@@ -118,5 +118,25 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 400)
 
 
+
+class CategoriesTest(unittest.TestCase):
+    """Категории для фильтра «Группа / Подгруппа»: из справочника, только для товаров в данных (19.10.2026)."""
+
+    def test_cats_only_for_skus_in_data(self):
+        def fake(sql, *a, **kw):
+            if sql is abc.SQL_OZON:
+                return [row("OZ-1", -1.0)]
+            if sql is abc.SQL_WB:
+                return [row("WB-1", 1.0)]
+            if sql is abc.SQL_CATS:
+                return [dict(sku="OZ-1", category_l1="Продукция ECOM", category_l2="Компрессоры", category_l3="АГРЕССОР"),
+                        dict(sku="WB-1", category_l1=None, category_l2=None, category_l3=None),
+                        dict(sku="OTHER", category_l1="X", category_l2="Y", category_l3="Z")]
+            return []
+        with patch.object(db, "query_all", side_effect=fake):
+            cats = abc.abc_data(user=ADMIN)["cats"]
+        self.assertEqual(cats, {"OZ-1": ["Продукция ECOM", "Компрессоры", "АГРЕССОР"], "WB-1": ["", "", ""]})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -179,6 +179,16 @@ SQL_HOLDS = """
 _AD_SIGN = {"ozon": -1, "ya": -1, "vb": 1}
 
 
+# Категории товара (справочник «Товары», общие для площадок) — для фильтра «Группа / Подгруппа»
+# во вкладках ОЗОН / Wildberries / Яндекс / «Сравнение МП». Одна строка на UPPER(артикул), как статусы.
+SQL_CATS = """
+    SELECT DISTINCT ON (UPPER(seller_article))
+           UPPER(seller_article) AS sku, category_l1, category_l2, category_l3
+    FROM catalog_items
+    ORDER BY UPPER(seller_article), seller_article
+"""
+
+
 def _shape(row, mp):
     """Строка БД → raw-объект эталона."""
     y = int(row["year"])
@@ -263,7 +273,12 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             }
     months = sorted(seen.values(), key=lambda x: (x["year"], x["month"]))
 
-    return {"rows": rows, "holds": holds, "months": months,
+    # Категории — только для товаров, которые есть в данных: {SKU: [L1, L2, L3]}.
+    skus = {r["sku"] for r in rows}
+    cats = {c["sku"]: [_txt(c["category_l1"]), _txt(c["category_l2"]), _txt(c["category_l3"])]
+            for c in db.query_all(SQL_CATS) if c["sku"] in skus}
+
+    return {"rows": rows, "holds": holds, "months": months, "cats": cats,
             "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
 
 

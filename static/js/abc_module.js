@@ -22,6 +22,8 @@ window.ABCDash = (function () {
     activeTab: 'overview', // активная под-вкладка — восстанавливаем при возврате
     rules: null,          // пороги рекомендаций {param: {ozon|vb|ya|all: value}} — из /api/abc/data
     rulesDefaults: null,  // исходные значения (кнопка «Сбросить к исходным»)
+    cats: {},             // категории товара {SKU: [L1, L2, L3]} — справочник «Товары»
+    catFilter: { g: '', sub: '' }, // «Группа» (L1␟L2 | '__none') и «Подгруппа» (L3) — общие для 4 вкладок
   };
 
 
@@ -174,6 +176,7 @@ window.ABCDash = (function () {
   /* ============ Compute pipeline ============ */
   function recomputeAndRender() {
     STATE.computed = computeAll(STATE.raw, STATE.selectedMonths);
+    fillCatSelects();
     renderOverview();
     renderTable('ozon', STATE.computed.ozon);
     renderTable('vb', STATE.computed.vb);
@@ -1244,12 +1247,118 @@ window.ABCDash = (function () {
     });
   }
 
+  /* ============ Фильтр «Группа / Подгруппа» (2-й и 3-й уровни справочника) ============ */
+  // Значение группы — путь «L1␟L2» (названия L2 и L3 повторяются в разных ветках); '__none' — без категории.
+  const CAT_SEP = '␟';
+  function catOf(sku) { return STATE.cats[sku] || ['', '', '']; }
+  function passCat(sku) {
+    const f = STATE.catFilter;
+    if (!f.g) return true;
+    const [l1, l2, l3] = catOf(sku);
+    if (f.g === '__none') return !l2;
+    if (l1 + CAT_SEP + l2 !== f.g) return false;
+    return !f.sub || l3 === f.sub;
+  }
+  // Группы и подгруппы — из товаров, которые есть в данных раздела (все месяцы, все площадки).
+  function catTree() {
+    const tree = new Map(); let none = false;
+    const skus = new Set([...STATE.raw.ozon, ...STATE.raw.vb, ...(STATE.raw.yandex || [])].map(r => r.sku));
+    skus.forEach(sku => {
+      const [l1, l2, l3] = catOf(sku);
+      if (!l2) { none = true; return; }
+      if (!tree.has(l1)) tree.set(l1, new Map());
+      const g = tree.get(l1);
+      if (!g.has(l2)) g.set(l2, new Set());
+      if (l3) g.get(l2).add(l3);
+    });
+    return { tree, none };
+  }
+  const sortRu = (a, b) => a.localeCompare(b, 'ru');
+  function fillCatSelects() {
+    const { tree, none } = catTree();
+    const f = STATE.catFilter;
+    const g2 = ['<option value="">Все группы</option>'];
+    [...tree.keys()].sort(sortRu).forEach(l1 => {
+      g2.push(`<optgroup label="${escapeAttr(l1 || 'Без 1-го уровня')}">`);
+      [...tree.get(l1).keys()].sort(sortRu).forEach(l2 => {
+        const v = l1 + CAT_SEP + l2;
+        g2.push(`<option value="${escapeAttr(v)}"${v === f.g ? ' selected' : ''}>${escapeHtml(l2)}</option>`);
+      });
+      g2.push('</optgroup>');
+    });
+    if (none) g2.push(`<option value="__none"${f.g === '__none' ? ' selected' : ''}>(без категории)</option>`);
+    let subs = [];
+    if (f.g && f.g !== '__none') {
+      const [l1, l2] = f.g.split(CAT_SEP);
+      subs = [...((tree.get(l1) || new Map()).get(l2) || [])].sort(sortRu);
+    }
+    const g3 = ['<option value="">Все подгруппы</option>'].concat(subs.map(s =>
+      `<option value="${escapeAttr(s)}"${s === f.sub ? ' selected' : ''}>${escapeHtml(s)}</option>`));
+    document.querySelectorAll('.abc-dash .f-cat2').forEach(el => { el.innerHTML = g2.join(''); el.value = f.g; });
+    document.querySelectorAll('.abc-dash .f-cat3').forEach(el => {
+      el.innerHTML = g3.join(''); el.value = f.sub; el.disabled = !subs.length;
+    });
+  }
+  function applyCatFilter() {
+    fillCatSelects();
+    ['ozon', 'vb', 'ya'].forEach(mp => renderTable(mp, STATE.computed[mp]));
+    renderCross();
+  }
+  function bindCatFilters() {
+    document.querySelectorAll('.abc-dash .f-cat2').forEach(el => {
+      if (el.dataset.bound) return; el.dataset.bound = '1';
+      el.addEventListener('change', () => { STATE.catFilter = { g: el.value, sub: '' }; applyCatFilter(); });
+    });
+    document.querySelectorAll('.abc-dash .f-cat3').forEach(el => {
+      if (el.dataset.bound) return; el.dataset.bound = '1';
+      el.addEventListener('change', () => { STATE.catFilter.sub = el.value; applyCatFilter(); });
+    });
+  }
+  function catLabel() {
+    const f = STATE.catFilter;
+    if (f.g === '__none') return 'Без категории';
+    const l2 = f.g.split(CAT_SEP)[1];
+    return f.sub ? `${l2} → ${f.sub}` : l2;
+  }
+  // Строка итогов выбранной категории над таблицей (классы — как по всей площадке).
+  function renderCatSummary(mp) {
+    const el = document.querySelector(`.abc-dash .cat-summary[data-mp="${mp}"]`);
+    if (!el) return;
+    if (!STATE.catFilter.g) { el.hidden = true; el.innerHTML = ''; return; }
+    const part = (rows, name, totalRev) => {
+      const rev = rows.reduce((s, r) => s + r.revenue, 0), prof = rows.reduce((s, r) => s + r.profit, 0);
+      const ad = rows.reduce((s, r) => s + (r.ad_spend || 0), 0);
+      const share = totalRev > 0 ? ` <span class="muted">(${(rev / totalRev * 100).toFixed(1)}% от ${name})</span>` : '';
+      return `выручка <b>${rub(rev)}</b>${share} · прибыль <b class="${prof < 0 ? 'neg' : ''}">${rub(prof)}</b>` +
+        ` · маржа <b>${rev > 0 ? fmtPct(prof / rev) : '—'}</b> · ДРР <b>${rev > 0 ? fmtPct(ad / rev) : '—'}</b>`;
+    };
+    let html;
+    if (mp === 'cross') {
+      const rows = STATE.computed.cross.filter(r => passCat(r.sku));
+      const pick = (side) => rows.filter(r => r['on_' + side]).map(r => ({ revenue: r[side + '_revenue'], profit: r[side + '_profit'], ad_spend: r[side + '_ad_spend'] }));
+      const both = rows.filter(r => r.on_ozon && r.on_vb).length;
+      html = `<div><span class="cs-name">${escapeHtml(catLabel())}</span> · SKU <b>${rows.length}</b>: на обоих ${both} · только ОЗОН ${rows.filter(r => r.on_ozon && !r.on_vb).length} · только ВБ ${rows.filter(r => r.on_vb && !r.on_ozon).length}</div>` +
+        `<div><span class="mp-tag oz">ОЗОН</span> ${part(pick('ozon'), 'ОЗОН', STATE.computed.summary.ozon.total_revenue)}</div>` +
+        `<div><span class="mp-tag vb">ВБ</span> ${part(pick('vb'), 'ВБ', STATE.computed.summary.vb.total_revenue)}</div>`;
+    } else {
+      const all = STATE.computed[mp], rows = all.filter(r => passCat(r.sku));
+      const name = { ozon: 'ОЗОН', vb: 'ВБ', ya: 'Яндекса' }[mp];
+      const total = all.reduce((s, r) => s + r.revenue, 0);
+      const cls = ['A', 'B', 'C', 'D', 'Z'].map(c => [c, rows.filter(r => r.abc_revenue === c).length]).filter(x => x[1])
+        .map(([c, n]) => `<span class="pill ${c}">${c}</span> ${n}`).join(' ');
+      html = `<div><span class="cs-name">${escapeHtml(catLabel())}</span> · SKU <b>${rows.length}</b>${cls ? ' · ABC выручки: ' + cls : ''}</div>` +
+        `<div>${part(rows, name, total)} <span class="muted">· прибыль товаров, без общих удержаний</span></div>`;
+    }
+    el.innerHTML = html; el.hidden = false;
+  }
+
   /* ============ Tables (single MP) ============ */
   const MP_FILTERS = { ozon: { search:'', abc_rev:'', abc_prof:'', rec:'', sortKey:'revenue', sortDir:'desc' },
                       vb:   { search:'', abc_rev:'', abc_prof:'', rec:'', sortKey:'revenue', sortDir:'desc' },
                       ya:   { search:'', abc_rev:'', abc_prof:'', rec:'', sortKey:'revenue', sortDir:'desc' } };
 
   function bindFilters() {
+    bindCatFilters();
     ['ozon','vb','ya'].forEach(mp => {
       const a = document.querySelector('.filters[data-mp="'+mp+'"]');
       if (!a || a.dataset.bound) return;
@@ -1291,6 +1400,7 @@ window.ABCDash = (function () {
     const filterArea = document.querySelector('.filters[data-mp="'+mp+'"]');
 
     let filtered = rows.filter(r => {
+      if (!passCat(r.sku)) return false;
       if (f.search) { const q = f.search; if (!r.sku.toLowerCase().includes(q) && !(r.name||'').toLowerCase().includes(q)) return false; }
       if (f.abc_rev && r.abc_revenue !== f.abc_rev) return false;
       if (f.abc_prof && r.abc_profit !== f.abc_prof) return false;
@@ -1304,6 +1414,7 @@ window.ABCDash = (function () {
     });
 
     filterArea.querySelector('.count').textContent = filtered.length;
+    renderCatSummary(mp);
 
     const thead = `<thead><tr>${TABLE_COLS_MP.map(c => {
       const sc = f.sortKey===c.k ? (f.sortDir==='asc'?'sort-asc':'sort-desc') : '';
@@ -1507,6 +1618,7 @@ window.ABCDash = (function () {
     };
 
     let filtered = cross.filter(r => {
+      if (!passCat(r.sku)) return false;
       if (CROSS_F.search) {
         const q = CROSS_F.search;
         // Поиск по артикулу (нечувствительно к регистру) и наименованию сохраняем — name в объекте остаётся.
@@ -1525,6 +1637,7 @@ window.ABCDash = (function () {
     });
 
     document.querySelector('.filters[data-mp="cross"] .count').textContent = filtered.length;
+    renderCatSummary('cross');
 
     const noCell = '<span class="empty-cell">—</span>';
 
@@ -2028,6 +2141,7 @@ window.ABCDash = (function () {
     }));
     STATE.allMonths = STATE.monthMeta.map((m) => m.key);
     STATE.rules = (payload && payload.rules) || {};
+    STATE.cats = (payload && payload.cats) || {};
     STATE.rulesDefaults = (payload && payload.rules_defaults) || {};
     return { ozon, vb, yandex, holds, dashOzon: [], dashVb: [], dashYa: [] };
   }
@@ -2462,6 +2576,8 @@ window.ABCDash = (function () {
     </div>
     <div class="filters" data-mp="ozon">
       <input type="search" class="search" placeholder="Поиск по артикулу или названию…" />
+      <select class="f-cat2" title="Группа — 2-й уровень справочника"></select>
+      <select class="f-cat3" title="Подгруппа — 3-й уровень справочника" disabled></select>
       <select class="f-abc-rev"><option value="">Все ABC выручка</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-abc-prof"><option value="">Все ABC прибыль</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-rec">
@@ -2475,6 +2591,7 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
+    <div class="cat-summary" data-mp="ozon" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-ozon"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2486,6 +2603,8 @@ window.ABCDash = (function () {
     </div>
     <div class="filters" data-mp="vb">
       <input type="search" class="search" placeholder="Поиск по артикулу или названию…" />
+      <select class="f-cat2" title="Группа — 2-й уровень справочника"></select>
+      <select class="f-cat3" title="Подгруппа — 3-й уровень справочника" disabled></select>
       <select class="f-abc-rev"><option value="">Все ABC выручка</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-abc-prof"><option value="">Все ABC прибыль</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-rec">
@@ -2499,6 +2618,7 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
+    <div class="cat-summary" data-mp="vb" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-vb"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2510,6 +2630,8 @@ window.ABCDash = (function () {
     </div>
     <div class="filters" data-mp="ya">
       <input type="search" class="search" placeholder="Поиск по артикулу или названию…" />
+      <select class="f-cat2" title="Группа — 2-й уровень справочника"></select>
+      <select class="f-cat3" title="Подгруппа — 3-й уровень справочника" disabled></select>
       <select class="f-abc-rev"><option value="">Все ABC выручка</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-abc-prof"><option value="">Все ABC прибыль</option><option>A</option><option>B</option><option>C</option><option>D</option><option>Z</option></select>
       <select class="f-rec">
@@ -2521,6 +2643,7 @@ window.ABCDash = (function () {
       </select>
       <div class="result-count"><span class="count">0</span> SKU</div>
     </div>
+    <div class="cat-summary" data-mp="ya" hidden></div>
     <div class="table-wrap"><table class="data-table" id="table-ya"></table></div>
     <div class="recs-legend-slot"></div>
   </section>
@@ -2533,6 +2656,8 @@ window.ABCDash = (function () {
     </div>
     <div class="filters" data-mp="cross">
       <input type="search" class="search" placeholder="Поиск по артикулу или названию…" />
+      <select class="f-cat2" title="Группа — 2-й уровень справочника"></select>
+      <select class="f-cat3" title="Подгруппа — 3-й уровень справочника" disabled></select>
       <select class="f-presence">
         <option value="">Все</option>
         <option value="both">На обоих МП</option>
@@ -2564,6 +2689,7 @@ window.ABCDash = (function () {
         </div>
       </div>
     </div>
+    <div class="cat-summary" data-mp="cross" hidden></div>
     <div class="table-wrap"><table class="data-table cross" id="table-cross"></table></div>
     <div class="recs-legend-slot"></div>
   </section>

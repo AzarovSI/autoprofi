@@ -839,3 +839,17 @@
 }
 .abc-dash .abc-rule-in { -moz-appearance: textfield; appearance: textfield; }
 .abc-dash .abc-rule-in::-webkit-inner-spin-button, .abc-dash .abc-rule-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* Фильтр «Группа / Подгруппа» и строка итогов категории (19.10.2026) */
+.abc-dash .filters select.f-cat2, .abc-dash .filters select.f-cat3 { max-width: 240px; }
+.abc-dash .filters select.f-cat3:disabled { opacity: .55; }
+.abc-dash .cat-summary {
+  display: grid; gap: 4px; margin: 0 0 12px; padding: 10px 14px;
+  background: var(--bg-elev); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; font-size: var(--text-sm); color: var(--text-muted);
+}
+.abc-dash .cat-summary[hidden] { display: none; }
+.abc-dash .cat-summary b { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.abc-dash .cat-summary b.neg { color: var(--bad); }
+.abc-dash .cat-summary .cs-name { color: var(--text); font-weight: 700; }
+.abc-dash .cat-summary .pill { font-size: 11px; padding: 0 6px; }
+@media (max-width: 600px) { .abc-dash .filters select.f-cat2, .abc-dash .filters select.f-cat3 { max-width: 100%; flex: 1 1 45%; } }
