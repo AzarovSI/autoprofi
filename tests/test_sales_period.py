@@ -100,6 +100,10 @@ class ImportTest(unittest.TestCase):
         db.execute_values(
             "INSERT INTO sales_plan (seller_article, marketplace, year, month, plan_qty, is_manual, prev_qty) VALUES %s",
             rows)
+        db.execute("TRUNCATE catalog_marketplace")
+        db.execute_values(
+            "INSERT INTO catalog_marketplace (seller_article, marketplace) VALUES %s",
+            [("SKU-1", "Ozon"), ("SKU-2", "Ozon"), ("SKU-1", "Wildberries"), ("SKU-3", "Wildberries")])
 
     def plan(self, art, mp="Ozon"):
         return {(r["year"], r["month"]): float(r["plan_qty"]) for r in db.query_all(
@@ -135,6 +139,33 @@ class ImportTest(unittest.TestCase):
         with self.assertRaises(HTTPException):
             sr.plan_import(file=f, marketplace="ozon", user=ADMIN)
         self.assertEqual(self.plan("SKU-1")[(2026, 10)], 100)
+
+    def test_article_not_in_catalog_rejects_whole_file(self):
+        # SKU-3 есть в справочнике только у WB — для плана Ozon он неизвестен
+        f = plan_file(["Артикул", "Октябрь 2026"], [["SKU-1", 300], ["SKU-3", 5], ["NEW-1", 7]])
+        with self.assertRaises(HTTPException) as cm:
+            sr.plan_import(file=f, marketplace="ozon", user=ADMIN)
+        self.assertEqual(cm.exception.status_code, 400)
+        self.assertIn("NEW-1, SKU-3", cm.exception.detail)
+        self.assertNotIn("SKU-1", cm.exception.detail)
+        self.assertEqual(self.plan("SKU-1")[(2026, 10)], 100)   # известный артикул тоже не записан
+        self.assertEqual(self.plan("SKU-3"), {})
+        self.assertEqual(self.plan("NEW-1"), {})
+
+    def test_article_matched_after_canon(self):
+        f = plan_file(["Артикул", "Октябрь 2026"], [["  sku-1 ", 300]])
+        sr.plan_import(file=f, marketplace="ozon", user=ADMIN)
+        self.assertEqual(self.plan("SKU-1")[(2026, 10)], 300)
+
+    def test_plan_cell_needs_catalog(self):
+        cell = sr.PlanCellIn(seller_article="SKU-3", marketplace="ozon", year=2026, month=10, plan_qty=5)
+        with self.assertRaises(HTTPException) as cm:
+            sr.plan_cell(cell, user=ADMIN)
+        self.assertIn("SKU-3", cm.exception.detail)
+        self.assertEqual(self.plan("SKU-3"), {})
+        cell = sr.PlanCellIn(seller_article="SKU-3", marketplace="wb", year=2026, month=10, plan_qty=5)
+        sr.plan_cell(cell, user=ADMIN)
+        self.assertEqual(self.plan("SKU-3", "Wildberries")[(2026, 10)], 5)
 
 
 class ExportTest(unittest.TestCase):

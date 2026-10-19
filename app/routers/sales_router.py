@@ -23,13 +23,36 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .. import db, auth, permissions
-from ..util import l1_sort_key, cat_sort_key
+from ..util import l1_sort_key, cat_sort_key, canon_article
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
 # Сопоставление ключа из URL → значение маркетплейса в БД (как в fact_monthly).
 MP_MAP = {"ozon": "Ozon", "wb": "Wildberries", "wildberries": "Wildberries",
           "yandex": "Yandex", "ya": "Yandex"}
+
+
+def _missing_in_catalog(mp_db, arts):
+    """Артикулы из `arts`, которых нет в справочнике товаров этого МП (catalog_marketplace).
+
+    План не заводит товары: товар появляется в системе из справочника или из отчётов
+    площадки (решение владельца 19.10.2026). План на неизвестный артикул отклоняется."""
+    if not arts:
+        return []
+    known = {r["seller_article"] for r in db.query_all(
+        "SELECT seller_article FROM catalog_marketplace WHERE marketplace = %s AND seller_article = ANY(%s)",
+        (mp_db, list(arts)))}
+    return sorted(a for a in arts if a not in known)
+
+
+def _missing_detail(mp_db, missing):
+    shown = ", ".join(missing[:30])
+    if len(missing) > 30:
+        shown += f" и ещё {len(missing) - 30}"
+    return (f"Нет в справочнике товаров ({mp_db}): {shown}. Заведите товар в разделе «Товары» "
+            "или исправьте артикул в файле.")
+
+
 RU_MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
              "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 
@@ -595,6 +618,8 @@ def plan_cell(body: PlanCellIn, user=Depends(auth.get_current_user)):
     art = (body.seller_article or "").strip()
     if not art:
         raise HTTPException(status_code=400, detail="Не указан артикул")
+    if _missing_in_catalog(mp_db, [art]):
+        raise HTTPException(status_code=400, detail=_missing_detail(mp_db, [art]))
 
     existing = db.query_one(
         "SELECT prev_qty FROM sales_plan "
@@ -1136,6 +1161,9 @@ def plan_import(
 
     Артикул — первый столбец. Справочные столбцы (Уровень 1–3, Текущий
     статус) НЕ читаются и ничего в системе не перезаписывают.
+
+    Каждый артикул файла должен быть в справочнике товаров этого МП. Если хоть
+    одного нет — файл не загружается целиком, в ответе список таких артикулов.
     """
     _check_access(user, marketplace, "sales.plan.import")
     import openpyxl
@@ -1171,7 +1199,7 @@ def plan_import(
             continue
         if not row or not row[0]:
             continue
-        art = str(row[0]).strip()
+        art = canon_article(row[0])
         if not art:
             continue
         seen_arts.add(art)
@@ -1179,6 +1207,11 @@ def plan_import(
             q = _num(row[ci]) if ci < len(row) else None
             if q is not None:
                 upserts.append((art, mp_db, y, mo, q, q))
+
+    # План не заводит товары: неизвестный артикул — ошибка, ничего не пишем.
+    missing = _missing_in_catalog(mp_db, seen_arts)
+    if missing:
+        raise HTTPException(status_code=400, detail=_missing_detail(mp_db, missing))
 
     # Перезапись плана артикулов из файла ТОЛЬКО за месяцы файла: сначала
     # удаляем их строки (так очищаются пустые ячейки), затем вставляем
