@@ -131,8 +131,8 @@ SQL_WB = """
 
 # --- SQL: Яндекс (аналогично Ozon) --------------------------------------
 # У Яндекса прибыль/маржа — обычные profit/margin_pct (как Ozon),
-# реклама (ad_spend) — promo_total (у Яндекса хранится отрицательным,
-# как Ozon — клиент берёт по модулю). Статус из catalog_marketplace(Yandex).
+# реклама (ad_spend) — promo_total (у Ozon и Яндекса хранится со знаком минус,
+# знак снимает _shape). Статус из catalog_marketplace(Yandex).
 SQL_YA = """
     SELECT
         f.year, f.month,
@@ -173,6 +173,11 @@ SQL_HOLDS = """
 """
 
 
+# Реклама Ozon и Яндекса (promo_total) хранится со знаком минус, WB (wb_ads_total) — плюсом.
+# Клиент считает ДРР = реклама / выручка, поэтому расход отдаём положительным.
+_AD_SIGN = {"ozon": -1, "ya": -1, "vb": 1}
+
+
 def _shape(row, mp):
     """Строка БД → raw-объект эталона."""
     y = int(row["year"])
@@ -189,7 +194,7 @@ def _shape(row, mp):
         "sales_qty": _num(row["sales_qty"]),
         "orders_qty": _num(row["orders_qty"]),
         "returns_qty": _num(row["returns_qty"]),
-        "ad_spend": _num(row["ad_spend"]),
+        "ad_spend": _AD_SIGN[mp] * _num(row["ad_spend"]) or 0.0,  # без «−0»
         "status": _txt(row["status"]),
     }
 
