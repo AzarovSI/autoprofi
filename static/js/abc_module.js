@@ -33,7 +33,11 @@ window.ABCDash = (function () {
      Хелперы продублированы здесь намеренно — оригиналы в замыкании views.js
      недоступны извне; дублирование изолирует ABC и не трогает РНП. */
   const STATUS_PRESETS = ['CORE', 'NEW', 'Closeout', 'Sale', '?', '-'];
-  function stDisplay(v) { return (v && String(v).trim()) ? String(v).trim() : '-'; }
+  // Значение из списка — без учёта регистра (в БД бывают 'core', 'SALE', 'new'); прочее — как есть.
+  function stDisplay(v) {
+    const s = (v && String(v).trim()) ? String(v).trim() : '-';
+    return STATUS_PRESETS.find(p => p.toLowerCase() === s.toLowerCase()) || s;
+  }
   // Сохраняем РОВНО выбранное значение (включая '-' и '?'); только реально
   // пустое → null. Так '-' (выведен из продаж) отличается в БД от NULL (не задан).
   function stToApi(v) { const s = (v == null) ? '' : String(v).trim(); return s === '' ? null : s; }
@@ -49,7 +53,9 @@ window.ABCDash = (function () {
   // <select> статусов для строки ABC. mp: 'ozon' | 'vb' — куда писать статус.
   function statusSelectHtml(sa, current, mp) {
     const cur = stDisplay(current);
-    const opts = STATUS_PRESETS.map(s =>
+    // Значение не из списка (напр. '0') — отдельным пунктом, а не подмена первым «CORE».
+    const list = STATUS_PRESETS.includes(cur) ? STATUS_PRESETS : [cur].concat(STATUS_PRESETS);
+    const opts = list.map(s =>
       `<option value="${escapeAttr(s)}"${s === cur ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
     // Без функции «Изменить статус товара» (ABC) — select неактивен.
     const off = App.can('abc.status.edit') ? '' : ' disabled';

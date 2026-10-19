@@ -1706,10 +1706,13 @@ const Views = (() => {
           category_l1: tr.querySelector('.c-l1').value.trim() || null,
           category_l2: tr.querySelector('.c-l2').value.trim() || null,
           category_l3: tr.querySelector('.c-l3').value.trim() || null,
-          status: stToApi(tr.querySelector('.c-st').value),
           manager: tr.querySelector('.c-mgr').value.trim() || null,
           product_url: tr.querySelector('.c-url').value.trim() || null,
         };
+        // Статус — только если его поменяли: иначе сохранение менеджера/категорий переписало бы
+        // значение из БД ('SALE', 'core', NULL) показанным в списке.
+        const stEl = tr.querySelector('.c-st');
+        if (stEl.value !== stEl.dataset.st) body.status = stToApi(stEl.value);
         btn.disabled = true; btn.textContent = '…';
         try {
           await API.catalogUpdate(tr.dataset.sa, body);
@@ -1717,6 +1720,7 @@ const Views = (() => {
           if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/metrics/by_category'); API.cacheClear('/api/trend/category_matrix'); API.cacheClear('/api/abc'); }
           // статус/категории влияют на дашборд ABC — сбросить его памятный кэш
           if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
+          if ('status' in body) stEl.dataset.st = stEl.value;
           catState.tree = await API.catalogTree({ marketplace: catMpName() });
           App.toast('Сохранено: ' + tr.dataset.sa, 'ok');
           btn.textContent = '✓';
@@ -3180,8 +3184,18 @@ const Views = (() => {
   //   '-'   — осознанно «выведен из продаж» (распределён; скрывается без движений);
   //   '?'   — «требует внимания/обсуждения» (распределён; всегда показывается).
   const STATUS_PRESETS = ['CORE', 'NEW', 'Closeout', 'Sale', '?', '-'];
-  // Нормализация: пустое/NULL из БД показываем как '-'.
-  function stDisplay(v) { return (v && String(v).trim()) ? String(v).trim() : '-'; }
+  // Нормализация: пустое/NULL из БД показываем как '-'; значение из списка — без учёта
+  // регистра (в БД бывают 'core', 'SALE', 'new' → CORE, Sale, NEW); прочее — как есть.
+  function stDisplay(v) {
+    const s = (v && String(v).trim()) ? String(v).trim() : '-';
+    return STATUS_PRESETS.find(p => p.toLowerCase() === s.toLowerCase()) || s;
+  }
+  // Пункты <select>: значение не из списка (напр. '0') — отдельным пунктом, чтобы не
+  // подменялось первым пунктом «CORE».
+  function stOptionsHtml(cur) {
+    const list = STATUS_PRESETS.includes(cur) ? STATUS_PRESETS : [cur].concat(STATUS_PRESETS);
+    return list.map(s => `<option value="${U.esc(s)}"${s === cur ? ' selected' : ''}>${U.esc(s)}</option>`).join('');
+  }
   // Что отправлять на бэкенд: сохраняем РОВНО выбранное значение (включая '-' и
   // '?'); только реально пустое → null. Так '-' (выведен из продаж) отличается
   // в БД от NULL (статус не задан) — это нужно для логики распределённости/скрытия.
@@ -3200,9 +3214,7 @@ const Views = (() => {
   // editable=false (нет права «Изменить статус товара») — тот же select, но неактивный.
   function statusSelectHtml(sa, current, editable = true) {
     const cur = stDisplay(current);
-    const opts = STATUS_PRESETS.map(s =>
-      `<option value="${U.esc(s)}"${s === cur ? ' selected' : ''}>${U.esc(s)}</option>`).join('');
-    return `<select class="rnp-status-sel ${stClass(cur)}" data-sa="${U.esc(sa)}" title="Статус товара"${editable ? '' : ' disabled'}>${opts}</select>`;
+    return `<select class="rnp-status-sel ${stClass(cur)}" data-sa="${U.esc(sa)}" title="Статус товара"${editable ? '' : ' disabled'}>${stOptionsHtml(cur)}</select>`;
   }
   // Опции фильтра статусов наверху панели: всегда весь набор предустановленных
   // статусов (а не только те, что фактически встречаются). Значение '-' фильтрует
@@ -3214,11 +3226,10 @@ const Views = (() => {
       .join('');
   }
   // <select> предустановленных статусов для справочника (класс c-st — читается при сохранении).
+  // data-st — показанное при открытии значение: «Сохранить» отправляет статус, только если его поменяли.
   function catStatusSelectHtml(current) {
     const cur = stDisplay(current);
-    const opts = STATUS_PRESETS.map(s =>
-      `<option value="${U.esc(s)}"${s === cur ? ' selected' : ''}>${U.esc(s)}</option>`).join('');
-    return `<select class="input-sm c-st cat-status-sel ${stClass(cur)}" style="width:120px">${opts}</select>`;
+    return `<select class="input-sm c-st cat-status-sel ${stClass(cur)}" data-st="${U.esc(cur)}" style="width:120px">${stOptionsHtml(cur)}</select>`;
   }
 
   // helper: pct хранится во фракции (0..1) -> выводим X,X%
