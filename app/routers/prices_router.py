@@ -28,7 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
-from .. import db, auth, util
+from .. import db, auth, price_model, util
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -485,82 +485,108 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=
     return items, data.get("period")
 
 
-# ── «Ценовая модель»: справочник средних цен категории (price_category_hist) ──
-# Одна запись на артикул + площадку + день по Москве; правка в тот же день
-# перезаписывает значение дня. NULL — цена удалена с этой даты.
+# ── «Ценовая модель»: вводимые параметры с историей (price_model_hist) ──────
+# Цена категории (₽), плановый ДРР и плановая маржа (доли). Одна запись на
+# артикул + площадку + параметр + день по Москве; правка в тот же день
+# перезаписывает значение дня. NULL — значение удалено с этой даты.
 
 
-@router.get("/model_category")
-def model_category(
+def _model_value_out(param, v):
+    if v is None:
+        return None
+    return int(v) if price_model.PARAMS[param][0] == "rub" else float(v)
+
+
+@router.get("/model_params")
+def model_params(
     date_to: Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода; пусто — сегодня"),
     user=Depends(auth.require("prices.model.view")),
 ):
-    """Срез цен категории на конец периода: по каждой паре артикул + площадка —
+    """Срез параметров на конец периода: по каждой тройке артикул + площадка + параметр —
     последняя запись с датой ≤ date_to; удалённые (NULL) не отдаются."""
     dt = _parse_iso_date(date_to) or datetime.datetime.now(MSK).date()
     rows = db.query_all(
         """SELECT * FROM (
-               SELECT DISTINCT ON (h.seller_article, h.marketplace)
-                      h.seller_article, h.marketplace, h.category_price, h.date,
-                      h.updated_at, COALESCE(u.display_name, u.email) AS updated_by
-                 FROM price_category_hist h
+               SELECT DISTINCT ON (h.seller_article, h.marketplace, h.param)
+                      h.seller_article, h.marketplace, h.param, h.value, h.date,
+                      COALESCE(u.display_name, u.email) AS updated_by
+                 FROM price_model_hist h
                  LEFT JOIN app_users u ON u.id = h.updated_by_user_id
                 WHERE h.date <= %s
-                ORDER BY h.seller_article, h.marketplace, h.date DESC
+                ORDER BY h.seller_article, h.marketplace, h.param, h.date DESC
            ) s
-          WHERE s.category_price IS NOT NULL
-          ORDER BY s.seller_article, s.marketplace""",
+          WHERE s.value IS NOT NULL
+          ORDER BY s.seller_article, s.marketplace, s.param""",
         (dt,))
     for r in rows:
+        r["value"] = _model_value_out(r["param"], r["value"])
         r["date"] = r["date"].isoformat()
-        r["updated_at"] = r["updated_at"].isoformat() if r["updated_at"] else None
     return {"items": rows, "date_to": dt.isoformat()}
 
 
-class ModelCategoryIn(BaseModel):
+class ModelParamIn(BaseModel):
     seller_article: str
-    marketplace: str                  # 'wb' | 'wildberries' | 'ozon' | 'ya' | 'yandex'
-    category_price: Optional[int]     # None → удалить цену
+    marketplace: str            # 'wb' | 'wildberries' | 'ozon' | 'ya' | 'yandex'
+    param: str                  # 'category_price' | 'drr_pct' | 'margin_pct'
+    value: Optional[float]      # None → удалить значение
 
 
-@router.post("/model_category")
-def model_category_set(body: ModelCategoryIn, user=Depends(auth.require("prices.model.edit"))):
-    """Задать или удалить (None) цену категории одного артикула на площадке с сегодняшнего дня."""
+@router.post("/model_params")
+def model_param_set(body: ModelParamIn, user=Depends(auth.require("prices.model.edit"))):
+    """Задать или удалить (None) один параметр артикула на площадке с сегодняшнего дня."""
     mp = MP_MAP.get((body.marketplace or "").strip().lower())
     if mp not in MP_ORDER:
         raise HTTPException(status_code=400, detail=f"Неизвестный маркетплейс: {body.marketplace!r}")
+    spec = price_model.PARAMS.get(body.param)
+    if not spec:
+        raise HTTPException(status_code=400, detail=f"Неизвестный параметр: {body.param!r}")
     sa = util.canon_article(body.seller_article or "")
     if not sa:
         raise HTTPException(status_code=400, detail="Пустой артикул")
-    price = body.category_price
-    if price is not None and price <= 0:
-        raise HTTPException(status_code=400, detail="Цена категории — целое число больше нуля")
+    unit, lo, hi = spec
+    value = body.value
+    if value is not None:
+        if unit == "rub":
+            if value != int(value) or value < lo:
+                raise HTTPException(status_code=400, detail="Цена категории — целое число больше нуля")
+            value = int(value)
+        else:
+            # Доля с шагом 0,1 процента: 0.125 = 12,5%.
+            tenths = round(value * 1000)
+            if abs(value * 1000 - tenths) > 1e-6 or value < lo or value > hi:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Значение — от {lo * 100:g} до {hi * 100:g}%, не больше одного знака после запятой")
+            value = tenths / 1000
     today = datetime.datetime.now(MSK).date()
+    key = (sa, mp, body.param)
     with db.transaction() as tx:
-        # Действующее значение до сегодняшнего дня: если сегодня записи нет и цена
+        # Действующее значение до сегодняшнего дня: если сегодня записи нет и значение
         # не меняется — история не пополняется (как у базовых цен).
         prev = tx.query_one(
-            """SELECT category_price FROM price_category_hist
-                WHERE seller_article=%s AND marketplace=%s AND date < %s
+            """SELECT value FROM price_model_hist
+                WHERE seller_article=%s AND marketplace=%s AND param=%s AND date < %s
                 ORDER BY date DESC LIMIT 1""",
-            (sa, mp, today))
-        prev_val = prev["category_price"] if prev else None
-        if prev_val == price:
+            (*key, today))
+        prev_val = prev["value"] if prev else None
+        if (prev_val is None and value is None) or (
+                prev_val is not None and value is not None and abs(float(prev_val) - value) < 1e-9):
             # Возврат к прежнему значению в тот же день — запись дня не нужна.
-            tx.execute("DELETE FROM price_category_hist WHERE seller_article=%s AND marketplace=%s AND date=%s",
-                       (sa, mp, today))
+            tx.execute("""DELETE FROM price_model_hist
+                           WHERE seller_article=%s AND marketplace=%s AND param=%s AND date=%s""",
+                       (*key, today))
         else:
             tx.execute(
-                """INSERT INTO price_category_hist (seller_article, marketplace, date, category_price,
-                                                    updated_at, updated_by_user_id)
-                        VALUES (%s, %s, %s, %s, now(), %s)
-                   ON CONFLICT (seller_article, marketplace, date) DO UPDATE SET
-                        category_price = EXCLUDED.category_price,
+                """INSERT INTO price_model_hist (seller_article, marketplace, param, date, value,
+                                                 updated_at, updated_by_user_id)
+                        VALUES (%s, %s, %s, %s, %s, now(), %s)
+                   ON CONFLICT (seller_article, marketplace, param, date) DO UPDATE SET
+                        value = EXCLUDED.value,
                         updated_at = now(),
                         updated_by_user_id = EXCLUDED.updated_by_user_id""",
-                (sa, mp, today, price, user.get("id")))
-    return {"ok": True, "seller_article": sa, "marketplace": mp, "category_price": price,
-            "date": today.isoformat()}
+                (*key, today, value, user.get("id")))
+    return {"ok": True, "seller_article": sa, "marketplace": mp, "param": body.param,
+            "value": value, "date": today.isoformat()}
 
 
 @router.get("/index_export")

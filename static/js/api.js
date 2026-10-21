@@ -357,10 +357,10 @@ const API = (() => {
     // заполненного файла (только администратор).
     pricesExportUrl: (p) => API_BASE + '/api/prices/export' + qs(p || {}),
     pricesIndexExportUrl: (p) => API_BASE + '/api/prices/index_export' + qs(p || {}),
-    // «Ценовая модель»: срез цен категории на конец периода (без кэша — их правят прямо на листе).
-    pricesModelCategory: (p) => request('/api/prices/model_category' + qs(p || {})),
-    // category_price=null удаляет цену.
-    pricesModelCategorySet: (body) => request('/api/prices/model_category', {
+    // «Ценовая модель»: срез вводимых параметров на конец периода (без кэша — их правят прямо на листе).
+    pricesModelParams: (p) => request('/api/prices/model_params' + qs(p || {})),
+    // value=null удаляет значение; проценты — долями.
+    pricesModelParamSet: (body) => request('/api/prices/model_params', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),

@@ -2303,8 +2303,21 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
   padding-left: 4px; padding-right: 4px;
 }
 
-/* «Ценовая модель»: ячейка цены категории вводится двойным кликом (вид — как в прайс-листе). */
-.sp-cell .sp-plan.pm-cat-edit { cursor:cell; }
+/* «Ценовая модель»: ДРР, Маржа и Цена категории вводятся двойным кликом (вид — как в прайс-листе).
+   Цвета (решения владельца 21.10): ДРР — как ДРР и реклама в РНП, маржа и цена категории — чёрные,
+   Загружаемая — чёрная жирная, СПП — зелёная (как в РНП и «Индексе цен»). Пустые остаются бледными. */
+.sp-cell .sp-plan.pm-edit { cursor:cell; }
+.mp-cross #pl-body[data-sub="model"] td.pm-drr_pct .sp-cell .sp-plan:not(.sp-plan-empty) { color: #674EA7; }
+.mp-cross #pl-body[data-sub="model"] td.pm-margin_pct .sp-cell .sp-plan:not(.sp-plan-empty),
+.mp-cross #pl-body[data-sub="model"] td.pm-category_price .sp-cell .sp-plan:not(.sp-plan-empty) { color: var(--text); }
+.mp-cross #pl-body[data-sub="model"] td.pm-upload .sp-cell .sp-plan:not(.sp-plan-empty) { color: var(--text); font-weight: 700; }
+.mp-cross #pl-body[data-sub="model"] td.pm-spp .sp-cell .sp-plan:not(.sp-plan-empty) { color: #38761D; }
+/* Шапка: названия площадок — в их цветах (как в «Индексе цен»), подписи колонок — по центру, как значения;
+   колонка артикула уже, чтобы два блока по 5 колонок помещались в карточку на экране 1440. */
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl th.sp-hgrp.sp-th-wb { color: var(--wb-soft); }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl th.sp-hgrp.sp-th-ozon { color: var(--ozon-soft); }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl thead tr.sp-hrow2 th { text-align: center; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl { --sp-name-w: 300px; }
 
 /* «Ozon тест» — граница блоков карточки (Воронка / Деньги / На единицу / Структура): линия над первой строкой блока */
 .rnp-mtbl-test tr.rnp-t-blk td { border-top:2px solid var(--border, #D5DCE3); }

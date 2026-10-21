@@ -9498,7 +9498,7 @@ const Views = (() => {
     from: '', to: '',
     _periodInit: false,
     loading: false,
-    modelCat: null,             // «Ценовая модель»: 'артикул|площадка' → цена категории
+    modelParams: null,          // «Ценовая модель»: 'артикул|площадка|параметр' → значение
   };
 
   // ===== Компонент выбора периода прайс-листа (клон bindRnpsPeriod) =====
@@ -10107,39 +10107,76 @@ const Views = (() => {
   }
 
   // ── Подраздел «Ценовая модель» ────────────────────────────────────────
-  // Справочник средних цен категории (просмотр — prices.model.view, правка —
-  // prices.model.edit; по умолчанию только администратор). Дерево, состав товаров
-  // и вид — как в «Прайс-листе», без Pi; три вводимые колонки WB / Ozon / Yandex.
-  // Значение — срез price_category_hist на конец периода; правка пишется на
-  // сегодняшний день (одна запись в день, последняя правка дня перезаписывает).
-  // Ячейки помечены pm-cat-edit (не sp-plan-edit), чтобы их не ловил ввод базовой цены.
-  const PM_MP = { wb: 'Wildberries', ozon: 'Ozon', ya: 'Yandex' };
+  // Просмотр — prices.model.view, правка — prices.model.edit (по умолчанию только
+  // администратор). Дерево и состав товаров — как в «Прайс-листе». Блоки
+  // Wildberries и Ozon, в каждом: ДРР · Маржа, % · Загружаемая · СПП · Цена категории.
+  //   ДРР, Маржа, Цена категории — вводятся, хранятся с историей (price_model_hist,
+  //   срез на конец периода; правка пишется на сегодня, последняя правка дня);
+  //   СПП — из ценовых отчётов на конец периода (как в «Индексе цен»);
+  //   Загружаемая = Цена категории / (1 − СПП), вверх до рубля: загрузив её в ЛК,
+  //   после вычета СПП площадки получим цену для покупателя ≈ цене категории.
+  // Вводимые ячейки помечены pm-edit (не sp-plan-edit), чтобы их не ловил ввод базовой цены.
+  const PM_MP = { wb: 'Wildberries', ozon: 'Ozon' };
+  const PM_PCT = { drr_pct: true, margin_pct: true };
 
-  function _pmCatKey(art, mp) { return art + '|' + mp; }
-  function _pmCat(art, mp) {
-    const m = pricesState.modelCat;
-    return (m && m[_pmCatKey(art, mp)]) || null;
+  function _pmKey(art, mp, param) { return art + '|' + mp + '|' + param; }
+  function _pmParam(art, mp, param) {
+    const m = pricesState.modelParams;
+    return (m && m[_pmKey(art, mp, param)]) || null;
   }
-  function _pmCatTitle(c, edit) {
-    const who = c ? ('Действует с ' + fmtRu(c.date) + ' · изменил: ' + (c.updated_by || '—')) : '';
-    if (!edit) return who;
-    return (c ? 'Двойной клик — изменить цену категории' : 'Двойной клик — задать цену категории') + (who ? '\n' + who : '');
+  // Загружаемая. Без СПП (товара нет в продаже) — не считается.
+  // −1e-6 — защита от погрешности дробей: 1000 / 0,5 не должно стать 2001.
+  function _pmCalcUpload(cat, spp) {
+    if (cat == null || !(cat > 0) || spp == null || !(spp > 0) || !(spp < 1)) return null;
+    return Math.ceil(cat / (1 - spp) - 1e-6);
   }
-  function _pmCatCellHtml(art, mp) {
-    const c = _pmCat(art, PM_MP[mp]);
-    const val = c ? c.category_price : null;
+  function _pmFmt(param, v) {
+    return PM_PCT[param] ? _fmtSppPct(v) + '%' : pricesFmt(v);
+  }
+  function _pmEditCell(art, mp, param) {
+    const c = _pmParam(art, PM_MP[mp], param);
+    const val = c ? c.value : null;
     const edit = App.can('prices.model.edit');
-    const tip = _pmCatTitle(c, edit);
+    const who = c ? ('Действует с ' + fmtRu(c.date) + ' · изменил: ' + (c.updated_by || '—')) : '';
+    const tip = edit ? ((c ? 'Двойной клик — изменить' : 'Двойной клик — задать') + (who ? '\n' + who : '')) : who;
     return (
-      '<td class="sp-mth">' +
+      '<td class="sp-mth pm-' + param + '">' +
         '<div class="sp-cell sp-cell-single">' +
-          '<span class="sp-plan' + (edit ? ' pm-cat-edit' : '') + (val == null ? ' sp-plan-empty' : '') + '"' +
+          '<span class="sp-plan' + (edit ? ' pm-edit' : '') + (val == null ? ' sp-plan-empty' : '') + '"' +
                 (tip ? ' title="' + U.esc(tip) + '"' : '') +
-                ' data-art="' + U.esc(art) + '" data-mp="' + mp + '" data-val="' + (val == null ? '' : val) + '">' +
-            (val == null ? '–' : pricesFmt(val)) +
+                ' data-art="' + U.esc(art) + '" data-mp="' + mp + '" data-param="' + param + '"' +
+                ' data-val="' + (val == null ? '' : val) + '">' +
+            (val == null ? '–' : _pmFmt(param, val)) +
           '</span>' +
         '</div>' +
       '</td>'
+    );
+  }
+  function _pmUploadCell(art, mp, spp, isEst) {
+    const c = _pmParam(art, PM_MP[mp], 'category_price');
+    const v = _pmCalcUpload(c ? c.value : null, spp);
+    let html;
+    if (v == null) {
+      html = '<span class="sp-plan sp-plan-empty"' +
+        (c ? ' title="Нет СПП — товара нет в продаже, расчёт невозможен"' : '') + '>–</span>';
+    } else if (isEst) {
+      html = '<span class="sp-plan sp-plan-est" title="СПП оценочная: взята из ближайшего известного дня">' +
+        '<span class="sp-spp-est" aria-hidden="true">≈</span>' + pricesFmt(v) + '</span>';
+    } else {
+      html = '<span class="sp-plan">' + pricesFmt(v) + '</span>';
+    }
+    return '<td class="sp-mth pm-upload"><div class="sp-cell sp-cell-single">' + html + '</div></td>';
+  }
+  function _pmBlock(it, mp) {
+    const art = it.seller_article;
+    const spp = mp === 'wb' ? it.wb_spp_pct : it.oz_spp_pct;
+    const est = mp === 'wb' ? it.wb_spp_is_estimated : it.oz_spp_is_estimated;
+    return (
+      _pmEditCell(art, mp, 'drr_pct') +
+      _pmEditCell(art, mp, 'margin_pct') +
+      _pmUploadCell(art, mp, spp, est) +
+      '<td class="sp-mth pm-spp"><div class="sp-cell sp-cell-single">' + _idxPctSpp(spp, est) + '</div></td>' +
+      _pmEditCell(art, mp, 'category_price')
     );
   }
 
@@ -10147,26 +10184,23 @@ const Views = (() => {
     const expanded = !!pricesState.expanded[node.key];
     const arrow = '<span class="sp-exp">' + (expanded ? '▾' : '▸') + '</span>';
     const indent = (node.level - 1) * 15;
+    const block = '<td class="sp-mth"></td>'.repeat(5);
     return (
       '<tr class="sp-row sp-group lvl' + node.level + ' sp-has" data-key="' + U.esc(node.key) + '" style="cursor:pointer">' +
         '<td class="sp-name sp-grp lvl' + node.level + '" style="padding-left:' + indent + 'px">' +
           arrow + U.esc(node.label) +
         '</td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
+        block + block +
       '</tr>'
     );
   }
   function pricesModelRenderLeafRow(it, parentLevel) {
     const indent = parentLevel * 15 + 16;
-    const art = it.seller_article;
     return (
-      '<tr class="sp-row sp-leaf" data-art="' + U.esc(art) + '">' +
-        '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(art) + '</td>' +
-        _pmCatCellHtml(art, 'wb') +
-        _pmCatCellHtml(art, 'ozon') +
-        _pmCatCellHtml(art, 'ya') +
+      '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
+        '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
+        _pmBlock(it, 'wb') +
+        _pmBlock(it, 'ozon') +
       '</tr>'
     );
   }
@@ -10187,18 +10221,21 @@ const Views = (() => {
       host.innerHTML = '<div class="empty">Ничего не найдено' + (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
       return;
     }
+    const head2 = (name) =>
+      '<th class="sp-mth pm-drr_pct" title="Плановый ДРР, % — вводится (двойной клик)">ДРР</th>' +
+      '<th class="sp-mth pm-margin_pct" title="Плановая маржинальность, % — вводится (двойной клик)">Маржа, %</th>' +
+      '<th class="sp-mth pm-upload" title="Загружаемая = Цена категории / (1 − СПП), вверх до рубля. Её загрузить в ЛК ' + name + ': после вычета СПП цена для покупателя будет равна цене категории">Загружаемая</th>' +
+      '<th class="sp-mth pm-spp" title="СПП из ценового отчёта ' + name + ' на конец периода; при нулевой или отсутствующей СПП товара нет в продаже — прочерк">СПП</th>' +
+      '<th class="sp-mth pm-category_price" title="Средняя цена категории для покупателя на конец периода — вводится (двойной клик)">Цена категории</th>';
     host.innerHTML =
       '<div class="tbl-wrap sp-wrap">' +
         '<table class="tbl sp-tbl">' +
           '<thead><tr>' +
             '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
-            '<th class="sp-mth sp-hgrp" colspan="3" title="Средняя цена категории для покупателя на конец периода">Цена категории</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-ozon" colspan="5">Ozon</th>' +
           '</tr>' +
-          '<tr class="sp-hrow2">' +
-            '<th class="sp-mth sp-th-wb">Wildberries</th>' +
-            '<th class="sp-mth sp-th-ozon">Ozon</th>' +
-            '<th class="sp-mth sp-th-ya">Yandex</th>' +
-          '</tr></thead>' +
+          '<tr class="sp-hrow2">' + head2('Wildberries') + head2('Ozon') + '</tr></thead>' +
           '<tbody>' + out.join('') + '</tbody>' +
         '</table>' +
       '</div>';
@@ -10560,24 +10597,24 @@ const Views = (() => {
       }
       pricesState.loading = false;
     }
-    // «Ценовая модель»: срез цен категории на конец периода.
-    async function reloadModelCat() {
+    // «Ценовая модель»: срез вводимых параметров на конец периода.
+    async function reloadModelParams() {
       let r;
       try {
-        r = await API.pricesModelCategory({ date_to: pricesState.to || '' });
+        r = await API.pricesModelParams({ date_to: pricesState.to || '' });
       } catch (err) {
         tblHost.innerHTML = '<div class="empty">Ошибка загрузки: ' + U.esc(err.message) + '</div>';
         throw err;
       }
-      pricesState.modelCat = {};
-      for (const c of (r.items || [])) pricesState.modelCat[_pmCatKey(c.seller_article, c.marketplace)] = c;
+      pricesState.modelParams = {};
+      for (const c of (r.items || [])) pricesState.modelParams[_pmKey(c.seller_article, c.marketplace, c.param)] = c;
     }
     try {
       if (!pricesState.data) {
         await reloadData();
       }
-      // Цены категории перечитываются при каждом входе в «Ценовую модель».
-      if (sub === 'model') await reloadModelCat();
+      // Параметры модели перечитываются при каждом входе в «Ценовую модель».
+      if (sub === 'model') await reloadModelParams();
     } catch (err) {
       return;  // ошибка уже показана в tblHost
     }
@@ -10596,7 +10633,7 @@ const Views = (() => {
     bindPlPeriod(root, async () => {
       try {
         await reloadData();
-        if (sub === 'model') await reloadModelCat();
+        if (sub === 'model') await reloadModelParams();
         initExpanded();
         paintFn(tblHost);
         refreshCnt();
@@ -10823,19 +10860,21 @@ const Views = (() => {
       inp.addEventListener('blur', save);
     });
 
-    // --- «Ценовая модель»: двойной клик по «Цене категории» → ввод.
-    //     Пусто — удалить цену. Значение пишется на сегодняшний день; если
-    //     период его включает — срез перечитывается (дата и автор точные),
-    //     иначе, как в «Прайс-листе», новое значение показывается сразу.
+    // --- «Ценовая модель»: двойной клик по вводимой ячейке (ДРР, Маржа, Цена категории).
+    //     Пусто — удалить значение. Проценты вводятся в процентах (12,5), хранятся
+    //     долями. Значение пишется на сегодняшний день; если период его включает —
+    //     срез перечитывается (дата и автор точные), иначе, как в «Прайс-листе»,
+    //     новое значение показывается сразу.
     if (sub === 'model') tblHost.addEventListener('dblclick', (e) => {
-      const span = e.target.closest('.pm-cat-edit');
+      const span = e.target.closest('.pm-edit');
       if (!span || span.querySelector('input')) return;
-      const art = span.dataset.art, mp = span.dataset.mp, cur = span.dataset.val;
+      const art = span.dataset.art, mp = span.dataset.mp, param = span.dataset.param, cur = span.dataset.val;
+      const isPct = !!PM_PCT[param];
       const oldHtml = span.innerHTML;
       const inp = document.createElement('input');
-      inp.type = 'number'; inp.min = '1'; inp.step = '1';
+      inp.type = 'text'; inp.inputMode = 'decimal';
       inp.className = 'sp-plan-input';
-      inp.value = cur;
+      inp.value = cur === '' ? '' : (isPct ? _fmtSppPct(Number(cur)) : cur);
       span.innerHTML = '';
       span.appendChild(inp);
       inp.focus(); inp.select();
@@ -10844,35 +10883,45 @@ const Views = (() => {
       const restore = () => { if (done) return; done = true; span.innerHTML = oldHtml; };
       const save = async () => {
         if (done) return;
-        const raw = (inp.value || '').trim();
+        const raw = (inp.value || '').trim().replace(',', '.').replace('%', '').trim();
         let val = null;
         if (raw !== '') {
           const n = Number(raw);
-          if (!isFinite(n) || n <= 0 || Math.floor(n) !== n) {
-            App.toast('Цена категории — целое число больше нуля (рубли)', 'err');
-            restore(); return;
+          if (isPct) {
+            const lo = param === 'drr_pct' ? 0 : -50;
+            if (!isFinite(n) || n < lo || n > 100 || Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) {
+              App.toast((param === 'drr_pct' ? 'ДРР' : 'Маржа') + ' — от ' + lo + ' до 100%, не больше одного знака после запятой', 'err');
+              restore(); return;
+            }
+            val = Math.round(n * 10) / 1000;
+          } else {
+            if (!isFinite(n) || n <= 0 || Math.floor(n) !== n) {
+              App.toast('Цена категории — целое число больше нуля (рубли)', 'err');
+              restore(); return;
+            }
+            val = n;
           }
-          val = n;
         }
-        if (val === (cur === '' ? null : Number(cur))) { restore(); return; }
+        const curNum = cur === '' ? null : Number(cur);
+        if (val === curNum || (val != null && curNum != null && Math.abs(val - curNum) < 1e-9)) { restore(); return; }
         done = true;
         try {
-          const res = await API.pricesModelCategorySet({ seller_article: art, marketplace: mp, category_price: val });
+          const res = await API.pricesModelParamSet({ seller_article: art, marketplace: mp, param: param, value: val });
           if (!pricesState.to || pricesState.to >= res.date) {
-            await reloadModelCat();
+            await reloadModelParams();
           } else {
-            const key = _pmCatKey(res.seller_article, res.marketplace);
-            if (res.category_price == null) delete pricesState.modelCat[key];
-            else pricesState.modelCat[key] = {
-              seller_article: res.seller_article, marketplace: res.marketplace,
-              category_price: res.category_price, date: res.date,
+            const key = _pmKey(res.seller_article, res.marketplace, res.param);
+            if (res.value == null) delete pricesState.modelParams[key];
+            else pricesState.modelParams[key] = {
+              seller_article: res.seller_article, marketplace: res.marketplace, param: res.param,
+              value: res.value, date: res.date,
               updated_by: ((u) => (u && (u.display_name || u.email)) || '')(API.getUser()),
             };
           }
           paintFn(tblHost);
-          App.toast(res.category_price == null ? 'Цена категории удалена' : 'Цена категории сохранена', 'ok');
+          App.toast(res.value == null ? 'Значение удалено' : 'Значение сохранено', 'ok');
         } catch (err) {
-          App.toast(err.message || 'Не удалось сохранить цену категории', 'err');
+          App.toast(err.message || 'Не удалось сохранить значение', 'err');
           span.innerHTML = oldHtml;
         }
       };
