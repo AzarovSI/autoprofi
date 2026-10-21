@@ -10491,7 +10491,7 @@ const Views = (() => {
          '</div>')
       : (sub === 'model')
       ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
-           '<span>Справочник средних цен категории</span>' +
+           '<span>Ценовая модель</span>' +
            '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
          '</div>')
       : (sub === 'index')
