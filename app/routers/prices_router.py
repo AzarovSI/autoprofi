@@ -485,35 +485,49 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=
     return items, data.get("period")
 
 
-# ── «Ценовая модель»: цена категории (price_model_category) ──────────────
-MODEL_MPS = ("Wildberries", "Ozon")
+# ── «Ценовая модель»: справочник средних цен категории (price_category_hist) ──
+# Одна запись на артикул + площадку + день по Москве; правка в тот же день
+# перезаписывает значение дня. NULL — цена удалена с этой даты.
 
 
 @router.get("/model_category")
-def model_category(user=Depends(auth.require("prices.model.view"))):
-    """Все введённые цены категории: артикул, площадка, цена, кто и когда менял."""
+def model_category(
+    date_to: Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода; пусто — сегодня"),
+    user=Depends(auth.require("prices.model.view")),
+):
+    """Срез цен категории на конец периода: по каждой паре артикул + площадка —
+    последняя запись с датой ≤ date_to; удалённые (NULL) не отдаются."""
+    dt = _parse_iso_date(date_to) or datetime.datetime.now(MSK).date()
     rows = db.query_all(
-        """SELECT m.seller_article, m.marketplace, m.category_price, m.updated_at,
-                  COALESCE(u.display_name, u.email) AS updated_by
-             FROM price_model_category m
-             LEFT JOIN app_users u ON u.id = m.updated_by_user_id
-            ORDER BY m.seller_article, m.marketplace""")
+        """SELECT * FROM (
+               SELECT DISTINCT ON (h.seller_article, h.marketplace)
+                      h.seller_article, h.marketplace, h.category_price, h.date,
+                      h.updated_at, COALESCE(u.display_name, u.email) AS updated_by
+                 FROM price_category_hist h
+                 LEFT JOIN app_users u ON u.id = h.updated_by_user_id
+                WHERE h.date <= %s
+                ORDER BY h.seller_article, h.marketplace, h.date DESC
+           ) s
+          WHERE s.category_price IS NOT NULL
+          ORDER BY s.seller_article, s.marketplace""",
+        (dt,))
     for r in rows:
+        r["date"] = r["date"].isoformat()
         r["updated_at"] = r["updated_at"].isoformat() if r["updated_at"] else None
-    return {"items": rows}
+    return {"items": rows, "date_to": dt.isoformat()}
 
 
 class ModelCategoryIn(BaseModel):
     seller_article: str
-    marketplace: str                  # 'wb' | 'wildberries' | 'ozon'
+    marketplace: str                  # 'wb' | 'wildberries' | 'ozon' | 'ya' | 'yandex'
     category_price: Optional[int]     # None → удалить цену
 
 
 @router.post("/model_category")
 def model_category_set(body: ModelCategoryIn, user=Depends(auth.require("prices.model.edit"))):
-    """Задать или удалить (None) цену категории одного артикула на площадке."""
+    """Задать или удалить (None) цену категории одного артикула на площадке с сегодняшнего дня."""
     mp = MP_MAP.get((body.marketplace or "").strip().lower())
-    if mp not in MODEL_MPS:
+    if mp not in MP_ORDER:
         raise HTTPException(status_code=400, detail=f"Неизвестный маркетплейс: {body.marketplace!r}")
     sa = util.canon_article(body.seller_article or "")
     if not sa:
@@ -521,20 +535,32 @@ def model_category_set(body: ModelCategoryIn, user=Depends(auth.require("prices.
     price = body.category_price
     if price is not None and price <= 0:
         raise HTTPException(status_code=400, detail="Цена категории — целое число больше нуля")
-    if price is None:
-        db.execute("DELETE FROM price_model_category WHERE seller_article=%s AND marketplace=%s",
-                   (sa, mp))
-    else:
-        db.execute(
-            """INSERT INTO price_model_category (seller_article, marketplace, category_price,
-                                                 updated_at, updated_by_user_id)
-                    VALUES (%s, %s, %s, now(), %s)
-               ON CONFLICT (seller_article, marketplace) DO UPDATE SET
-                    category_price = EXCLUDED.category_price,
-                    updated_at = now(),
-                    updated_by_user_id = EXCLUDED.updated_by_user_id""",
-            (sa, mp, price, user.get("id")))
-    return {"ok": True, "seller_article": sa, "marketplace": mp, "category_price": price}
+    today = datetime.datetime.now(MSK).date()
+    with db.transaction() as tx:
+        # Действующее значение до сегодняшнего дня: если сегодня записи нет и цена
+        # не меняется — история не пополняется (как у базовых цен).
+        prev = tx.query_one(
+            """SELECT category_price FROM price_category_hist
+                WHERE seller_article=%s AND marketplace=%s AND date < %s
+                ORDER BY date DESC LIMIT 1""",
+            (sa, mp, today))
+        prev_val = prev["category_price"] if prev else None
+        if prev_val == price:
+            # Возврат к прежнему значению в тот же день — запись дня не нужна.
+            tx.execute("DELETE FROM price_category_hist WHERE seller_article=%s AND marketplace=%s AND date=%s",
+                       (sa, mp, today))
+        else:
+            tx.execute(
+                """INSERT INTO price_category_hist (seller_article, marketplace, date, category_price,
+                                                    updated_at, updated_by_user_id)
+                        VALUES (%s, %s, %s, %s, now(), %s)
+                   ON CONFLICT (seller_article, marketplace, date) DO UPDATE SET
+                        category_price = EXCLUDED.category_price,
+                        updated_at = now(),
+                        updated_by_user_id = EXCLUDED.updated_by_user_id""",
+                (sa, mp, today, price, user.get("id")))
+    return {"ok": True, "seller_article": sa, "marketplace": mp, "category_price": price,
+            "date": today.isoformat()}
 
 
 @router.get("/index_export")

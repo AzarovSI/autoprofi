@@ -357,8 +357,8 @@ const API = (() => {
     // заполненного файла (только администратор).
     pricesExportUrl: (p) => API_BASE + '/api/prices/export' + qs(p || {}),
     pricesIndexExportUrl: (p) => API_BASE + '/api/prices/index_export' + qs(p || {}),
-    // «Ценовая модель»: цены категории (без кэша — их правят прямо на листе).
-    pricesModelCategory: () => request('/api/prices/model_category'),
+    // «Ценовая модель»: срез цен категории на конец периода (без кэша — их правят прямо на листе).
+    pricesModelCategory: (p) => request('/api/prices/model_category' + qs(p || {})),
     // category_price=null удаляет цену.
     pricesModelCategorySet: (body) => request('/api/prices/model_category', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

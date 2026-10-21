@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
-"""«Цены → Ценовая модель»: хранение цены категории (таблица price_model_category).
+"""«Цены → Ценовая модель»: справочник средних цен категории (таблица price_category_hist).
 
-Расчёт загружаемой цены из цены категории и СПП — на фронте
-(static/js/views.js, _pmCalcUpload). Правила — docs/business_rules.md.
+История — одна запись на артикул + площадку + день (по Москве), правка в тот же день
+перезаписывает значение дня. Правила — docs/business_rules.md.
 """
 from pathlib import Path
 
 from . import db
 
-MIGRATION = "2026_10_13_price_model"
+MIGRATION = "2026_10_21_price_category"
 
 
 def migrate():
-    """Таблица цены категории: один раз, атомарно, безопасно для нескольких воркеров."""
+    """Таблица цен категории: один раз, атомарно, безопасно для нескольких воркеров."""
     with db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(13102026, 0)")
         tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
