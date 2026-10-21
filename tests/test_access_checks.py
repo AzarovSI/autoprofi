@@ -87,8 +87,11 @@ CASES = [
     ("GET", "/api/prices/export?show_cost=true", {}, ["prices.list.export", "prices.list.cost"], []),
     ("GET", "/api/prices/index_export", {}, ["prices.index.export"], []),
     ("GET", "/api/prices/model_params", {}, ["prices.model.view"], []),
-    ("POST", "/api/prices/model_params", {"json": {"seller_article": "SKU-1", "marketplace": "wb",
-                                                   "param": "drr_pct", "value": None}}, ["prices.model.edit"], []),
+    *[("POST", "/api/prices/model_params", {"json": {"seller_article": "SKU-1", "marketplace": "wb",
+                                                     "param": param, "value": None}}, [code], [])
+      for param, code in (("category_price", "prices.model.edit"), ("drr_pct", "prices.model.drr"),
+                          ("margin_pct", "prices.model.margin"))],
+    ("PUT", "/api/prices/model_rules", {"json": {"rules": {}}}, ["prices.model.settings"], []),
     ("GET", "/api/prices/index_export?show_cost=true", {},
      ["prices.index.export", "prices.list.cost"], []),
     ("POST", "/api/prices/import", {"files": FILE}, ["prices.list.import"], []),

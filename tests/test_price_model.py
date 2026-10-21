@@ -19,7 +19,7 @@ def reset_price_model(category_rows=()):
     """Состояние рабочей БД до миграций модели: лист 13.10 (price_model_category); category_rows —
     строки price_category_hist, если нужно проверить перенос (тогда первая миграция уже применена)."""
     with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
-        for t in ("price_model_hist", "price_category_hist", "price_model_category"):
+        for t in ("price_model_hist", "price_category_hist", "price_model_category", "price_model_rules"):
             conn.execute(f"DROP TABLE IF EXISTS {t}")
         if conn.execute("SELECT to_regclass('app_schema_migrations')").fetchone()[0]:
             conn.execute("DELETE FROM app_schema_migrations WHERE name = ANY(%s)", (price_model.MIGRATIONS,))
@@ -47,9 +47,14 @@ class PriceModelTest(unittest.TestCase):
         price_model.migrate()
         price_model.migrate()  # повторный запуск ничего не меняет
         ids = {r["name"]: r["id"] for r in db.query_all("SELECT id, name FROM app_roles")}
+        # Роль «Только цена категории»: смотреть модель и менять цену категории, без ДРР, маржи и порогов.
+        cat_role = db.query_one("INSERT INTO app_roles (name) VALUES ('Только цена категории') RETURNING id")["id"]
+        db.execute("INSERT INTO app_role_permissions (role_id, permission) VALUES (%s, 'login'), "
+                   "(%s, 'prices.model.view'), (%s, 'prices.model.edit')", (cat_role, cat_role, cat_role))
         db.execute("INSERT INTO app_users (id, email, display_name, role, role_id) VALUES "
-                   "(101, 'admin@local.test', 'Админ', 'admin', %s), (102, 'rop@local.test', 'РОП', 'user', %s)",
-                   (ids["Администратор"], ids["РОП"]))
+                   "(101, 'admin@local.test', 'Админ', 'admin', %s), (102, 'rop@local.test', 'РОП', 'user', %s), "
+                   "(103, 'cat@local.test', 'Продакт', 'user', %s)",
+                   (ids["Администратор"], ids["РОП"], cat_role))
         self.client = TestClient(app, raise_server_exceptions=True)
 
     def tearDown(self):
@@ -60,8 +65,8 @@ class PriceModelTest(unittest.TestCase):
         token = auth.create_token({"id": uid, "email": ""})
         return self.client.request(method, path, headers={"Authorization": f"Bearer {token}"}, **kw)
 
-    def set_(self, mp, value, param="category_price", art="sku-1"):
-        return self.call(101, "POST", "/api/prices/model_params",
+    def set_(self, mp, value, param="category_price", art="sku-1", uid=101):
+        return self.call(uid, "POST", "/api/prices/model_params",
                          json={"seller_article": art, "marketplace": mp, "param": param, "value": value})
 
     def items(self, date_to=None):
@@ -135,10 +140,59 @@ class PriceModelParamsTest(PriceModelTest):
                 r = self.set_(mp, value, param)
                 self.assertEqual(r.status_code, 400, r.text)
         self.assertEqual(self.items(), [])
+        # Не число (Infinity / NaN в JSON) — 400, а не ошибка сервера.
+        for raw in ('Infinity', 'NaN'):
+            with self.subTest(raw=raw):
+                r = self.client.request(
+                    "POST", "/api/prices/model_params",
+                    content='{"seller_article": "SKU-1", "marketplace": "wb", "param": "drr_pct", "value": %s}' % raw,
+                    headers={"Authorization": "Bearer " + auth.create_token({"id": 101, "email": ""}),
+                             "Content-Type": "application/json"})
+                self.assertEqual(r.status_code, 400, r.text)
         # Границы допустимы.
         for mp, value, param in (("wb", 0, "drr_pct"), ("wb", 1, "margin_pct"), ("ozon", -0.5, "margin_pct")):
             with self.subTest(mp=mp, value=value, param=param):
                 self.assertEqual(self.set_(mp, value, param).status_code, 200)
+
+    def test_each_param_has_own_right(self):
+        # У роли только право на цену категории: цену меняет, ДРР и маржу — нет, пороги — нет.
+        self.assertEqual(self.set_("wb", 1000, uid=103).status_code, 200)
+        self.assertEqual(self.set_("wb", 0.1, "drr_pct", uid=103).status_code, 403)
+        self.assertEqual(self.set_("wb", 0.2, "margin_pct", uid=103).status_code, 403)
+        r = self.call(103, "PUT", "/api/prices/model_rules", json={"rules": {"Ozon": 0.02}})
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(self.items(), [("SKU-1", "Wildberries", "category_price", 1000, "Продакт")])
+
+    def test_rules_default_save_and_validate(self):
+        r = self.call(101, "GET", "/api/prices/model_params")
+        self.assertEqual(r.json()["rules"], {"Wildberries": 0.05, "Ozon": 0.05})
+        self.assertEqual(r.json()["rules_defaults"], {"Wildberries": 0.05, "Ozon": 0.05})
+        r = self.call(101, "PUT", "/api/prices/model_rules", json={"rules": {"Ozon": 0.025}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["rules"], {"Wildberries": 0.05, "Ozon": 0.025})
+        for bad in ({"Ozon": 0}, {"Ozon": 0.6}, {"Ozon": 0.0125}, {"Yandex": 0.05}, {"Ozon": "x"}):
+            with self.subTest(bad=bad):
+                r = self.call(101, "PUT", "/api/prices/model_rules", json={"rules": bad})
+                self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(self.call(101, "GET", "/api/prices/model_params").json()["rules"],
+                         {"Wildberries": 0.05, "Ozon": 0.025})
+
+    def test_spp_on_category_price_date(self):
+        # Подсказка сигнала: СПП из ценового отчёта за день, с которого действует цена категории.
+        with db.transaction() as tx:
+            tx.execute("""INSERT INTO mp_price_daily (seller_article, marketplace, date, upload_price, buyer_price,
+                              spp_pct, spp_source_date, upload_source, spp_is_estimated)
+                          VALUES ('SKU-1', 'Wildberries', %s, 1400, 980, .3, %s, 'upload_wb_spp', false),
+                                 ('SKU-1', 'Ozon', %s, 1800, 990, .45, %s, 'upload_ozon_coinvest', true)""",
+                       (TODAY, TODAY, TODAY, TODAY))
+        self.set_("wb", 1000)
+        self.set_("ozon", 1100)
+        self.set_("wb", 0.1, "drr_pct")
+        got = {(i["marketplace"], i["param"]): i["spp_at_date"]
+               for i in self.call(101, "GET", "/api/prices/model_params").json()["items"]}
+        # WB — СПП за этот день; Ozon — оценочная не берётся; у ДРР СПП не нужна.
+        self.assertEqual(got, {("Wildberries", "category_price"): 0.3, ("Ozon", "category_price"): None,
+                               ("Wildberries", "drr_pct"): None})
 
     def test_only_with_rights(self):
         # У РОП нет функций «Ценовой модели» — ни смотреть, ни менять.

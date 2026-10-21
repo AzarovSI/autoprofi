@@ -22,10 +22,11 @@
 """
 import collections
 import datetime
+import math
 from zoneinfo import ZoneInfo
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from .. import db, auth, price_model, util
@@ -505,8 +506,12 @@ def model_params(
     """Срез параметров на конец периода: по каждой тройке артикул + площадка + параметр —
     последняя запись с датой ≤ date_to; удалённые (NULL) не отдаются."""
     dt = _parse_iso_date(date_to) or datetime.datetime.now(MSK).date()
+    # У цены категории — ещё СПП из ценового отчёта за день, с которого она действует
+    # (подсказка сигнала: «при вводе цены категории СПП была …»); оценочная не берётся.
     rows = db.query_all(
-        """SELECT * FROM (
+        """SELECT s.*, CASE WHEN s.param = 'category_price' AND NOT COALESCE(m.spp_is_estimated, false)
+                            THEN m.spp_pct END AS spp_at_date
+             FROM (
                SELECT DISTINCT ON (h.seller_article, h.marketplace, h.param)
                       h.seller_article, h.marketplace, h.param, h.value, h.date,
                       COALESCE(u.display_name, u.email) AS updated_by
@@ -515,13 +520,27 @@ def model_params(
                 WHERE h.date <= %s
                 ORDER BY h.seller_article, h.marketplace, h.param, h.date DESC
            ) s
+             LEFT JOIN mp_price_daily m
+                    ON m.seller_article = s.seller_article AND m.marketplace = s.marketplace AND m.date = s.date
           WHERE s.value IS NOT NULL
           ORDER BY s.seller_article, s.marketplace, s.param""",
         (dt,))
     for r in rows:
         r["value"] = _model_value_out(r["param"], r["value"])
         r["date"] = r["date"].isoformat()
-    return {"items": rows, "date_to": dt.isoformat()}
+        r["spp_at_date"] = float(r["spp_at_date"]) if r["spp_at_date"] is not None else None
+    return {"items": rows, "date_to": dt.isoformat(),
+            "rules": price_model.load_rules(), "rules_defaults": price_model.DEFAULT_RULES}
+
+
+@router.put("/model_rules")
+def model_rules_save(payload: dict = Body(...), user=Depends(auth.require("prices.model.settings"))):
+    """Пороги сигнала корректировки (кнопка ⚙): {"rules": {площадка: доля}} → все пороги после записи."""
+    try:
+        rules = price_model.save_rules(payload.get("rules"), user.get("id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"rules": rules, "defaults": price_model.DEFAULT_RULES}
 
 
 class ModelParamIn(BaseModel):
@@ -532,8 +551,10 @@ class ModelParamIn(BaseModel):
 
 
 @router.post("/model_params")
-def model_param_set(body: ModelParamIn, user=Depends(auth.require("prices.model.edit"))):
-    """Задать или удалить (None) один параметр артикула на площадке с сегодняшнего дня."""
+def model_param_set(body: ModelParamIn, user=Depends(auth.require(
+        "prices.model.edit", "prices.model.drr", "prices.model.margin"))):
+    """Задать или удалить (None) один параметр артикула на площадке с сегодняшнего дня.
+    Право — своё у каждого параметра (price_model.PARAMS): цена категории, ДРР, маржа."""
     mp = MP_MAP.get((body.marketplace or "").strip().lower())
     if mp not in MP_ORDER:
         raise HTTPException(status_code=400, detail=f"Неизвестный маркетплейс: {body.marketplace!r}")
@@ -543,8 +564,11 @@ def model_param_set(body: ModelParamIn, user=Depends(auth.require("prices.model.
     sa = util.canon_article(body.seller_article or "")
     if not sa:
         raise HTTPException(status_code=400, detail="Пустой артикул")
-    unit, lo, hi = spec
+    unit, lo, hi, code = spec
+    auth.check(user, code)
     value = body.value
+    if value is not None and not math.isfinite(value):
+        raise HTTPException(status_code=400, detail="Нужно число")
     if value is not None:
         if unit == "rub":
             if value != int(value) or value < lo:

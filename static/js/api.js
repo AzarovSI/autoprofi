@@ -364,6 +364,11 @@ const API = (() => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+    // Пороги сигнала корректировки {площадка: доля} (⚙ «Ценовой модели»).
+    pricesModelRulesSave: (rules) => request('/api/prices/model_rules', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules }),
+    }),
     pricesImport: (file) => {
       const fd = new FormData();
       fd.append('file', file);

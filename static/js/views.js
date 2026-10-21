@@ -9499,6 +9499,9 @@ const Views = (() => {
     _periodInit: false,
     loading: false,
     modelParams: null,          // «Ценовая модель»: 'артикул|площадка|параметр' → значение
+    modelRules: null,           // пороги сигнала корректировки {площадка: доля}
+    modelRulesDefaults: null,
+    modelOnlySig: false,        // галочка «только требующие корректировки»
   };
 
   // ===== Компонент выбора периода прайс-листа (клон bindRnpsPeriod) =====
@@ -10107,8 +10110,9 @@ const Views = (() => {
   }
 
   // ── Подраздел «Ценовая модель» ────────────────────────────────────────
-  // Просмотр — prices.model.view, правка — prices.model.edit (по умолчанию только
-  // администратор). Дерево и состав товаров — как в «Прайс-листе». Блоки
+  // Просмотр — prices.model.view; правка — своё право у каждого параметра (PM_EDIT_CODE),
+  // пороги ⚙ — prices.model.settings (по умолчанию всё только у администратора).
+  // Дерево и состав товаров — как в «Прайс-листе». Блоки
   // Wildberries и Ozon, в каждом: ДРР · Маржа, % · Загружаемая · СПП · Цена категории.
   //   ДРР, Маржа, Цена категории — вводятся, хранятся с историей (price_model_hist,
   //   срез на конец периода; правка пишется на сегодня, последняя правка дня);
@@ -10117,9 +10121,13 @@ const Views = (() => {
   //   после вычета СПП площадки получим цену для покупателя ≈ цене категории.
   // Между блоками — «Pi» = Цена категории Ozon / Цена категории WB (оформление и порог
   // раскраски — как у «Pi покупатель» в «Индексе цен», _idxPiPlain: красный при < 1,03).
+  // Сигнал корректировки: загружаемая в кабинете (тот же ценовой отчёт, что СПП) отклоняется
+  // от расчётной больше порога площадки (⚙, price_model_rules) — метка ▲ (поднять) / ▼ (снизить)
+  // и подсветка ячейки «Загружаемая»; счётчик и фильтр «только требующие корректировки».
   // Вводимые ячейки помечены pm-edit (не sp-plan-edit), чтобы их не ловил ввод базовой цены.
   const PM_MP = { wb: 'Wildberries', ozon: 'Ozon' };
   const PM_PCT = { drr_pct: true, margin_pct: true };
+  const PM_EDIT_CODE = { category_price: 'prices.model.edit', drr_pct: 'prices.model.drr', margin_pct: 'prices.model.margin' };
 
   function _pmKey(art, mp, param) { return art + '|' + mp + '|' + param; }
   function _pmParam(art, mp, param) {
@@ -10138,7 +10146,7 @@ const Views = (() => {
   function _pmEditCell(art, mp, param) {
     const c = _pmParam(art, PM_MP[mp], param);
     const val = c ? c.value : null;
-    const edit = App.can('prices.model.edit');
+    const edit = App.can(PM_EDIT_CODE[param]);
     const who = c ? ('Действует с ' + fmtRu(c.date) + ' · изменил: ' + (c.updated_by || '—')) : '';
     const tip = edit ? ((c ? 'Двойной клик — изменить' : 'Двойной клик — задать') + (who ? '\n' + who : '')) : who;
     return (
@@ -10154,20 +10162,55 @@ const Views = (() => {
       '</td>'
     );
   }
-  function _pmUploadCell(art, mp, spp, isEst) {
-    const c = _pmParam(art, PM_MP[mp], 'category_price');
-    const v = _pmCalcUpload(c ? c.value : null, spp);
-    let html;
+  // Данные площадки товара: СПП, загружаемая в кабинете и дата отчёта — из одной строки
+  // mp_price_daily (срез на конец периода, prices_router.py:pricelist).
+  function _pmMpData(it, mp) {
+    return mp === 'wb'
+      ? { spp: it.wb_spp_pct, est: it.wb_spp_is_estimated, actual: it.wb_upload_price, date: it.wb_last_date }
+      : { spp: it.oz_spp_pct, est: it.oz_spp_is_estimated, actual: it.oz_upload_price, date: it.oz_last_date };
+  }
+  // Сигнал корректировки: null — нет (нет цены категории, СПП или цены в кабинете, либо в пределах порога).
+  function _pmSignal(it, mp) {
+    const c = _pmParam(it.seller_article, PM_MP[mp], 'category_price');
+    const d = _pmMpData(it, mp);
+    const target = _pmCalcUpload(c ? c.value : null, d.spp);
+    if (target == null || d.actual == null || !(d.actual > 0)) return null;
+    const dev = (d.actual - target) / target;
+    const thr = (pricesState.modelRules || {})[PM_MP[mp]];
+    if (thr == null || !(Math.abs(dev) > thr + 1e-9)) return null;
+    return { dir: dev < 0 ? 'up' : 'down', dev: dev, target: target, actual: d.actual };
+  }
+  function _pmHasSignal(it) { return !!(_pmSignal(it, 'wb') || _pmSignal(it, 'ozon')); }
+  function _pmUploadCell(it, mp) {
+    const c = _pmParam(it.seller_article, PM_MP[mp], 'category_price');
+    const d = _pmMpData(it, mp);
+    const v = _pmCalcUpload(c ? c.value : null, d.spp);
     if (v == null) {
-      html = '<span class="sp-plan sp-plan-empty"' +
-        (c ? ' title="Нет СПП — товара нет в продаже, расчёт невозможен"' : '') + '>–</span>';
-    } else if (isEst) {
-      html = '<span class="sp-plan sp-plan-est" title="СПП оценочная: взята из ближайшего известного дня">' +
-        '<span class="sp-spp-est" aria-hidden="true">≈</span>' + pricesFmt(v) + '</span>';
-    } else {
-      html = '<span class="sp-plan">' + pricesFmt(v) + '</span>';
+      return '<td class="sp-mth pm-upload"><div class="sp-cell sp-cell-single"><span class="sp-plan sp-plan-empty"' +
+        (c ? ' title="Нет СПП — товара нет в продаже, расчёт невозможен"' : '') + '>–</span></div></td>';
     }
-    return '<td class="sp-mth pm-upload"><div class="sp-cell sp-cell-single">' + html + '</div></td>';
+    const sig = _pmSignal(it, mp);
+    // Подсказка: что стоит в кабинете, что видит покупатель, как изменилась СПП с ввода цены категории.
+    const tip = [];
+    if (d.actual != null) {
+      const dev = (d.actual - v) / v;
+      tip.push('В кабинете: ' + pricesFmt(Math.round(d.actual)) + ' ₽' + (d.date ? ' (отчёт за ' + fmtRu(d.date) + ')' : '') +
+        ', ' + (dev > 0 ? '+' : (dev < 0 ? '−' : '')) + _fmtSppPct(Math.abs(dev)) + '% к расчётной');
+      tip.push('Покупатель видит: ' + pricesFmt(Math.round(d.actual * (1 - d.spp))) + ' ₽, цена категории: ' + pricesFmt(c.value) + ' ₽');
+    } else {
+      tip.push('Цены в кабинете нет в ценовых отчётах — сравнить не с чем');
+    }
+    tip.push('СПП: ' + _fmtSppPct(d.spp) + '%' + (c.spp_at_date != null
+      ? '; при вводе цены категории (' + fmtRu(c.date) + ') была ' + _fmtSppPct(c.spp_at_date) + '%' : ''));
+    if (sig) tip.unshift(sig.dir === 'up' ? '▲ Поднять загружаемую цену: в кабинете дешевле расчётной больше порога'
+                                         : '▼ Снизить загружаемую цену: в кабинете дороже расчётной больше порога');
+    if (d.est) tip.push('СПП оценочная: взята из ближайшего известного дня');
+    const mark = sig ? '<span class="pm-sig-arrow" aria-hidden="true">' + (sig.dir === 'up' ? '▲' : '▼') + '</span>' : '';
+    const html = d.est
+      ? '<span class="sp-plan sp-plan-est"><span class="sp-spp-est" aria-hidden="true">≈</span>' + mark + pricesFmt(v) + '</span>'
+      : '<span class="sp-plan">' + mark + pricesFmt(v) + '</span>';
+    return '<td class="sp-mth pm-upload' + (sig ? ' pm-sig-' + sig.dir : '') + '" title="' + U.esc(tip.join('\n')) + '">' +
+      '<div class="sp-cell sp-cell-single">' + html + '</div></td>';
   }
   function _pmCatPi(art) {
     const wb = _pmParam(art, PM_MP.wb, 'category_price'), oz = _pmParam(art, PM_MP.ozon, 'category_price');
@@ -10176,13 +10219,12 @@ const Views = (() => {
   }
   function _pmBlock(it, mp) {
     const art = it.seller_article;
-    const spp = mp === 'wb' ? it.wb_spp_pct : it.oz_spp_pct;
-    const est = mp === 'wb' ? it.wb_spp_is_estimated : it.oz_spp_is_estimated;
+    const d = _pmMpData(it, mp);
     return (
       _pmEditCell(art, mp, 'drr_pct') +
       _pmEditCell(art, mp, 'margin_pct') +
-      _pmUploadCell(art, mp, spp, est) +
-      '<td class="sp-mth pm-spp"><div class="sp-cell sp-cell-single">' + _idxPctSpp(spp, est) + '</div></td>' +
+      _pmUploadCell(it, mp) +
+      '<td class="sp-mth pm-spp"><div class="sp-cell sp-cell-single">' + _idxPctSpp(d.spp, d.est) + '</div></td>' +
       _pmEditCell(art, mp, 'category_price')
     );
   }
@@ -10214,10 +10256,15 @@ const Views = (() => {
       '</tr>'
     );
   }
+  // Строки модели: поиск и, если включена галочка, только требующие корректировки.
+  function pricesModelItems() {
+    const items = pricesFilterItems((pricesState.data && pricesState.data.items) || [], pricesState.search || '');
+    return pricesState.modelOnlySig ? items.filter(_pmHasSignal) : items;
+  }
   function pricesModelPaintTable(host) {
     if (!pricesState.data) return;
     const q = pricesState.search || '';
-    const filtered = pricesFilterItems(pricesState.data.items || [], q);
+    const filtered = pricesModelItems();
     const { root, unassigned } = pricesBuildTree(filtered);
     const opts = {
       forceExpanded: !!q.trim(),
@@ -10228,13 +10275,14 @@ const Views = (() => {
     pricesRenderNode(root, opts, out);
     if (pricesCountLeaves(unassigned) > 0) pricesRenderNode(unassigned, opts, out);
     if (!out.length) {
-      host.innerHTML = '<div class="empty">Ничего не найдено' + (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
+      host.innerHTML = '<div class="empty">' + (pricesState.modelOnlySig ? 'Нет товаров, требующих корректировки' : 'Ничего не найдено') +
+        (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
       return;
     }
     const head2 = (name) =>
       '<th class="sp-mth pm-drr_pct" title="Плановый ДРР, % — вводится (двойной клик)">ДРР</th>' +
       '<th class="sp-mth pm-margin_pct" title="Плановая маржинальность, % — вводится (двойной клик)">Маржа, %</th>' +
-      '<th class="sp-mth pm-upload" title="Загружаемая = Цена категории / (1 − СПП), вверх до рубля. Её загрузить в ЛК ' + name + ': после вычета СПП цена для покупателя будет равна цене категории">Загружаемая</th>' +
+      '<th class="sp-mth pm-upload" title="Загружаемая = Цена категории / (1 − СПП), вверх до рубля. Её загрузить в ЛК ' + name + ': после вычета СПП цена для покупателя будет равна цене категории.\n▲ / ▼ — цена в кабинете отклоняется от расчётной больше порога (⚙): поднять / снизить">Загружаемая</th>' +
       '<th class="sp-mth pm-spp" title="СПП из ценового отчёта ' + name + ' на конец периода; при нулевой или отсутствующей СПП товара нет в продаже — прочерк">СПП</th>' +
       '<th class="sp-mth pm-category_price" title="Средняя цена категории для покупателя на конец периода — вводится (двойной клик)">Цена категории</th>';
     host.innerHTML =
@@ -10251,6 +10299,50 @@ const Views = (() => {
         '</table>' +
       '</div>';
     pricesSyncToolbarHeight();
+  }
+
+  // ⚙ «Пороги корректировки» «Ценовой модели»: допустимое отклонение загружаемой цены
+  // в кабинете от расчётной, % — по WB и Ozon (price_model_rules, общие для всех сотрудников).
+  function pricesModelRulesPanel(panel, src, onSaved) {
+    const R = src || pricesState.modelRules || {};
+    const canEdit = App.can('prices.model.settings');
+    const inp = (mp) => '<input type="number" min="0.1" max="50" step="0.1" class="pm-rule-in" data-mp="' + mp + '" value="' +
+      +(((R[mp] != null ? R[mp] : 0.05) * 100).toFixed(1)) + '"' + (canEdit ? '' : ' disabled') + '>';
+    panel.innerHTML =
+      '<div class="pm-rules-title">Пороги корректировки</div>' +
+      '<table class="pm-rules-table"><tbody>' +
+        '<tr><td class="lbl">Wildberries, %</td><td>' + inp('Wildberries') + '</td></tr>' +
+        '<tr><td class="lbl">Ozon, %</td><td>' + inp('Ozon') + '</td></tr>' +
+      '</tbody></table>' +
+      '<p class="pm-rules-note muted">Товар требует корректировки, если загружаемая цена в кабинете (последний ценовой отчёт) ' +
+        'отличается от расчётной больше чем на порог. Пороги общие для всех сотрудников.' +
+        (canEdit ? '' : ' Менять их может пользователь с правом «Ценовая модель: настроить пороги корректировки».') + '</p>' +
+      (canEdit ? '<div class="pm-rules-actions">' +
+        '<button type="button" class="btn-sm" id="pm-rules-reset">Сбросить к исходным</button>' +
+        '<button type="button" class="btn" id="pm-rules-save">Сохранить</button></div>' : '');
+    if (!canEdit) return;
+    panel.querySelector('#pm-rules-reset').addEventListener('click', () =>
+      pricesModelRulesPanel(panel, pricesState.modelRulesDefaults, onSaved));
+    panel.querySelector('#pm-rules-save').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const rules = {};
+      for (const el of panel.querySelectorAll('.pm-rule-in')) {
+        const v = Number(String(el.value).replace(',', '.'));
+        if (el.value === '' || !isFinite(v) || v < 0.1 || v > 50 || Math.abs(v * 10 - Math.round(v * 10)) > 1e-9) {
+          el.focus(); App.toast('Порог — от 0,1 до 50%, не больше одного знака после запятой', 'err'); return;
+        }
+        rules[el.dataset.mp] = Math.round(v * 10) / 1000;
+      }
+      btn.disabled = true;
+      try {
+        const res = await API.pricesModelRulesSave(rules);
+        pricesState.modelRules = res.rules;
+        App.toast('Пороги корректировки сохранены', 'ok');
+        onSaved();
+      } catch (err) {
+        App.toast('Ошибка сохранения порогов: ' + ((err && err.message) || err), 'err');
+      } finally { btn.disabled = false; }
+    });
   }
 
   // «Загрузка данных» в разделе «Цены»: две карточки загрузки (Ozon/WB) + журнал.
@@ -10540,7 +10632,17 @@ const Views = (() => {
       : (sub === 'model')
       ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
            '<span>Ценовая модель</span>' +
-           '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
+           '<span style="display:flex;align-items:center;gap:12px;">' +
+             '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
+             '<span class="pm-sig-cnt" id="pm-sig-cnt" title="Товары, у которых загружаемая цена в кабинете отклоняется от расчётной больше порога хотя бы на одной площадке"></span>' +
+             '<label class="sp-fc-check" style="cursor:pointer;" title="Показать только товары, требующие корректировки загружаемой цены">' +
+               '<input type="checkbox" id="pm-only-sig"' + (pricesState.modelOnlySig ? ' checked' : '') + '> только требующие корректировки' +
+             '</label>' +
+             '<span class="pm-rules" id="pm-rules">' +
+               '<button class="pm-rules-btn" id="pm-rules-btn" type="button" title="Пороги корректировки" aria-haspopup="true" aria-expanded="false">⚙</button>' +
+               '<div class="pm-rules-panel" id="pm-rules-panel" hidden></div>' +
+             '</span>' +
+           '</span>' +
          '</div>')
       : (sub === 'index')
       ? ('<div class="rnp-card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
@@ -10619,6 +10721,8 @@ const Views = (() => {
       }
       pricesState.modelParams = {};
       for (const c of (r.items || [])) pricesState.modelParams[_pmKey(c.seller_article, c.marketplace, c.param)] = c;
+      pricesState.modelRules = r.rules || {};
+      pricesState.modelRulesDefaults = r.rules_defaults || {};
     }
     try {
       if (!pricesState.data) {
@@ -10663,6 +10767,13 @@ const Views = (() => {
           cntEl.textContent = 'Найдено: ' + U.fmtNum(filtered.length) + ' / ' + U.fmtNum(total);
         }
       }
+      // «Ценовая модель»: сколько товаров (с учётом поиска) требуют корректировки.
+      const sigEl = root.querySelector('#pm-sig-cnt');
+      if (sigEl) {
+        const n = pricesFilterItems(pricesState.data.items || [], pricesState.search || '').filter(_pmHasSignal).length;
+        sigEl.textContent = 'Требуют корректировки: ' + U.fmtNum(n);
+        sigEl.classList.toggle('pm-sig-cnt-on', n > 0);
+      }
       // Актуальность данных (только «Индекс цен»): последний день с заказами
       // по WB и Ozon. Считаем как максимум wb_last_date / oz_last_date по всем
       // товарам в текущей выдаче — эти даты приходят с бэкенда (см. LATERAL
@@ -10689,6 +10800,34 @@ const Views = (() => {
       }
     }
     refreshCnt();
+
+    // --- «Ценовая модель»: галочка «только требующие корректировки» и ⚙ пороги.
+    const pmOnlySig = root.querySelector('#pm-only-sig');
+    if (pmOnlySig) pmOnlySig.addEventListener('change', () => {
+      pricesState.modelOnlySig = pmOnlySig.checked;
+      paintFn(tblHost);
+    });
+    const pmRulesWrap = root.querySelector('#pm-rules');
+    if (pmRulesWrap) {
+      const btn = pmRulesWrap.querySelector('#pm-rules-btn'), panel = pmRulesWrap.querySelector('#pm-rules-panel');
+      const close = () => { panel.hidden = true; btn.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!panel.hidden) { close(); return; }
+        pricesModelRulesPanel(panel, null, () => { close(); paintFn(tblHost); refreshCnt(); });
+        panel.hidden = false; btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+      });
+      // Клики внутри панели её не закрывают («Сбросить» перерисовывает панель — цель клика уже вне DOM).
+      panel.addEventListener('click', (e) => e.stopPropagation());
+      // Раздел перерисовывается целиком — слушатели документа снимаются, когда панели нет в DOM.
+      const onDocClick = (e) => {
+        if (!document.body.contains(pmRulesWrap)) { document.removeEventListener('click', onDocClick); document.removeEventListener('keydown', onKey); return; }
+        if (!panel.hidden && !pmRulesWrap.contains(e.target)) close();
+      };
+      const onKey = (e) => { if (e.key === 'Escape' && !panel.hidden) close(); };
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onKey);
+    }
 
     // --- Поиск: перерисовка без запроса к API (debounce 180мс).
     let searchTimer = null;
@@ -10930,6 +11069,7 @@ const Views = (() => {
             };
           }
           paintFn(tblHost);
+          refreshCnt();
           App.toast(res.value == null ? 'Значение удалено' : 'Значение сохранено', 'ok');
         } catch (err) {
           App.toast(err.message || 'Не удалось сохранить значение', 'err');

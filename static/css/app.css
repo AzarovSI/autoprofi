@@ -2318,6 +2318,48 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl th.sp-hgrp.sp-th-ozon { color: var(--ozon-soft); }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl thead tr.sp-hrow2 th { text-align: center; }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl { --sp-name-w: 300px; }
+/* Сигнал корректировки в «Загружаемой»: ▲ поднять (в кабинете дешевле расчётной) — красный,
+   ▼ снизить (дороже) — синий; палитра «Запаса в днях», фон 10%. Число остаётся чёрным жирным. */
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl tbody tr td.pm-upload.pm-sig-up   { background-color: rgba(176, 42, 30, .10); }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl tbody tr td.pm-upload.pm-sig-down { background-color: rgba(18, 83, 158, .10); }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl tbody tr:hover td.pm-upload.pm-sig-up {
+  background: linear-gradient(rgba(176, 42, 30, .10), rgba(176, 42, 30, .10)), linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-elev) !important;
+}
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl tbody tr:hover td.pm-upload.pm-sig-down {
+  background: linear-gradient(rgba(18, 83, 158, .10), rgba(18, 83, 158, .10)), linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-elev) !important;
+}
+.mp-cross #pl-body[data-sub="model"] td.pm-upload .pm-sig-arrow { font-size: 9px; margin-right: 4px; vertical-align: 1px; }
+.mp-cross #pl-body[data-sub="model"] td.pm-upload.pm-sig-up .pm-sig-arrow   { color: #b02a1e; }
+.mp-cross #pl-body[data-sub="model"] td.pm-upload.pm-sig-down .pm-sig-arrow { color: #12539e; }
+/* Счётчик «Требуют корректировки»: серый, при N > 0 — тёмно-красный. */
+.pm-sig-cnt { font-size: 12px; font-weight: 400; color: var(--text-mute); white-space: nowrap; }
+.pm-sig-cnt.pm-sig-cnt-on { color: #b02a1e; font-weight: 600; }
+/* ⚙ «Пороги корректировки» — как ⚙ в ABC (abc.css, .abc-rules-*). */
+.pm-rules { position: relative; display: inline-flex; }
+.pm-rules-btn {
+  height: 30px; width: 30px; font-size: 15px; line-height: 1; cursor: pointer;
+  color: var(--text-mute); background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 8px;
+}
+.pm-rules-btn:hover, .pm-rules-btn.open { color: var(--accent); border-color: var(--accent); }
+.pm-rules-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: min(360px, calc(100vw - 32px));
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 34px rgba(20,22,48,.16); padding: 14px 16px; font-weight: 400;
+}
+.pm-rules-panel[hidden] { display: none; }
+.pm-rules-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--text); }
+.pm-rules-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pm-rules-table td { padding: 4px; text-align: right; vertical-align: middle; }
+.pm-rules-table td.lbl { text-align: left; color: var(--text); }
+.pm-rule-in {
+  width: 92px; height: 28px; padding: 0 6px; text-align: right; font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border); border-radius: 6px; background: #fff; -moz-appearance: textfield; appearance: textfield;
+}
+.pm-rule-in:disabled { background: var(--bg-elev2); color: var(--text-mute); }
+.pm-rules-note { font-size: 12px; margin: 10px 0 0; line-height: 1.45; white-space: normal; }
+.pm-rules-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.pm-rules-actions .btn-sm { white-space: nowrap; }
+.pm-rules-actions .btn { width: auto; min-width: 0; padding: 6px 12px; font-size: 12.5px; white-space: nowrap; }
 /* Ширины колонок блока (по классам pm-*), чтобы два блока и «Pi» между ними помещались на экране 1440. */
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-drr_pct    { width: 74px;  min-width: 74px; }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-margin_pct { width: 80px;  min-width: 80px; }
