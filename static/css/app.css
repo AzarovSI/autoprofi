@@ -2331,9 +2331,21 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .mp-cross #pl-body[data-sub="model"] td.pm-upload .pm-sig-arrow { font-size: 9px; margin-right: 4px; vertical-align: 1px; }
 .mp-cross #pl-body[data-sub="model"] td.pm-upload.pm-sig-up .pm-sig-arrow   { color: #b02a1e; }
 .mp-cross #pl-body[data-sub="model"] td.pm-upload.pm-sig-down .pm-sig-arrow { color: #12539e; }
-/* Счётчик «Требуют корректировки»: серый, при N > 0 — тёмно-красный. */
-.pm-sig-cnt { font-size: 12px; font-weight: 400; color: var(--text-mute); white-space: nowrap; }
-.pm-sig-cnt.pm-sig-cnt-on { color: #b02a1e; font-weight: 600; }
+/* Чип «Требуют корректировки N» — счётчик и фильтр в одном: обычный шрифт, число — в мягком бейдже.
+   Нет таких товаров — всё серое; есть — бейдж красноватый; фильтр включён — мягкая заливка и рамка. */
+.pm-sig-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 6px 0 12px;
+  font: inherit; font-size: 12px; font-weight: 400; color: var(--text-dim); white-space: nowrap; cursor: pointer;
+  background: #fff; border: 1px solid var(--border); border-radius: 999px; transition: background .15s, border-color .15s, color .15s;
+}
+.pm-sig-chip:hover { border-color: #c9d1d9; color: var(--text); }
+.pm-sig-num {
+  min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-mute); background: var(--bg-elev2);
+}
+.pm-sig-chip.has .pm-sig-num { color: #b02a1e; background: rgba(176, 42, 30, .10); }
+.pm-sig-chip.on { color: #b02a1e; background: rgba(176, 42, 30, .06); border-color: rgba(176, 42, 30, .35); }
+.pm-sig-chip.on .pm-sig-num { color: #fff; background: #b02a1e; }
 /* ⚙ «Пороги корректировки» — как ⚙ в ABC (abc.css, .abc-rules-*). */
 .pm-rules { position: relative; display: inline-flex; }
 .pm-rules-btn {

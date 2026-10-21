@@ -10634,10 +10634,12 @@ const Views = (() => {
            '<span>Ценовая модель</span>' +
            '<span style="display:flex;align-items:center;gap:12px;">' +
              '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
-             '<span class="pm-sig-cnt" id="pm-sig-cnt" title="Товары, у которых загружаемая цена в кабинете отклоняется от расчётной больше порога хотя бы на одной площадке"></span>' +
-             '<label class="sp-fc-check" style="cursor:pointer;" title="Показать только товары, требующие корректировки загружаемой цены">' +
-               '<input type="checkbox" id="pm-only-sig"' + (pricesState.modelOnlySig ? ' checked' : '') + '> только требующие корректировки' +
-             '</label>' +
+             // Счётчик и фильтр — один чип: число товаров с сигналом, нажатие показывает только их.
+             '<button type="button" class="pm-sig-chip' + (pricesState.modelOnlySig ? ' on' : '') + '" id="pm-sig-chip"' +
+               ' aria-pressed="' + (pricesState.modelOnlySig ? 'true' : 'false') + '"' +
+               ' title="Товары, у которых загружаемая цена в кабинете отклоняется от расчётной больше порога хотя бы на одной площадке. Нажмите, чтобы показать только их">' +
+               'Требуют корректировки <span class="pm-sig-num" id="pm-sig-num">0</span>' +
+             '</button>' +
              '<span class="pm-rules" id="pm-rules">' +
                '<button class="pm-rules-btn" id="pm-rules-btn" type="button" title="Пороги корректировки" aria-haspopup="true" aria-expanded="false">⚙</button>' +
                '<div class="pm-rules-panel" id="pm-rules-panel" hidden></div>' +
@@ -10779,11 +10781,11 @@ const Views = (() => {
         }
       }
       // «Ценовая модель»: сколько товаров (с учётом поиска) требуют корректировки.
-      const sigEl = root.querySelector('#pm-sig-cnt');
-      if (sigEl) {
+      const sigChip = root.querySelector('#pm-sig-chip');
+      if (sigChip) {
         const n = pricesFilterItems(pricesState.data.items || [], pricesState.search || '').filter(_pmHasSignal).length;
-        sigEl.textContent = 'Требуют корректировки: ' + U.fmtNum(n);
-        sigEl.classList.toggle('pm-sig-cnt-on', n > 0);
+        sigChip.querySelector('#pm-sig-num').textContent = U.fmtNum(n);
+        sigChip.classList.toggle('has', n > 0);
       }
       // Актуальность данных (только «Индекс цен»): последний день с заказами
       // по WB и Ozon. Считаем как максимум wb_last_date / oz_last_date по всем
@@ -10812,10 +10814,12 @@ const Views = (() => {
     }
     refreshCnt();
 
-    // --- «Ценовая модель»: галочка «только требующие корректировки» и ⚙ пороги.
-    const pmOnlySig = root.querySelector('#pm-only-sig');
-    if (pmOnlySig) pmOnlySig.addEventListener('change', () => {
-      pricesState.modelOnlySig = pmOnlySig.checked;
+    // --- «Ценовая модель»: чип «Требуют корректировки» (фильтр) и ⚙ пороги.
+    const pmSigChip = root.querySelector('#pm-sig-chip');
+    if (pmSigChip) pmSigChip.addEventListener('click', () => {
+      pricesState.modelOnlySig = !pricesState.modelOnlySig;
+      pmSigChip.classList.toggle('on', pricesState.modelOnlySig);
+      pmSigChip.setAttribute('aria-pressed', pricesState.modelOnlySig ? 'true' : 'false');
       paintFn(tblHost);
     });
     const pmRulesWrap = root.querySelector('#pm-rules');
