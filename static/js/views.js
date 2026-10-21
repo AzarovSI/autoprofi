@@ -10860,14 +10860,18 @@ const Views = (() => {
       return;  // ошибка уже показана в tblHost
     }
 
-    // Первый рендер: все L1-группы развёрнуты; L2/L3 — свёрнуты.
+    // Дерево развёрнуто целиком — при каждом открытии подраздела и смене периода
+    // (решение владельца 21.10.2026; раньше — только L1). «Свернуть всё» — до L1.
     function initExpanded() {
       pricesState.expanded = {};
+      const walk = (n) => {
+        if (n.level >= 1) pricesState.expanded[n.key] = true;
+        for (const k in n.children) walk(n.children[k]);
+      };
       const tree = pricesBuildTree(pricesState.data.items || []);
-      for (const k in tree.root.children) pricesState.expanded[tree.root.children[k].key] = true;
-      pricesState.expanded[tree.unassigned.key] = true;
+      walk(tree.root); walk(tree.unassigned);
     }
-    if (Object.keys(pricesState.expanded).length === 0) initExpanded();
+    initExpanded();
     paintFn(tblHost);
 
     // Компонент периода — при смене диапазона перегружаем данные и сбрасываем дерево.
@@ -11032,12 +11036,7 @@ const Views = (() => {
 
     // --- Развернуть всё.
     root.querySelector('#pl-expand').addEventListener('click', () => {
-      const walk = (n) => {
-        if (n.level >= 1) pricesState.expanded[n.key] = true;
-        for (const k in n.children) walk(n.children[k]);
-      };
-      const tree = pricesBuildTree(pricesState.data.items || []);
-      walk(tree.root); walk(tree.unassigned);
+      initExpanded();
       paintFn(tblHost);
     });
 
