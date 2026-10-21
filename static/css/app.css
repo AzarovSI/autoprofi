@@ -2346,6 +2346,37 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .pm-sig-chip.has .pm-sig-num { color: #b02a1e; background: rgba(176, 42, 30, .10); }
 .pm-sig-chip.on { color: #b02a1e; background: rgba(176, 42, 30, .06); border-color: rgba(176, 42, 30, .35); }
 .pm-sig-chip.on .pm-sig-num { color: #fff; background: #b02a1e; }
+/* Подсказка-карточка «Ценовой модели» (вместо системного title) — в стиле окна комментариев РНП:
+   заголовок на сером, строки «название — значение» (числа моно, вправо), внизу служебное мелким. */
+.pm-tip {
+  position: fixed; z-index: 2000; min-width: 230px; max-width: 300px; pointer-events: none;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  box-shadow: 0 8px 28px rgba(20,30,45,.18), 0 2px 8px rgba(20,30,45,.10);
+  font-size: 12px; line-height: 1.45; color: var(--text);
+}
+.pm-tip[hidden] { display: none; }
+.pm-tip-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 12px; background: var(--bg-elev2); border-bottom: 1px solid var(--border-soft);
+  font-weight: 600; white-space: nowrap;
+}
+.pm-tip-b { padding: 6px 12px; }
+.pm-tip-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 2px 0; }
+.pm-tip-row .k { color: var(--text-dim); white-space: nowrap; }
+.pm-tip-row .v { text-align: right; white-space: nowrap; }
+.pm-tip-row .v b { font-weight: 600; }
+.pm-tip .n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pm-tip-line { padding: 2px 0; color: var(--text); }
+.pm-tip-line .pm-tip-dev { margin: 0 4px 0 0; font-size: 10px; }
+.pm-tip-sep { border-top: 1px solid var(--border-soft); margin: 5px 0; }
+.pm-tip-f { padding: 6px 12px; border-top: 1px solid var(--border-soft); color: var(--text-mute); font-size: 11px; }
+.pm-tip-badge { font-size: 11px; font-weight: 500; padding: 1px 8px; border-radius: 999px; }
+.pm-tip-badge.up   { color: #b02a1e; background: rgba(176, 42, 30, .10); }
+.pm-tip-badge.down { color: #12539e; background: rgba(18, 83, 158, .10); }
+.pm-tip-badge.ok   { color: var(--text-dim); background: var(--bg-hover); }
+.pm-tip-dev { color: var(--text-mute); margin-left: 4px; }
+.pm-tip-dev.up { color: #b02a1e; }
+.pm-tip-dev.down { color: #12539e; }
 /* ⚙ «Пороги корректировки» — как ⚙ в ABC (abc.css, .abc-rules-*). */
 .pm-rules { position: relative; display: inline-flex; }
 .pm-rules-btn {

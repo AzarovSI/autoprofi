@@ -10147,13 +10147,10 @@ const Views = (() => {
     const c = _pmParam(art, PM_MP[mp], param);
     const val = c ? c.value : null;
     const edit = App.can(PM_EDIT_CODE[param]);
-    const who = c ? ('Действует с ' + fmtRu(c.date) + ' · изменил: ' + (c.updated_by || '—')) : '';
-    const tip = edit ? ((c ? 'Двойной клик — изменить' : 'Двойной клик — задать') + (who ? '\n' + who : '')) : who;
     return (
-      '<td class="sp-mth pm-' + param + '">' +
+      '<td class="sp-mth pm-' + param + '" data-pmtip="edit" data-art="' + U.esc(art) + '" data-mp="' + mp + '" data-param="' + param + '">' +
         '<div class="sp-cell sp-cell-single">' +
           '<span class="sp-plan' + (edit ? ' pm-edit' : '') + (val == null ? ' sp-plan-empty' : '') + '"' +
-                (tip ? ' title="' + U.esc(tip) + '"' : '') +
                 ' data-art="' + U.esc(art) + '" data-mp="' + mp + '" data-param="' + param + '"' +
                 ' data-val="' + (val == null ? '' : val) + '">' +
             (val == null ? '–' : _pmFmt(param, val)) +
@@ -10185,33 +10182,148 @@ const Views = (() => {
     const c = _pmParam(it.seller_article, PM_MP[mp], 'category_price');
     const d = _pmMpData(it, mp);
     const v = _pmCalcUpload(c ? c.value : null, d.spp);
+    const tipAttr = ' data-pmtip="upload" data-art="' + U.esc(it.seller_article) + '" data-mp="' + mp + '"';
     if (v == null) {
-      return '<td class="sp-mth pm-upload"><div class="sp-cell sp-cell-single"><span class="sp-plan sp-plan-empty"' +
-        (c ? ' title="Нет СПП — товара нет в продаже, расчёт невозможен"' : '') + '>–</span></div></td>';
+      return '<td class="sp-mth pm-upload"' + (c ? tipAttr : '') +
+        '><div class="sp-cell sp-cell-single"><span class="sp-plan sp-plan-empty">–</span></div></td>';
     }
     const sig = _pmSignal(it, mp);
-    // Подсказка: что стоит в кабинете, что видит покупатель, как изменилась СПП с ввода цены категории.
-    const tip = [];
-    if (d.actual != null) {
-      const dev = (d.actual - v) / v;
-      tip.push('В кабинете: ' + pricesFmt(Math.round(d.actual)) + ' ₽' + (d.date ? ' (отчёт за ' + fmtRu(d.date) + ')' : '') +
-        ', ' + (dev > 0 ? '+' : (dev < 0 ? '−' : '')) + _fmtSppPct(Math.abs(dev)) + '% к расчётной');
-      tip.push('Покупатель видит: ' + pricesFmt(Math.round(d.actual * (1 - d.spp))) + ' ₽, цена категории: ' + pricesFmt(c.value) + ' ₽');
-    } else {
-      tip.push('Цены в кабинете нет в ценовых отчётах — сравнить не с чем');
-    }
-    tip.push('СПП: ' + _fmtSppPct(d.spp) + '%' + (c.spp_at_date != null
-      ? '; при вводе цены категории (' + fmtRu(c.date) + ') была ' + _fmtSppPct(c.spp_at_date) + '%' : ''));
-    if (sig) tip.unshift(sig.dir === 'up' ? '▲ Поднять загружаемую цену: в кабинете дешевле расчётной больше порога'
-                                         : '▼ Снизить загружаемую цену: в кабинете дороже расчётной больше порога');
-    if (d.est) tip.push('СПП оценочная: взята из ближайшего известного дня');
     const mark = sig ? '<span class="pm-sig-arrow" aria-hidden="true">' + (sig.dir === 'up' ? '▲' : '▼') + '</span>' : '';
     const html = d.est
       ? '<span class="sp-plan sp-plan-est"><span class="sp-spp-est" aria-hidden="true">≈</span>' + mark + pricesFmt(v) + '</span>'
       : '<span class="sp-plan">' + mark + pricesFmt(v) + '</span>';
-    return '<td class="sp-mth pm-upload' + (sig ? ' pm-sig-' + sig.dir : '') + '" title="' + U.esc(tip.join('\n')) + '">' +
+    return '<td class="sp-mth pm-upload' + (sig ? ' pm-sig-' + sig.dir : '') + '"' + tipAttr + '>' +
       '<div class="sp-cell sp-cell-single">' + html + '</div></td>';
   }
+
+  // ── Подсказки «Ценовой модели»: своя карточка вместо системного title ──
+  // Заголовок, строки «название — значение», внизу служебное (дата отчёта, порог).
+  // Содержимое строится при наведении по data-pmtip ячейки или шапки.
+  const PM_MP_SHORT = { wb: 'WB', ozon: 'Ozon' };
+  const PM_PARAM_NAME = { drr_pct: 'ДРР', margin_pct: 'Маржа', category_price: 'Цена категории' };
+  // Числа — моноширинным (класс n), текст — обычным шрифтом.
+  function _pmTipPct(v) { return '<span class="n">' + _fmtSppPct(v) + '%</span>'; }
+  function _pmTipRub(v) { return '<span class="n">' + pricesFmt(Math.round(v)) + ' ₽</span>'; }
+  // rows: ['название', 'значение'] — строка; '-' — разделитель; 'текст' — строка текста во всю ширину.
+  function _pmTipCard(title, badge, rows, foot) {
+    const body = rows.map(r => r === '-' ? '<div class="pm-tip-sep"></div>'
+      : (typeof r === 'string' ? '<div class="pm-tip-line">' + r + '</div>'
+      : '<div class="pm-tip-row"><span class="k">' + U.esc(r[0]) + '</span><span class="v">' + r[1] + '</span></div>')).join('');
+    return '<div class="pm-tip-h"><span>' + U.esc(title) + '</span>' + (badge || '') + '</div>' +
+      (body ? '<div class="pm-tip-b">' + body + '</div>' : '') +
+      (foot ? '<div class="pm-tip-f">' + U.esc(foot) + '</div>' : '');
+  }
+  function _pmTipItem(art) {
+    return ((pricesState.data && pricesState.data.items) || []).find(x => x.seller_article === art) || null;
+  }
+  function _pmTipUpload(art, mp) {
+    const it = _pmTipItem(art);
+    if (!it) return null;
+    const c = _pmParam(art, PM_MP[mp], 'category_price');
+    const d = _pmMpData(it, mp);
+    const v = _pmCalcUpload(c ? c.value : null, d.spp);
+    const title = 'Загружаемая · ' + PM_MP_SHORT[mp];
+    if (v == null) {
+      return _pmTipCard(title, '', [['Цена категории', _pmTipRub(c.value)], ['СПП', 'нет']],
+        'Товара нет в продаже — расчёт невозможен');
+    }
+    const sig = _pmSignal(it, mp);
+    const badge = sig
+      ? '<span class="pm-tip-badge ' + sig.dir + '">' + (sig.dir === 'up' ? '▲ Поднять' : '▼ Снизить') + '</span>'
+      : (d.actual != null ? '<span class="pm-tip-badge ok">В пределах порога</span>' : '');
+    const rows = [['Расчётная', '<b>' + _pmTipRub(v) + '</b>']];
+    if (d.actual != null) {
+      const dev = (d.actual - v) / v;
+      const devTxt = (dev > 0 ? '+' : (dev < 0 ? '−' : '')) + _fmtSppPct(Math.abs(dev)) + '%';
+      rows.push(['В кабинете', _pmTipRub(d.actual) + ' <span class="pm-tip-dev n' + (sig ? ' ' + sig.dir : '') + '">' + devTxt + '</span>']);
+    } else {
+      rows.push(['В кабинете', '<span class="muted">нет в отчётах</span>']);
+    }
+    rows.push('-');
+    if (d.actual != null) rows.push(['Покупатель видит', _pmTipRub(d.actual * (1 - d.spp))]);
+    rows.push(['Цена категории', _pmTipRub(c.value)]);
+    rows.push(['СПП', (d.est ? '≈ ' : '') + _pmTipPct(d.spp)]);
+    if (c.spp_at_date != null) rows.push(['СПП при вводе цены', _pmTipPct(c.spp_at_date)]);
+    const thr = (pricesState.modelRules || {})[PM_MP[mp]];
+    const foot = [d.date ? 'Отчёт за ' + fmtRu(d.date) : '', thr != null ? 'порог ' + _fmtSppPct(thr).replace(/,0$/, '') + '%' : '',
+                  d.est ? 'СПП оценочная' : ''].filter(Boolean).join(' · ');
+    return _pmTipCard(title, badge, rows, foot);
+  }
+  function _pmTipEdit(art, mp, param) {
+    const c = _pmParam(art, PM_MP[mp], param);
+    const edit = App.can(PM_EDIT_CODE[param]);
+    const title = PM_PARAM_NAME[param] + ' · ' + PM_MP_SHORT[mp];
+    const rows = c
+      ? [['Значение', '<b>' + (PM_PCT[param] ? _pmTipPct(c.value) : _pmTipRub(c.value)) + '</b>'],
+         ['Действует с', '<span class="n">' + fmtRu(c.date) + '</span>'], ['Изменил', U.esc(c.updated_by || '—')]]
+      : [['Значение', '<span class="muted">не задано</span>']];
+    return _pmTipCard(title, '', rows, edit ? (c ? 'Двойной клик — изменить, пусто — удалить' : 'Двойной клик — задать') : '');
+  }
+  function _pmTipPi(art) {
+    const wb = _pmParam(art, PM_MP.wb, 'category_price'), oz = _pmParam(art, PM_MP.ozon, 'category_price');
+    const pi = _pmCatPi(art);
+    return _pmTipCard('Pi цен категории', '', [
+      ['Цена категории Ozon', oz ? _pmTipRub(oz.value) : '<span class="muted">нет</span>'],
+      ['Цена категории WB', wb ? _pmTipRub(wb.value) : '<span class="muted">нет</span>'],
+      ['Pi = Ozon ÷ WB', pi == null ? '<span class="muted">–</span>' : '<b class="n">' + (Math.round(pi * 100) / 100).toFixed(2).replace('.', ',') + '</b>'],
+    ], 'Красный — меньше 1,03');
+  }
+  // Шапка: заголовок, 1–3 строки текста, внизу — как вводится.
+  const PM_TIP_HEAD = {
+    drr_pct: ['Плановый ДРР', ['Доля рекламы в выручке, %'], 'Вводится двойным кликом'],
+    margin_pct: ['Плановая маржа', ['Маржинальность, %'], 'Вводится двойным кликом'],
+    upload: ['Загружаемая цена', ['Цена категории ÷ (1 − СПП), вверх до рубля', '-',
+             '<span class="pm-tip-dev up">▲</span> в кабинете дешевле — поднять',
+             '<span class="pm-tip-dev down">▼</span> в кабинете дороже — снизить'], 'Метка — если отклонение больше порога ⚙'],
+    spp: ['СПП', ['Из ценового отчёта на конец периода', 'Прочерк — товара нет в продаже'], ''],
+    category_price: ['Цена категории', ['Средняя цена категории для покупателя'], 'Вводится двойным кликом'],
+    pi: ['Pi цен категории', ['Цена категории Ozon ÷ WB'], 'Красный — меньше 1,03'],
+  };
+  function _pmTipHtml(el) {
+    const kind = el.dataset.pmtip;
+    if (kind === 'upload') return _pmTipUpload(el.dataset.art, el.dataset.mp);
+    if (kind === 'edit') return _pmTipEdit(el.dataset.art, el.dataset.mp, el.dataset.param);
+    if (kind === 'pi') return _pmTipPi(el.dataset.art);
+    if (kind.indexOf('h:') === 0) {
+      const h = PM_TIP_HEAD[kind.slice(2)];
+      return h ? _pmTipCard(h[0], '', h[1], h[2]) : null;
+    }
+    return null;
+  }
+  function _pmTipHide() {
+    const t = document.getElementById('pm-tip');
+    if (t) t.hidden = true;
+  }
+  // Показать карточку у элемента: снизу, а если не помещается — сверху; по ширине — в пределах окна.
+  function _pmTipShow(el) {
+    const html = _pmTipHtml(el);
+    if (!html) { _pmTipHide(); return; }
+    let t = document.getElementById('pm-tip');
+    if (!t) { t = document.createElement('div'); t.id = 'pm-tip'; t.className = 'pm-tip'; document.body.appendChild(t); }
+    t.innerHTML = html;
+    t.hidden = false;
+    const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
+    if (y + h > window.innerHeight - 8) y = r.top - h - 6;
+    x = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+    t.style.left = Math.round(x) + 'px';
+    t.style.top = Math.round(Math.max(8, y)) + 'px';
+  }
+  function _pmTipBind(host) {
+    let cur = null, timer = null;
+    host.addEventListener('mouseover', (e) => {
+      const el = e.target.closest('[data-pmtip]');
+      if (el === cur) return;
+      cur = el;
+      clearTimeout(timer);
+      _pmTipHide();
+      if (el && !el.querySelector('input')) timer = setTimeout(() => { if (cur === el) _pmTipShow(el); }, 200);
+    });
+    host.addEventListener('mouseleave', () => { cur = null; clearTimeout(timer); _pmTipHide(); });
+    host.addEventListener('dblclick', () => { clearTimeout(timer); _pmTipHide(); });
+    window.addEventListener('scroll', _pmTipHide, { passive: true, capture: true });
+  }
+
   function _pmCatPi(art) {
     const wb = _pmParam(art, PM_MP.wb, 'category_price'), oz = _pmParam(art, PM_MP.ozon, 'category_price');
     if (!wb || !oz || !(wb.value > 0) || !(oz.value > 0)) return null;
@@ -10251,7 +10363,7 @@ const Views = (() => {
       '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
         '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
         _pmBlock(it, 'wb') +
-        '<td class="sp-mth sp-pibuy">' + _idxPiPlain(_pmCatPi(it.seller_article)) + '</td>' +
+        '<td class="sp-mth sp-pibuy" data-pmtip="pi" data-art="' + U.esc(it.seller_article) + '">' + _idxPiPlain(_pmCatPi(it.seller_article)) + '</td>' +
         _pmBlock(it, 'ozon') +
       '</tr>'
     );
@@ -10263,6 +10375,7 @@ const Views = (() => {
   }
   function pricesModelPaintTable(host) {
     if (!pricesState.data) return;
+    _pmTipHide();
     const q = pricesState.search || '';
     const filtered = pricesModelItems();
     const { root, unassigned } = pricesBuildTree(filtered);
@@ -10279,22 +10392,22 @@ const Views = (() => {
         (q ? ' по запросу «' + U.esc(q) + '»' : '') + '.</div>';
       return;
     }
-    const head2 = (name) =>
-      '<th class="sp-mth pm-drr_pct" title="Плановый ДРР, % — вводится (двойной клик)">ДРР</th>' +
-      '<th class="sp-mth pm-margin_pct" title="Плановая маржинальность, % — вводится (двойной клик)">Маржа, %</th>' +
-      '<th class="sp-mth pm-upload" title="Загружаемая = Цена категории / (1 − СПП), вверх до рубля. Её загрузить в ЛК ' + name + ': после вычета СПП цена для покупателя будет равна цене категории.\n▲ / ▼ — цена в кабинете отклоняется от расчётной больше порога (⚙): поднять / снизить">Загружаемая</th>' +
-      '<th class="sp-mth pm-spp" title="СПП из ценового отчёта ' + name + ' на конец периода; при нулевой или отсутствующей СПП товара нет в продаже — прочерк">СПП</th>' +
-      '<th class="sp-mth pm-category_price" title="Средняя цена категории для покупателя на конец периода — вводится (двойной клик)">Цена категории</th>';
+    const head2 = () =>
+      '<th class="sp-mth pm-drr_pct" data-pmtip="h:drr_pct">ДРР</th>' +
+      '<th class="sp-mth pm-margin_pct" data-pmtip="h:margin_pct">Маржа, %</th>' +
+      '<th class="sp-mth pm-upload" data-pmtip="h:upload">Загружаемая</th>' +
+      '<th class="sp-mth pm-spp" data-pmtip="h:spp">СПП</th>' +
+      '<th class="sp-mth pm-category_price" data-pmtip="h:category_price">Цена категории</th>';
     host.innerHTML =
       '<div class="tbl-wrap sp-wrap">' +
         '<table class="tbl sp-tbl">' +
           '<thead><tr>' +
             '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
             '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
-            '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" title="Pi = Цена категории Ozon / Цена категории Wildberries">Pi</th>' +
+            '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" data-pmtip="h:pi">Pi</th>' +
             '<th class="sp-mth sp-hgrp sp-th-ozon" colspan="5">Ozon</th>' +
           '</tr>' +
-          '<tr class="sp-hrow2">' + head2('Wildberries') + head2('Ozon') + '</tr></thead>' +
+          '<tr class="sp-hrow2">' + head2() + head2() + '</tr></thead>' +
           '<tbody>' + out.join('') + '</tbody>' +
         '</table>' +
       '</div>';
@@ -10813,6 +10926,9 @@ const Views = (() => {
       }
     }
     refreshCnt();
+
+    // --- «Ценовая модель»: подсказки-карточки ячеек и шапки.
+    if (sub === 'model') _pmTipBind(tblHost);
 
     // --- «Ценовая модель»: чип «Требуют корректировки» (фильтр) и ⚙ пороги.
     const pmSigChip = root.querySelector('#pm-sig-chip');
