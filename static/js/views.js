@@ -504,6 +504,13 @@ const Views = (() => {
   // yoy — показывать дорожку факта того же месяца годом раньше между Планом и Фактом; по умолчанию ВЫКЛ.
   // from/to — период «ГГГГ-ММ» (общий для всех вкладок, может переходить через год);
   // пусто — по умолчанию текущий календарный год (ставится при первом открытии).
+  // Раскрыть все группы дерева «Продаж, шт.» (кнопка «Развернуть всё» и вид по умолчанию).
+  function salesExpandAll(node) {
+    if (node && node.children && node.children.length) {
+      salesState.expanded[node.key] = true;
+      node.children.forEach(salesExpandAll);
+    }
+  }
   const salesState = { tab: 'wb', from: '', to: '', status: '', manager: '', forecast: true, hideStatus: true, yoy: false, rub: false, manualOnly: false, search: '', searchExpandSig: '', expanded: {}, data: null };
   const RU_MON_SH = ['', 'Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
   // Не длиннее, чем принимает сервер (sales_router.MAX_PERIOD_MONTHS).
@@ -978,9 +985,10 @@ const Views = (() => {
       });
     } catch (e) { root.innerHTML = `<div class="empty">Ошибка: ${U.esc(e.message)}</div>`; return; }
     salesState.data = data;
-    // Корень «Итоги» раскрыт по умолчанию.
+    // По умолчанию дерево развёрнуто до товаров, как «Развернуть всё» (решение владельца
+    // 21.10.2026; раньше — только корень «Итоги»). Ручное раскрытие не перетирается.
     if (data.tree && data.tree.key && Object.keys(salesState.expanded).length === 0) {
-      salesState.expanded[data.tree.key] = true;
+      salesExpandAll(data.tree);
     }
 
     const isSingle = salesState.tab !== 'cross';
@@ -1183,13 +1191,7 @@ const Views = (() => {
     const spExpand = root.querySelector('#sp-expand');
     if (spExpand) {
       spExpand.addEventListener('click', () => {
-        const walk = (node) => {
-          if (node && node.children && node.children.length) {
-            salesState.expanded[node.key] = true;
-            node.children.forEach(walk);
-          }
-        };
-        if (salesState.data && salesState.data.tree) walk(salesState.data.tree);
+        if (salesState.data && salesState.data.tree) salesExpandAll(salesState.data.tree);
         salesPaintTable(tblHost, salesState.data);
       });
     }
@@ -3743,10 +3745,11 @@ const Views = (() => {
     const data = isCross ? await API.rnpTreeCross() : await API.rnpTree(treeParams);
     rnpState.data = data;
 
-    // Узел «Итоги» (корень) раскрыт по умолчанию при первой загрузке,
-    // если пользователь ещё не менял состояние раскрытия вручную
+    // По умолчанию (первая загрузка площадки, раскрытие ещё не трогали) дерево развёрнуто
+    // до товаров, как «Развернуть всё»; таблицы метрик закрыты (решение владельца 21.10.2026;
+    // раньше — только корень «Итоги»). Снимок раскрытия площадки (uiSnap) не перетирается.
     if (data.tree && data.tree.key && Object.keys(rnpState.expanded).length === 0) {
-      rnpState.expanded[data.tree.key] = true;
+      rnpExpandAll(data.tree);
     }
 
     const weeks = data.weeks || [];
@@ -6708,9 +6711,10 @@ const Views = (() => {
       // не подменить данные текущего МП (причина «задвоения» сумм).
       if (isStale()) return false;
       rnpSalesState.data = data;
-      // По умолчанию корень «Итоги» раскрыт до L1.
+      // По умолчанию дерево развёрнуто до товаров, как «Развернуть всё»; метрики товаров
+      // закрыты (решение владельца 21.10.2026; раньше — корень «Итоги» до L1).
       if (data.tree && data.tree.key && Object.keys(rnpSalesState.expanded).length === 0) {
-        rnpSalesState.expanded[data.tree.key] = true;
+        rnpsExpandAll(data.tree);
       }
       // Комментарии — отдельным запросом за видимый диапазон дат.
       await rnpsLoadComments();
