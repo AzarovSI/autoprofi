@@ -2232,7 +2232,7 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    порога сверху нет (см. _idxPiPlain в views.js). */
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-lo { color: var(--bad); }
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-hi { color: #0000ff; }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
 
 /* ─── Блок Ozon (справа) ───
    После 5 колонок WB (nth-of-type 2..6) идёт столбец «Pi покупатель»
@@ -2284,8 +2284,8 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    (border не подходит: border-collapse схлопывает его с border-left соседа).
    Заливка читается как самостоятельный блок, линии его обводят — вместе дают
    лаконичный сегмент без внешних зазоров. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy,
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pibuy {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-pibuy,
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pibuy {
   width: 96px; min-width: 96px; max-width: 96px;
   text-align: center;
   background-color: var(--bg-elev2);
@@ -2293,10 +2293,10 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 }
 /* Строки-группы: колонка слегка темнее группового фона, чтобы секция
    оставалась цельной, а не сливалась с групповой заливкой. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr.sp-group td.sp-pibuy {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr.sp-group td.sp-pibuy {
   background: linear-gradient(#e7ecf2, #e7ecf2), var(--bg-elev);
 }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-pibuy.sp-pibuy-h {
+.mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl th.sp-pibuy.sp-pibuy-h {
   vertical-align: middle;
   white-space: normal;
   line-height: 1.25;
@@ -2318,6 +2318,14 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl th.sp-hgrp.sp-th-ozon { color: var(--ozon-soft); }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl thead tr.sp-hrow2 th { text-align: center; }
 .mp-cross #pl-body[data-sub="model"] table.sp-tbl { --sp-name-w: 300px; }
+/* Ширины колонок блока (по классам pm-*), чтобы два блока и «Pi» между ними помещались на экране 1440. */
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-drr_pct    { width: 74px;  min-width: 74px; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-margin_pct { width: 80px;  min-width: 80px; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-upload     { width: 100px; min-width: 100px; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-spp        { width: 70px;  min-width: 70px; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl .pm-category_price { width: 112px; min-width: 112px; }
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl th.sp-pibuy,
+.mp-cross #pl-body[data-sub="model"] table.sp-tbl tbody tr td.sp-pibuy { width: 76px; min-width: 76px; max-width: 76px; }
 
 /* «Ozon тест» — граница блоков карточки (Воронка / Деньги / На единицу / Структура): линия над первой строкой блока */
 .rnp-mtbl-test tr.rnp-t-blk td { border-top:2px solid var(--border, #D5DCE3); }

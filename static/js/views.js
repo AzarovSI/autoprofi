@@ -10115,6 +10115,8 @@ const Views = (() => {
   //   СПП — из ценовых отчётов на конец периода (как в «Индексе цен»);
   //   Загружаемая = Цена категории / (1 − СПП), вверх до рубля: загрузив её в ЛК,
   //   после вычета СПП площадки получим цену для покупателя ≈ цене категории.
+  // Между блоками — «Pi» = Цена категории Ozon / Цена категории WB (оформление и порог
+  // раскраски — как у «Pi покупатель» в «Индексе цен», _idxPiPlain: красный при < 1,03).
   // Вводимые ячейки помечены pm-edit (не sp-plan-edit), чтобы их не ловил ввод базовой цены.
   const PM_MP = { wb: 'Wildberries', ozon: 'Ozon' };
   const PM_PCT = { drr_pct: true, margin_pct: true };
@@ -10167,6 +10169,11 @@ const Views = (() => {
     }
     return '<td class="sp-mth pm-upload"><div class="sp-cell sp-cell-single">' + html + '</div></td>';
   }
+  function _pmCatPi(art) {
+    const wb = _pmParam(art, PM_MP.wb, 'category_price'), oz = _pmParam(art, PM_MP.ozon, 'category_price');
+    if (!wb || !oz || !(wb.value > 0) || !(oz.value > 0)) return null;
+    return oz.value / wb.value;
+  }
   function _pmBlock(it, mp) {
     const art = it.seller_article;
     const spp = mp === 'wb' ? it.wb_spp_pct : it.oz_spp_pct;
@@ -10184,13 +10191,15 @@ const Views = (() => {
     const expanded = !!pricesState.expanded[node.key];
     const arrow = '<span class="sp-exp">' + (expanded ? '▾' : '▸') + '</span>';
     const indent = (node.level - 1) * 15;
-    const block = '<td class="sp-mth"></td>'.repeat(5);
+    // Классы колонок — и в строках групп: иначе их общая ширина 92 px расширяет колонки.
+    const block = ['drr_pct', 'margin_pct', 'upload', 'spp', 'category_price']
+      .map(c => '<td class="sp-mth pm-' + c + '"></td>').join('');
     return (
       '<tr class="sp-row sp-group lvl' + node.level + ' sp-has" data-key="' + U.esc(node.key) + '" style="cursor:pointer">' +
         '<td class="sp-name sp-grp lvl' + node.level + '" style="padding-left:' + indent + 'px">' +
           arrow + U.esc(node.label) +
         '</td>' +
-        block + block +
+        block + '<td class="sp-mth sp-pibuy"></td>' + block +
       '</tr>'
     );
   }
@@ -10200,6 +10209,7 @@ const Views = (() => {
       '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
         '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
         _pmBlock(it, 'wb') +
+        '<td class="sp-mth sp-pibuy">' + _idxPiPlain(_pmCatPi(it.seller_article)) + '</td>' +
         _pmBlock(it, 'ozon') +
       '</tr>'
     );
@@ -10233,6 +10243,7 @@ const Views = (() => {
           '<thead><tr>' +
             '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
             '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
+            '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" title="Pi = Цена категории Ozon / Цена категории Wildberries">Pi</th>' +
             '<th class="sp-mth sp-hgrp sp-th-ozon" colspan="5">Ozon</th>' +
           '</tr>' +
           '<tr class="sp-hrow2">' + head2('Wildberries') + head2('Ozon') + '</tr></thead>' +
