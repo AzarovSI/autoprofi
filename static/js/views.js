@@ -10642,6 +10642,17 @@ const Views = (() => {
                '<button class="pm-rules-btn" id="pm-rules-btn" type="button" title="Пороги корректировки" aria-haspopup="true" aria-expanded="false">⚙</button>' +
                '<div class="pm-rules-panel" id="pm-rules-panel" hidden></div>' +
              '</span>' +
+             ((App.can('prices.model.export') || App.can('prices.model.import'))
+               ? '<span class="sp-actions">' +
+                   (App.can('prices.model.export')
+                     ? '<button class="btn" id="pm-export" type="button" title="Выгрузить в Excel шаблон с товарами, которые сейчас видны в отчёте (период, поиск, фильтр), и их ДРР, маржой и ценой категории">⬇️ Выгрузить</button>'
+                     : '') +
+                   (App.can('prices.model.import')
+                     ? '<button class="btn" id="pm-import-btn" type="button" title="Загрузить заполненный шаблон. Пустая ячейка — значение удаляется. Загружаются только колонки, на которые у вас есть право; новые артикулы не заводятся">⬆️ Загрузить</button>' +
+                       '<input type="file" id="pm-import-file" accept=".xlsx" style="display:none">'
+                     : '') +
+                 '</span>'
+               : '') +
            '</span>' +
          '</div>')
       : (sub === 'index')
@@ -10827,6 +10838,64 @@ const Views = (() => {
       const onKey = (e) => { if (e.key === 'Escape' && !panel.hidden) close(); };
       document.addEventListener('click', onDocClick);
       document.addEventListener('keydown', onKey);
+    }
+
+    // --- «Ценовая модель»: Excel — шаблон по видимым строкам и загрузка заполненного.
+    const pmExp = root.querySelector('#pm-export');
+    if (pmExp) pmExp.addEventListener('click', async () => {
+      const prev = pmExp.innerHTML;
+      pmExp.disabled = true; pmExp.innerHTML = '<span class="btn-spin"></span>Выгружаю…';
+      try {
+        const resp = await API.pricesModelExport({
+          date_from: pricesState.from || null, date_to: pricesState.to || null,
+          articles: pricesModelItems().map(it => it.seller_article),
+        });
+        const cd = resp.headers.get('Content-Disposition') || '';
+        let fname = 'price_model.xlsx';
+        const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+        if (m) { try { fname = decodeURIComponent(m[1]); } catch (e) { fname = m[1]; } }
+        const dlUrl = URL.createObjectURL(await resp.blob());
+        const a = document.createElement('a');
+        a.href = dlUrl; a.download = fname;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(dlUrl); a.remove(); }, 1500);
+        App.toast('Шаблон выгружен', 'ok');
+      } catch (e) { App.toast('Ошибка выгрузки: ' + e.message, 'err'); }
+      finally { pmExp.disabled = false; pmExp.innerHTML = prev; }
+    });
+    const pmImpBtn = root.querySelector('#pm-import-btn'), pmImpFile = root.querySelector('#pm-import-file');
+    if (pmImpBtn && pmImpFile) {
+      const res = root.querySelector('#pl-imp-result');
+      const note = (ok, html) => '<div class="note ' + (ok ? 'ok' : 'err') + '" style="margin:0 22px 12px; padding:10px 14px; border-radius:8px; ' +
+        (ok ? 'background:rgba(46,204,113,.12); border:1px solid rgba(46,204,113,.4);'
+            : 'background:rgba(192,57,43,.12); border:1px solid rgba(192,57,43,.4); color:var(--danger,#c0392b);') + '">' + html + '</div>';
+      pmImpBtn.addEventListener('click', () => pmImpFile.click());
+      pmImpFile.addEventListener('change', async () => {
+        const f = pmImpFile.files && pmImpFile.files[0];
+        if (!f) return;
+        const prev = pmImpBtn.innerHTML;
+        pmImpBtn.disabled = true; pmImpBtn.innerHTML = '<span class="btn-spin"></span>Загружаю…';
+        res.innerHTML = '';
+        try {
+          const r = await API.pricesModelImport(f);
+          const extra = [];
+          if (r.skipped_columns && r.skipped_columns.length)
+            extra.push('Не загружены колонки (нет права): ' + U.esc(r.skipped_columns.join(', ')) + '.');
+          if (r.skipped_unknown)
+            extra.push('Пропущено артикулов, которых нет в справочнике: <b>' + r.skipped_unknown + '</b> (' + U.esc((r.unknown_sample || []).join(', ')) + ').');
+          if (r.skipped_mp)
+            extra.push('Пропущены значения площадки, где артикула нет в справочнике: <b>' + r.skipped_mp + '</b> (' + U.esc((r.skipped_mp_sample || []).join(', ')) + ').');
+          res.innerHTML = note(true, '<b>Шаблон загружен.</b> Артикулов: <b>' + (r.articles || 0) + '</b>, задано или изменено значений: <b>' +
+            (r.set || 0) + '</b>, удалено: <b>' + (r.cleared || 0) + '</b>.' + (extra.length ? '<br>' + extra.join('<br>') : ''));
+          App.toast('Шаблон загружен: ' + (r.set || 0) + ' значений', 'ok');
+          await reloadModelParams();
+          paintFn(tblHost);
+          refreshCnt();
+        } catch (e) {
+          res.innerHTML = note(false, 'Ошибка загрузки: ' + U.esc(e.message));
+          App.toast('Ошибка загрузки шаблона', 'err');
+        } finally { pmImpBtn.disabled = false; pmImpBtn.innerHTML = prev; pmImpFile.value = ''; }
+      });
     }
 
     // --- Поиск: перерисовка без запроса к API (debounce 180мс).

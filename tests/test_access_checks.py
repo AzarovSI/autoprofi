@@ -92,6 +92,8 @@ CASES = [
       for param, code in (("category_price", "prices.model.edit"), ("drr_pct", "prices.model.drr"),
                           ("margin_pct", "prices.model.margin"))],
     ("PUT", "/api/prices/model_rules", {"json": {"rules": {}}}, ["prices.model.settings"], []),
+    ("POST", "/api/prices/model_export", {"json": {}}, ["prices.model.export"], []),
+    ("POST", "/api/prices/model_import", {"files": FILE}, ["prices.model.import"], []),
     ("GET", "/api/prices/index_export?show_cost=true", {},
      ["prices.index.export", "prices.list.cost"], []),
     ("POST", "/api/prices/import", {"files": FILE}, ["prices.list.import"], []),

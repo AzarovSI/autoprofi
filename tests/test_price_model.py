@@ -1,5 +1,6 @@
 """«Цены → Ценовая модель»: вводимые параметры с историей (price_model_hist). Только локальная wb_price_test."""
 import datetime
+import io
 import unittest
 from zoneinfo import ZoneInfo
 
@@ -201,6 +202,132 @@ class PriceModelParamsTest(PriceModelTest):
                       json={"seller_article": "SKU-1", "marketplace": "wb", "param": "drr_pct", "value": 0.1})
         self.assertEqual(r.status_code, 403)
         self.assertEqual(self.items(), [])
+
+
+def xlsx(rows, header=None, formats=None):
+    """Файл шаблона: шапка как у выгрузки, строки — списки значений; formats — {(строка, колонка): формат}."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(header or (list(price_model.EXCEL_REF) + [c[0] for c in price_model.excel_columns()]))
+    for r in rows:
+        ws.append(r)
+    for (ri, ci), fmt in (formats or {}).items():
+        ws.cell(ri, ci).number_format = fmt
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def row(art, drr_wb=None, margin_wb=None, cat_wb=None, drr_oz=None, margin_oz=None, cat_oz=None):
+    return [None, None, None, art, None, drr_wb, margin_wb, cat_wb, drr_oz, margin_oz, cat_oz]
+
+
+class PriceModelExcelTest(PriceModelTest):
+    """Шаблон Excel и его загрузка (этап 2 плана владельца 21.10.2026)."""
+
+    def setUp(self):
+        super().setUp()
+        # SKU-1 — на WB и Ozon, SKU-2 — только на WB (prepare_local_db).
+        db.execute("INSERT INTO catalog_marketplace (seller_article, marketplace) VALUES ('SKU-1', 'Ozon')")
+
+    def export(self, articles=None, uid=101):
+        body = {"date_from": "2026-09-01", "date_to": TODAY.isoformat()}
+        if articles is not None:
+            body["articles"] = articles
+        return self.call(uid, "POST", "/api/prices/model_export", json=body)
+
+    def upload(self, data, uid=101):
+        return self.call(uid, "POST", "/api/prices/model_import",
+                         files={"file": ("m.xlsx", data, "application/octet-stream")})
+
+    def test_export_template(self):
+        self.set_("wb", 1000)
+        self.set_("wb", 0.125, "drr_pct")
+        self.set_("ozon", -0.05, "margin_pct")
+        import openpyxl
+        r = self.export(["SKU-1"])
+        self.assertEqual(r.status_code, 200, r.text)
+        ws = openpyxl.load_workbook(io.BytesIO(r.content)).active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(list(rows[0]), list(price_model.EXCEL_REF) + [
+            "ДРР WB", "Маржа WB", "Цена категории WB", "ДРР Ozon", "Маржа Ozon", "Цена категории Ozon"])
+        # Только переданные страницей артикулы; значения — срез на конец периода.
+        self.assertEqual(rows[1:], [("Продукция ECOM", "Тестовая группа", "Товары", "SKU-1", "SKU-1",
+                                     0.125, None, 1000, None, -0.05, None)])
+        self.assertEqual(ws.cell(2, 6).number_format, "0.0%")
+        self.assertEqual(ws.cell(2, 8).number_format, "#,##0")
+        self.assertEqual(ws.cell(2, 4).data_type, "s")
+        # Без списка — все товары отчёта за период.
+        all_rows = list(openpyxl.load_workbook(io.BytesIO(self.export().content)).active.iter_rows(values_only=True))
+        self.assertEqual([x[3] for x in all_rows[1:]], ["SKU-1", "SKU-2"])
+
+    def test_import_formats_catalog_and_counts(self):
+        data = xlsx([
+            # Процентный формат — уже доля; число без формата и текст — проценты.
+            row("sku-1", 0.125, 20, "1 500", "8,5%", None, 1100),
+            # SKU-2 есть только на WB: значение Ozon пропускается, WB — пишется.
+            row("SKU-2", cat_wb=900, cat_oz=950),
+            # Неизвестный артикул не заводится.
+            row("NEW-1", cat_wb=700),
+        ], formats={(2, 6): "0.0%"})
+        r = self.upload(data)
+        self.assertEqual(r.status_code, 200, r.text)
+        res = r.json()
+        self.assertEqual((res["articles"], res["set"], res["cleared"]), (2, 6, 0))
+        self.assertEqual((res["skipped_unknown"], res["unknown_sample"]), (1, ["NEW-1"]))
+        self.assertEqual((res["skipped_mp"], res["skipped_mp_sample"]), (1, ["SKU-2 (Ozon)"]))
+        self.assertEqual(res["skipped_columns"], [])
+        self.assertEqual(self.items(), [
+            ("SKU-1", "Ozon", "category_price", 1100, "Админ"), ("SKU-1", "Ozon", "drr_pct", 0.085, "Админ"),
+            ("SKU-1", "Wildberries", "category_price", 1500, "Админ"), ("SKU-1", "Wildberries", "drr_pct", 0.125, "Админ"),
+            ("SKU-1", "Wildberries", "margin_pct", 0.2, "Админ"), ("SKU-2", "Wildberries", "category_price", 900, "Админ")])
+        self.assertIsNone(db.query_one("SELECT 1 AS x FROM catalog_marketplace WHERE seller_article = 'NEW-1'"))
+        # Тот же файл ещё раз — ничего не меняется, история не растёт.
+        n = db.query_one("SELECT count(*) AS n FROM price_model_hist")["n"]
+        res = self.upload(data).json()
+        self.assertEqual((res["set"], res["cleared"]), (0, 0))
+        self.assertEqual(db.query_one("SELECT count(*) AS n FROM price_model_hist")["n"], n)
+
+    def test_import_empty_cell_deletes(self):
+        self.set_("wb", 1000)
+        self.set_("wb", 0.1, "drr_pct")
+        res = self.upload(xlsx([row("SKU-1", drr_wb=0.1, cat_wb=None)], formats={(2, 6): "0.0%"})).json()
+        self.assertEqual((res["set"], res["cleared"]), (0, 1))
+        self.assertEqual(self.items(), [("SKU-1", "Wildberries", "drr_pct", 0.1, "Админ")])
+
+    def test_import_error_rejects_whole_file(self):
+        self.set_("wb", 1000)
+        data = xlsx([row("SKU-1", cat_wb=1200, drr_oz=1.5), row("SKU-2", drr_wb=150, cat_wb="abc"),
+                     row("sku-1", cat_wb=1300)], formats={(2, 9): "0.0%"})
+        r = self.upload(data)
+        self.assertEqual(r.status_code, 422, r.text)
+        detail = r.json()["detail"]
+        # Значение — как его видит сотрудник: ячейка в процентах — «150%», а не «1.5».
+        self.assertIn("строка 2, «ДРР Ozon»: «150%»", detail)
+        self.assertIn("строка 3, «ДРР WB»: «150»", detail)
+        self.assertIn("строка 3, «Цена категории WB»: «abc»", detail)
+        self.assertIn("строка 4: артикул SKU-1 уже был в строке 2", detail)
+        # Ничего не записано — даже верная строка.
+        self.assertEqual(self.items(), [("SKU-1", "Wildberries", "category_price", 1000, "Админ")])
+
+    def test_import_reads_only_allowed_columns(self):
+        db.execute("""INSERT INTO app_role_permissions (role_id, permission)
+                      SELECT role_id, 'prices.model.import' FROM app_users WHERE id = 103""")
+        res = self.upload(xlsx([row("SKU-1", drr_wb=10, margin_wb=20, cat_wb=1000)]), uid=103).json()
+        self.assertEqual(res["skipped_columns"], ["ДРР WB", "Маржа WB", "ДРР Ozon", "Маржа Ozon"])
+        self.assertEqual(self.items(), [("SKU-1", "Wildberries", "category_price", 1000, "Продакт")])
+
+    def test_import_bad_files(self):
+        self.assertEqual(self.upload(b"not excel").status_code, 422)
+        r = self.upload(xlsx([["SKU-1", 1000]], header=["Код", "Цена категории WB"]))
+        self.assertIn("нет колонки «Артикул»", r.json()["detail"])
+        r = self.upload(xlsx([["SKU-1", 1]], header=["Артикул", "Что-то"]))
+        self.assertIn("нет колонок, которые вы можете загружать", r.json()["detail"])
+
+    def test_excel_rights(self):
+        self.assertEqual(self.export(uid=102).status_code, 403)
+        self.assertEqual(self.upload(xlsx([]), uid=102).status_code, 403)
 
 
 class PriceModelMoveTest(PriceModelTest):

@@ -22,7 +22,6 @@
 """
 import collections
 import datetime
-import math
 from zoneinfo import ZoneInfo
 from typing import Optional
 
@@ -492,44 +491,14 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=
 # перезаписывает значение дня. NULL — значение удалено с этой даты.
 
 
-def _model_value_out(param, v):
-    if v is None:
-        return None
-    return int(v) if price_model.PARAMS[param][0] == "rub" else float(v)
-
-
 @router.get("/model_params")
 def model_params(
     date_to: Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода; пусто — сегодня"),
     user=Depends(auth.require("prices.model.view")),
 ):
-    """Срез параметров на конец периода: по каждой тройке артикул + площадка + параметр —
-    последняя запись с датой ≤ date_to; удалённые (NULL) не отдаются."""
+    """Срез параметров на конец периода (price_model.load_slice) и пороги сигнала."""
     dt = _parse_iso_date(date_to) or datetime.datetime.now(MSK).date()
-    # У цены категории — ещё СПП из ценового отчёта за день, с которого она действует
-    # (подсказка сигнала: «при вводе цены категории СПП была …»); оценочная не берётся.
-    rows = db.query_all(
-        """SELECT s.*, CASE WHEN s.param = 'category_price' AND NOT COALESCE(m.spp_is_estimated, false)
-                            THEN m.spp_pct END AS spp_at_date
-             FROM (
-               SELECT DISTINCT ON (h.seller_article, h.marketplace, h.param)
-                      h.seller_article, h.marketplace, h.param, h.value, h.date,
-                      COALESCE(u.display_name, u.email) AS updated_by
-                 FROM price_model_hist h
-                 LEFT JOIN app_users u ON u.id = h.updated_by_user_id
-                WHERE h.date <= %s
-                ORDER BY h.seller_article, h.marketplace, h.param, h.date DESC
-           ) s
-             LEFT JOIN mp_price_daily m
-                    ON m.seller_article = s.seller_article AND m.marketplace = s.marketplace AND m.date = s.date
-          WHERE s.value IS NOT NULL
-          ORDER BY s.seller_article, s.marketplace, s.param""",
-        (dt,))
-    for r in rows:
-        r["value"] = _model_value_out(r["param"], r["value"])
-        r["date"] = r["date"].isoformat()
-        r["spp_at_date"] = float(r["spp_at_date"]) if r["spp_at_date"] is not None else None
-    return {"items": rows, "date_to": dt.isoformat(),
+    return {"items": price_model.load_slice(dt), "date_to": dt.isoformat(),
             "rules": price_model.load_rules(), "rules_defaults": price_model.DEFAULT_RULES}
 
 
@@ -564,53 +533,83 @@ def model_param_set(body: ModelParamIn, user=Depends(auth.require(
     sa = util.canon_article(body.seller_article or "")
     if not sa:
         raise HTTPException(status_code=400, detail="Пустой артикул")
-    unit, lo, hi, code = spec
-    auth.check(user, code)
-    value = body.value
-    if value is not None and not math.isfinite(value):
-        raise HTTPException(status_code=400, detail="Нужно число")
-    if value is not None:
-        if unit == "rub":
-            if value != int(value) or value < lo:
-                raise HTTPException(status_code=400, detail="Цена категории — целое число больше нуля")
-            value = int(value)
-        else:
-            # Доля с шагом 0,1 процента: 0.125 = 12,5%.
-            tenths = round(value * 1000)
-            if abs(value * 1000 - tenths) > 1e-6 or value < lo or value > hi:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Значение — от {lo * 100:g} до {hi * 100:g}%, не больше одного знака после запятой")
-            value = tenths / 1000
+    auth.check(user, spec[3])
+    try:
+        value = price_model.check_value(body.param, body.value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Значение: {e}")
     today = datetime.datetime.now(MSK).date()
-    key = (sa, mp, body.param)
-    with db.transaction() as tx:
-        # Действующее значение до сегодняшнего дня: если сегодня записи нет и значение
-        # не меняется — история не пополняется (как у базовых цен).
-        prev = tx.query_one(
-            """SELECT value FROM price_model_hist
-                WHERE seller_article=%s AND marketplace=%s AND param=%s AND date < %s
-                ORDER BY date DESC LIMIT 1""",
-            (*key, today))
-        prev_val = prev["value"] if prev else None
-        if (prev_val is None and value is None) or (
-                prev_val is not None and value is not None and abs(float(prev_val) - value) < 1e-9):
-            # Возврат к прежнему значению в тот же день — запись дня не нужна.
-            tx.execute("""DELETE FROM price_model_hist
-                           WHERE seller_article=%s AND marketplace=%s AND param=%s AND date=%s""",
-                       (*key, today))
-        else:
-            tx.execute(
-                """INSERT INTO price_model_hist (seller_article, marketplace, param, date, value,
-                                                 updated_at, updated_by_user_id)
-                        VALUES (%s, %s, %s, %s, %s, now(), %s)
-                   ON CONFLICT (seller_article, marketplace, param, date) DO UPDATE SET
-                        value = EXCLUDED.value,
-                        updated_at = now(),
-                        updated_by_user_id = EXCLUDED.updated_by_user_id""",
-                (*key, today, value, user.get("id")))
+    price_model.write_values([(sa, mp, body.param, value)], user.get("id"), today)
     return {"ok": True, "seller_article": sa, "marketplace": mp, "param": body.param,
             "value": value, "date": today.isoformat()}
+
+
+class ModelExportIn(BaseModel):
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    articles: Optional[list[str]] = None   # видимые на странице строки (поиск, фильтр сигналов); None — все
+
+
+@router.post("/model_export")
+def model_export(body: ModelExportIn, user=Depends(auth.require("prices.model.export"))):
+    """Excel-шаблон «Ценовой модели»: строки — как в отчёте (тот же состав и порядок, что
+    в прайс-листе за период; если страница передала артикулы — только они), значения —
+    срез на конец периода. Заполняется и загружается обратно (model_import)."""
+    from fastapi.responses import StreamingResponse
+    from urllib.parse import quote
+    items, period = _export_rows(body.date_from, body.date_to, user)
+    if body.articles is not None:
+        keep = set(body.articles)
+        items = [r for r in items if r.get("seller_article") in keep]
+    dt = _parse_iso_date(body.date_to) or datetime.datetime.now(MSK).date()
+    values = {(r["seller_article"], r["marketplace"], r["param"]): r["value"] for r in price_model.load_slice(dt)}
+    buf = price_model.export_workbook(items, values)
+    filename = f"Ценовая модель {datetime.datetime.now(MSK):%d.%m.%Y}.xlsx"
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
+                 "Cache-Control": "no-cache, no-store, must-revalidate, private",
+                 "Pragma": "no-cache", "Expires": "0"},
+    )
+
+
+@router.post("/model_import")
+def model_import(file: UploadFile = File(...), user=Depends(auth.require("prices.model.import"))):
+    """Загрузка заполненного шаблона «Ценовой модели» (решения владельца 21.10.2026).
+
+    • Колонки ищутся по шапке; читаются только те, на которые у пользователя есть право
+      (цена категории — №101, ДРР — №106, маржа — №107), остальные пропускаются.
+    • Артикулы сверяются со справочником своей площадки (catalog_marketplace) и не заводятся:
+      значения площадки, где артикула нет, пропускаются; артикулы, которых нет ни на одной, —
+      в списке неизвестных.
+    • Пустая ячейка — удалить значение. Ошибочное значение отменяет весь файл.
+    • Запись — как ручная правка: на сегодня, с историей по дням (price_model.write_values)."""
+    try:
+        parsed = price_model.parse_workbook(file.file.read(), lambda p: auth.can(user, price_model.PARAMS[p][3]))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if parsed["errors"]:
+        errs = parsed["errors"]
+        raise HTTPException(status_code=422, detail="Файл не загружен — ошибки (%d): %s%s" % (
+            len(errs), "; ".join(errs[:15]), "; …" if len(errs) > 15 else ""))
+    known = {mp: _known_articles_for(mp) for mp, _ in price_model.EXCEL_MPS}
+    entries, unknown, skipped_mp, articles = [], [], [], set()
+    for _, art, vals in parsed["rows"]:
+        if not any(art in known[mp] for mp in known):
+            unknown.append(art)
+            continue
+        for (mp, param), value in vals.items():
+            if art not in known[mp]:
+                if value is not None and (art, mp) not in skipped_mp:
+                    skipped_mp.append((art, mp))
+                continue
+            entries.append((art, mp, param, value))
+            articles.add(art)
+    counts = price_model.write_values(entries, user.get("id"), datetime.datetime.now(MSK).date())
+    return {"ok": True, "articles": len(articles), "set": counts["set"], "cleared": counts["cleared"],
+            "skipped_columns": parsed["skipped_columns"],
+            "skipped_unknown": len(unknown), "unknown_sample": unknown[:10],
+            "skipped_mp": len(skipped_mp), "skipped_mp_sample": [f"{a} ({mp})" for a, mp in skipped_mp[:10]]}
 
 
 @router.get("/index_export")

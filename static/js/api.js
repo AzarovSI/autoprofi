@@ -364,6 +364,25 @@ const API = (() => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+    // Шаблон «Ценовой модели» в Excel: {date_from, date_to, articles} → Response (blob).
+    pricesModelExport: async (body) => {
+      const resp = await fetch(API_BASE + '/api/prices/model_export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + getToken() },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        let msg = 'Ошибка ' + resp.status;
+        try { const j = await resp.json(); if (j.detail) msg = j.detail; } catch (e) {}
+        throw new Error(msg);
+      }
+      return resp;
+    },
+    pricesModelImport: (file) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return request('/api/prices/model_import', { method: 'POST', body: fd });
+    },
     // Пороги сигнала корректировки {площадка: доля} (⚙ «Ценовой модели»).
     pricesModelRulesSave: (rules) => request('/api/prices/model_rules', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
