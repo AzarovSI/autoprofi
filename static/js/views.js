@@ -7037,6 +7037,10 @@ const Views = (() => {
               <input type="file" id="file-ozday" accept=".xlsx,.xls" class="hidden">
             </div>
             <div class="muted fact-date-hint">Даты из файла перезаписываются целиком. Новые артикулы добавляются в справочник как нераспределённые.</div>
+            <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
+              Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1QXuHAobRP8WLMpx6r7SVoZ6bvwbhIuSBYEKfXyrA-Bg/edit?gid=1730715715#gid=1730715715" target="_blank" rel="noopener noreferrer"
+                title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">Таблица Ozon</a>
+            </div>
           </div>
           <div class="card">
             <h3>Ozon — отчёт рекламы (Аналитика продвижения)</h3>
