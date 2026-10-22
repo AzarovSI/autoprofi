@@ -9513,6 +9513,7 @@ const Views = (() => {
     modelRules: null,           // пороги сигнала корректировки {площадка: доля}
     modelRulesDefaults: null,
     modelOnlySig: false,        // галочка «только требующие корректировки»
+    idxShowCat: false,          // «Индекс цен»: галочка «цена категории» — колонки цены категории
   };
 
   // ===== Компонент выбора периода прайс-листа (клон bindRnpsPeriod) =====
@@ -9945,19 +9946,26 @@ const Views = (() => {
         '<td class="sp-name sp-grp lvl' + node.level + '" style="padding-left:' + indent + 'px">' +
           arrow + U.esc(node.label) +
         '</td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth sp-pi"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
+        _idxGroupBlock('ix-wb') +
         '<td class="sp-mth sp-pibuy"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth sp-pi"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
-        '<td class="sp-mth"></td>' +
+        _idxGroupBlock('ix-oz') +
       '</tr>'
     );
+  }
+  // Пустые ячейки блока площадки в строке группы — с классами колонок (ширины по ix-*).
+  function _idxGroupBlock(mpCls) {
+    const cols = ['ix-base', 'sp-pi', 'ix-aup', 'ix-spp', 'ix-buy'].concat(pricesState.idxShowCat ? ['ix-cat'] : []);
+    return cols.map(c => '<td class="sp-mth ' + c + ' ' + mpCls + '"></td>').join('');
+  }
+  // «Цена категории» в «Индексе цен» (галочка «цена категории», 22.10.2026): только просмотр,
+  // срез price_model_hist на конец периода; вводится в «Ценовой модели». Подсказка — карточка.
+  function _idxCatCell(it, mp) {
+    if (!pricesState.idxShowCat) return '';
+    const c = _pmParam(it.seller_article, PM_MP[mp], 'category_price');
+    return '<td class="sp-mth ix-cat ' + (mp === 'wb' ? 'ix-wb' : 'ix-oz') + '" data-pmtip="cat" data-art="' + U.esc(it.seller_article) + '" data-mp="' + mp + '">' +
+      '<div class="sp-cell sp-cell-single">' +
+        (c ? '<span class="sp-plan">' + pricesFmt(c.value) + '</span>' : '<span class="sp-plan sp-plan-empty">–</span>') +
+      '</div></td>';
   }
   // Вспомогалки блока WB в «Индексе цен».
   // Источник — mp_price_daily: последний известный срез (upload_price + spp_pct + buyer_price).
@@ -10061,25 +10069,28 @@ const Views = (() => {
       '<tr class="sp-row sp-leaf" data-art="' + U.esc(it.seller_article) + '">' +
         '<td class="sp-name sp-art" style="padding-left:' + indent + 'px">' + U.esc(it.seller_article) + '</td>' +
         // ── Wildberries (слева) ──
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_wb) + '</div></td>' +
-        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxWbPi(it)) : _idxPi(_idxWbPi(it))) + '</td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbAup(it)) + '</div></td>' +
-        '<td class="sp-mth"' + _sppTipAttr(it, 'wb') + '><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.wb_spp_pct, it.wb_spp_is_estimated, true) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbBuyer(it)) + '</div></td>' +
+        '<td class="sp-mth ix-base ix-wb"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_wb) + '</div></td>' +
+        '<td class="sp-mth sp-pi ix-wb">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxWbPi(it)) : _idxPi(_idxWbPi(it))) + '</td>' +
+        '<td class="sp-mth ix-aup ix-wb"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbAup(it)) + '</div></td>' +
+        '<td class="sp-mth ix-spp ix-wb"' + _sppTipAttr(it, 'wb') + '><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.wb_spp_pct, it.wb_spp_is_estimated, true) + '</div></td>' +
+        '<td class="sp-mth ix-buy ix-wb"><div class="sp-cell sp-cell-single">' + _idxRub(_idxWbBuyer(it)) + '</div></td>' +
+        _idxCatCell(it, 'wb') +
         // ── Pi покупатель: отдельный блок-разделитель между WB и Ozon ──
         '<td class="sp-mth sp-pibuy">' + _idxPiPlain(_idxBuyerPi(it)) + '</td>' +
         // ── Ozon (справа) ──
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_ozon) + '</div></td>' +
-        '<td class="sp-mth sp-pi">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxOzPi(it)) : _idxPi(_idxOzPi(it))) + '</td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzAup(it)) + '</div></td>' +
-        '<td class="sp-mth"' + _sppTipAttr(it, 'ozon') + '><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.oz_spp_pct, it.oz_spp_is_estimated, true) + '</div></td>' +
-        '<td class="sp-mth"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzBuyer(it)) + '</div></td>' +
+        '<td class="sp-mth ix-base ix-oz"><div class="sp-cell sp-cell-single">' + _idxRub(it.price_ozon) + '</div></td>' +
+        '<td class="sp-mth sp-pi ix-oz">' + (_idxIsAvtoprofi(it) ? _idxPiAvtoprofi(_idxOzPi(it)) : _idxPi(_idxOzPi(it))) + '</td>' +
+        '<td class="sp-mth ix-aup ix-oz"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzAup(it)) + '</div></td>' +
+        '<td class="sp-mth ix-spp ix-oz"' + _sppTipAttr(it, 'ozon') + '><div class="sp-cell sp-cell-single">' + _idxPctSpp(it.oz_spp_pct, it.oz_spp_is_estimated, true) + '</div></td>' +
+        '<td class="sp-mth ix-buy ix-oz"><div class="sp-cell sp-cell-single">' + _idxRub(_idxOzBuyer(it)) + '</div></td>' +
+        _idxCatCell(it, 'ozon') +
       '</tr>'
     );
   }
   function pricesIdxPaintTable(host) {
     if (!pricesState.data) return;
     _pmTipHide();
+    const cat = !!pricesState.idxShowCat, span = cat ? 6 : 5;
     const q = pricesState.search || '';
     const filtered = pricesFilterItems(pricesState.data.items || [], q);
     const { root, unassigned } = pricesBuildTree(filtered);
@@ -10097,24 +10108,26 @@ const Views = (() => {
     }
     host.innerHTML =
       '<div class="tbl-wrap sp-wrap">' +
-        '<table class="tbl sp-tbl">' +
+        '<table class="tbl sp-tbl' + (cat ? ' ix-with-cat' : '') + '">' +
           '<thead><tr>' +
             '<th class="sp-name" rowspan="2">Иерархия / Артикул</th>' +
-            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="5">Wildberries</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-wb" colspan="' + span + '">Wildberries</th>' +
             '<th class="sp-mth sp-pibuy sp-pibuy-h" rowspan="2" title="Pi покупатель = Цена для покупателя Ozon / Цена для покупателя Wildberries">Pi покупатель</th>' +
-            '<th class="sp-mth sp-hgrp sp-th-oz" colspan="5">Ozon</th>' +
+            '<th class="sp-mth sp-hgrp sp-th-oz" colspan="' + span + '">Ozon</th>' +
           '</tr>' +
           '<tr class="sp-hrow2">' +
-            '<th class="sp-mth" title="Базовая цена Wildberries из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Wildberries / Базовая Wildberries; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
-            '<th class="sp-mth" title="Цена со скидкой (загружаемая) из последнего отчёта WB на конец периода">Загружаемая</th>' +
-            '<th class="sp-mth" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
-            '<th class="sp-mth" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
-            '<th class="sp-mth sp-th-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
-            '<th class="sp-mth sp-pi" title="Pi = Загружаемая Ozon / Базовая Ozon; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
-            '<th class="sp-mth" title="Цена продавца после акций из последнего отчёта Ozon на конец периода">Загружаемая</th>' +
-            '<th class="sp-mth" title="СПП/соинвест из отчёта Ozon; при нулевом или отсутствующем соинвесте товар отсутствует, показывается прочерк">СПП</th>' +
-            '<th class="sp-mth" title="Цена продавца с соинвестом из отчёта Ozon; при нулевом или отсутствующем соинвесте показывается прочерк">Для покупателя</th>' +
+            '<th class="sp-mth ix-base ix-wb" title="Базовая цена Wildberries из подраздела «Прайс-лист»">Базовая</th>' +
+            '<th class="sp-mth sp-pi ix-wb" title="Pi = Загружаемая Wildberries / Базовая Wildberries; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth ix-aup ix-wb" title="Цена со скидкой (загружаемая) из последнего отчёта WB на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth ix-spp ix-wb" title="СПП из отчёта WB; при нулевой или отсутствующей СПП товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth ix-buy ix-wb" title="Цена на витрине (с СПП) из отчёта WB; при нулевой или отсутствующей СПП показывается прочерк">Для покупателя</th>' +
+            (cat ? '<th class="sp-mth ix-cat ix-wb" title="Средняя цена категории Wildberries на конец периода — только просмотр, вводится в «Ценовой модели»">Цена категории</th>' : '') +
+            '<th class="sp-mth sp-th-oz ix-base ix-oz" title="Базовая цена Ozon из подраздела «Прайс-лист»">Базовая</th>' +
+            '<th class="sp-mth sp-pi ix-oz" title="Pi = Загружаемая Ozon / Базовая Ozon; для продукции ТД АВТОПРОФИ — Цена для покупателя / Базовая">Pi</th>' +
+            '<th class="sp-mth ix-aup ix-oz" title="Цена продавца после акций из последнего отчёта Ozon на конец периода">Загружаемая</th>' +
+            '<th class="sp-mth ix-spp ix-oz" title="СПП/соинвест из отчёта Ozon; при нулевом или отсутствующем соинвесте товар отсутствует, показывается прочерк">СПП</th>' +
+            '<th class="sp-mth ix-buy ix-oz" title="Цена продавца с соинвестом из отчёта Ozon; при нулевом или отсутствующем соинвесте показывается прочерк">Для покупателя</th>' +
+            (cat ? '<th class="sp-mth ix-cat ix-oz" title="Средняя цена категории Ozon на конец периода — только просмотр, вводится в «Ценовой модели»">Цена категории</th>' : '') +
           '</tr></thead>' +
           '<tbody>' + out.join('') + '</tbody>' +
         '</table>' +
@@ -10262,15 +10275,17 @@ const Views = (() => {
                   d.est ? 'СПП оценочная' : ''].filter(Boolean).join(' · ');
     return _pmTipCard(title, badge, rows, foot);
   }
-  function _pmTipEdit(art, mp, param) {
+  // readOnly — ячейка «Индекса цен»: значение только показывается, вводится в «Ценовой модели».
+  function _pmTipEdit(art, mp, param, readOnly) {
     const c = _pmParam(art, PM_MP[mp], param);
-    const edit = App.can(PM_EDIT_CODE[param]);
+    const edit = !readOnly && App.can(PM_EDIT_CODE[param]);
     const title = PM_PARAM_NAME[param] + ' · ' + PM_MP_SHORT[mp];
     const rows = c
       ? [['Значение', '<b>' + (PM_PCT[param] ? _pmTipPct(c.value) : _pmTipRub(c.value)) + '</b>'],
          ['Действует с', '<span class="n">' + fmtRu(c.date) + '</span>'], ['Изменил', U.esc(c.updated_by || '—')]]
       : [['Значение', '<span class="muted">не задано</span>']];
-    return _pmTipCard(title, '', rows, edit ? (c ? 'Двойной клик — изменить, пусто — удалить' : 'Двойной клик — задать') : '');
+    return _pmTipCard(title, '', rows, readOnly ? 'Вводится в «Ценовой модели»'
+      : (edit ? (c ? 'Двойной клик — изменить, пусто — удалить' : 'Двойной клик — задать') : ''));
   }
   function _pmTipPi(art) {
     const wb = _pmParam(art, PM_MP.wb, 'category_price'), oz = _pmParam(art, PM_MP.ozon, 'category_price');
@@ -10375,6 +10390,7 @@ const Views = (() => {
     if (kind === 'spp') return _pmTipSpp(el, () => { if (_pmTipCur === el) _pmTipShow(el); });
     if (kind === 'upload') return _pmTipUpload(el.dataset.art, el.dataset.mp);
     if (kind === 'edit') return _pmTipEdit(el.dataset.art, el.dataset.mp, el.dataset.param);
+    if (kind === 'cat') return _pmTipEdit(el.dataset.art, el.dataset.mp, 'category_price', true);
     if (kind === 'pi') return _pmTipPi(el.dataset.art);
     if (kind.indexOf('h:') === 0) {
       const h = PM_TIP_HEAD[kind.slice(2)];
@@ -10871,6 +10887,9 @@ const Views = (() => {
              // из prices_router. Форматируется в refreshCnt().
              '<span class="muted" id="pl-idx-freshness" style="font-size:12px;font-weight:400;" title="Последний загруженный день заказов из РНП по каждой площадке"></span>' +
              '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
+             '<label class="ix-cat-check" title="Показать колонки «Цена категории» WB и Ozon — только просмотр, вводится в «Ценовой модели»">' +
+               '<input type="checkbox" id="idx-show-cat"' + (pricesState.idxShowCat ? ' checked' : '') + '> цена категории' +
+             '</label>' +
              (App.can('prices.index.export')
                ? '<span class="sp-actions"><button class="btn" id="pl-index-export" type="button" title="Выгрузить индекс цен в Excel за выбранный период с учётом поиска. Себестоимость включается галочкой в прайс-листе.">Выгрузить отчёт</button></span>'
                : '') +
@@ -10947,7 +10966,7 @@ const Views = (() => {
         await reloadData();
       }
       // Параметры модели перечитываются при каждом входе в «Ценовую модель».
-      if (sub === 'model') await reloadModelParams();
+      if (sub === 'model' || (sub === 'index' && pricesState.idxShowCat)) await reloadModelParams();
     } catch (err) {
       return;  // ошибка уже показана в tblHost
     }
@@ -10970,7 +10989,7 @@ const Views = (() => {
     bindPlPeriod(root, async () => {
       try {
         await reloadData();
-        if (sub === 'model') await reloadModelParams();
+        if (sub === 'model' || (sub === 'index' && pricesState.idxShowCat)) await reloadModelParams();
         initExpanded();
         paintFn(tblHost);
         refreshCnt();
@@ -11025,6 +11044,16 @@ const Views = (() => {
 
     // --- «Ценовая модель»: подсказки-карточки ячеек и шапки.
     if (sub === 'model' || sub === 'index') _pmTipBind(tblHost);
+
+    // --- «Индекс цен»: галочка «цена категории» — колонки цены категории (срез модели на конец периода).
+    const idxCatChk = root.querySelector('#idx-show-cat');
+    if (idxCatChk) idxCatChk.addEventListener('change', async () => {
+      pricesState.idxShowCat = idxCatChk.checked;
+      if (pricesState.idxShowCat) {
+        try { await reloadModelParams(); } catch (e) { return; }   // ошибка уже показана в таблице
+      }
+      paintFn(tblHost);
+    });
 
     // --- «Ценовая модель»: чип «Требуют корректировки» (фильтр) и ⚙ пороги.
     const pmSigChip = root.querySelector('#pm-sig-chip');

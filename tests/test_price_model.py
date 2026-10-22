@@ -195,9 +195,29 @@ class PriceModelParamsTest(PriceModelTest):
         self.assertEqual(got, {("Wildberries", "category_price"): 0.3, ("Ozon", "category_price"): None,
                                ("Wildberries", "drr_pct"): None})
 
+    def test_index_viewer_sees_only_category_prices(self):
+        # Роль только с «Индексом цен» (колонки «Цена категории» по галочке): цены категории — да, ДРР и маржа — нет.
+        self.set_("wb", 1000)
+        self.set_("wb", 0.1, "drr_pct")
+        self.set_("ozon", 0.2, "margin_pct")
+        role = db.query_one("INSERT INTO app_roles (name) VALUES ('Только индекс') RETURNING id")["id"]
+        db.execute("INSERT INTO app_role_permissions (role_id, permission) VALUES (%s, 'login'), (%s, 'prices.index.view')",
+                   (role, role))
+        db.execute("INSERT INTO app_users (id, email, display_name, role, role_id) VALUES "
+                   "(104, 'idx@local.test', 'Индекс', 'user', %s)", (role,))
+        r = self.call(104, "GET", "/api/prices/model_params")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([(i["marketplace"], i["param"], i["value"]) for i in r.json()["items"]],
+                         [("Wildberries", "category_price", 1000)])
+        # Менять с этим правом ничего нельзя.
+        self.assertEqual(self.set_("wb", 1100, uid=104).status_code, 403)
+
     def test_only_with_rights(self):
-        # У РОП нет функций «Ценовой модели» — ни смотреть, ни менять.
-        self.assertEqual(self.call(102, "GET", "/api/prices/model_params").status_code, 403)
+        # У РОП нет функций «Ценовой модели» — менять нельзя; читать — только цены категории
+        # (у РОП есть «Индекс цен», где они показываются по галочке).
+        r = self.call(102, "GET", "/api/prices/model_params")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(all(i["param"] == "category_price" for i in r.json()["items"]))
         r = self.call(102, "POST", "/api/prices/model_params",
                       json={"seller_article": "SKU-1", "marketplace": "wb", "param": "drr_pct", "value": 0.1})
         self.assertEqual(r.status_code, 403)

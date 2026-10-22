@@ -494,11 +494,16 @@ def _export_rows(date_from: Optional[str], date_to: Optional[str], user, search=
 @router.get("/model_params")
 def model_params(
     date_to: Optional[str] = Query(None, description="ISO YYYY-MM-DD, конец периода; пусто — сегодня"),
-    user=Depends(auth.require("prices.model.view")),
+    user=Depends(auth.require("prices.model.view", "prices.index.view")),
 ):
-    """Срез параметров на конец периода (price_model.load_slice) и пороги сигнала."""
+    """Срез параметров на конец периода (price_model.load_slice) и пороги сигнала.
+    С правом только на «Индекс цен» — одни цены категории (колонки по галочке «цена
+    категории», 22.10.2026); ДРР и маржа — только с правом на «Ценовую модель»."""
     dt = _parse_iso_date(date_to) or datetime.datetime.now(MSK).date()
-    return {"items": price_model.load_slice(dt), "date_to": dt.isoformat(),
+    items = price_model.load_slice(dt)
+    if not auth.can(user, "prices.model.view"):
+        items = [r for r in items if r["param"] == "category_price"]
+    return {"items": items, "date_to": dt.isoformat(),
             "rules": price_model.load_rules(), "rules_defaults": price_model.DEFAULT_RULES}
 
 

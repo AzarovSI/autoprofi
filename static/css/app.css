@@ -2178,53 +2178,43 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
   grid-column: 1; text-align: center;
 }
 
-/* ── «Индекс цен»: 5 колонок под шапкой Wildberries ──
+/* ── «Индекс цен»: в блоке площадки 5 колонок (6 — с галочкой «цена категории») ──
    Индивидуальные ширины по колонкам, чтобы длинные подписи «Загружаемая» и
    «Для покупателя» помещались, а «СПП» была уже (значения ~«27,9%»).
-   Порядок колонок в tbody (после td.sp-name):
-     1 Базовая · 2 Pi · 3 Загружаемая · 4 СПП · 5 Для покупателя. */
+   Порядок: Базовая · Pi · Загружаемая · СПП · Для покупателя · [Цена категории]. */
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl { min-width: 760px; }
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-name,
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl td.sp-name { width: 340px; min-width: 340px; }
 
-/* Nth считается от td: перед .sp-mth идёт td.sp-name (nth-of-type=1),
-   поэтому «Базовая» = nth-of-type(2), «Pi»(sp-pi) = 3, «Загружаемая» = 4,
-   «СПП» = 5, «Для покупателя» = 6. Для шапки берём tr.sp-hrow2 th:nth-child(N),
-   где N=1..5 (в этой строке нет sp-name). */
+/* Колонки — по классам ix-* (с 22.10.2026; раньше — по порядковому номеру nth-of-type, и
+   новая колонка «Цена категории» сдвигала бы блок Ozon). ix-wb / ix-oz — площадка блока.
+   Классы стоят и в шапке, и во всех строках (в группах тоже — иначе ширина колонки «плывёт»). */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl .ix-base { width: 82px;  min-width: 82px;  max-width: 82px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl .ix-aup  { width: 108px; min-width: 108px; max-width: 108px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl .ix-spp  { width: 62px;  min-width: 62px;  max-width: 62px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl .ix-buy  { width: 118px; min-width: 118px; max-width: 118px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl .ix-cat  { width: 92px;  min-width: 92px;  max-width: 92px; }
 
-/* 1 «Базовая» */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) {
-  width: 82px; min-width: 82px; max-width: 82px;
-}
-/* 3 «Загружаемая» */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(3),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) {
-  width: 108px; min-width: 108px; max-width: 108px;
-}
-/* 4 «СПП» — узкая */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(4),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) {
-  width: 62px; min-width: 62px; max-width: 62px;
-}
-/* 5 «Для покупателя» — самая длинная подпись */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(5),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(6) {
-  width: 118px; min-width: 118px; max-width: 118px;
-}
-
-/* Цвет «Wildberries» и «Базовая» в шапке — пурпур. Значения Базовой — тоже.
-   `.mp-cross #pl-body .sp-cell .sp-plan` уже задаёт color; повышаем удельный
-   вес селектора, привязываясь к [data-sub="index"] и td.sp-mth. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-wb { color: var(--wb-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(1) { color: var(--wb-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(2) .sp-cell .sp-plan { color: var(--wb-soft); }
-
-/* Значения «Загружаемая» — жирные. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(4) .sp-cell .sp-plan { font-weight: 700; }
-
-/* Значения «СПП» — зелёный, как в РНП заказы (#38761D). */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(5) .sp-cell .sp-plan { color: #38761D; }
+/* «Wildberries» / «Ozon» и «Базовая» в шапке и значения Базовой — цвет площадки. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-wb,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.ix-base.ix-wb,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.ix-base.ix-wb .sp-cell .sp-plan { color: var(--wb-soft); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-oz,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.ix-base.ix-oz,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.ix-base.ix-oz .sp-cell .sp-plan { color: var(--ozon-soft); }
+/* «Загружаемая» — жирная; «СПП» — зелёная, как в РНП заказы (#38761D). */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.ix-aup .sp-cell .sp-plan { font-weight: 700; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.ix-spp .sp-cell .sp-plan { color: #38761D; }
+/* «Цена категории» (по галочке, только просмотр; вводится в «Ценовой модели») — чёрная, как в модели. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.ix-cat .sp-cell .sp-plan:not(.sp-plan-empty) { color: var(--text); }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead th.ix-cat { white-space: normal; line-height: 1.2; text-align: center; padding-left: 4px; padding-right: 4px; }
+/* Галочка «цена категории» в строке заголовка — обычный шрифт, как подписи рядом. */
+.ix-cat-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.ix-cat-check input { margin: 0; cursor: pointer; accent-color: #b02a1e; }
+/* С колонками цены категории колонка артикула уже, чтобы таблица помещалась на экране 1440. */
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl.ix-with-cat { --sp-name-w: 218px; }
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl.ix-with-cat th.sp-name,
+.mp-cross #pl-body[data-sub="index"] table.sp-tbl.ix-with-cat td.sp-name { width: 218px; min-width: 218px; }
 
 /* «Индекс цен» — Pi WB: цветовые пороги (bad — красный, primary — синий).
    Правило общее для любого td.sp-pi — автоматически работает и для Ozon.
@@ -2233,44 +2223,6 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-lo { color: var(--bad); }
 .mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-pi .sp-pi-val.sp-pi-hi { color: #0000ff; }
 .mp-cross #pl-body:is([data-sub="index"], [data-sub="model"]) table.sp-tbl tbody tr td.sp-pibuy .sp-pi-val.sp-pi-lo { color: var(--bad); }
-
-/* ─── Блок Ozon (справа) ───
-   После 5 колонок WB (nth-of-type 2..6) идёт столбец «Pi покупатель»
-   (nth-of-type 7, класс sp-pibuy), и только затем блок Ozon:
-     nth-of-type(8)  — Базовая Ozon (82px, синий)
-     nth-of-type(9)  — Pi Ozon
-     nth-of-type(10) — Загружаемая Ozon (108px, жирный)
-     nth-of-type(11) — СПП Ozon (62px, зелёный)
-     nth-of-type(12) — Для покупателя Ozon (118px).
-   В шапке tr.sp-hrow2 th:nth-child(6..10). */
-
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) {
-  width: 82px; min-width: 82px; max-width: 82px;
-}
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(8),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) {
-  width: 108px; min-width: 108px; max-width: 108px;
-}
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(9),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) {
-  width: 62px; min-width: 62px; max-width: 62px;
-}
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(10),
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(12) {
-  width: 118px; min-width: 118px; max-width: 118px;
-}
-
-/* Цвет «Ozon» и «Базовая Ozon» в шапке — синий (--ozon-soft). Значения Базовой — тоже. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl th.sp-hgrp.sp-th-oz { color: var(--ozon-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl thead tr.sp-hrow2 th:nth-child(6) { color: var(--ozon-soft); }
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(8) .sp-cell .sp-plan { color: var(--ozon-soft); }
-
-/* Значения «Загружаемая Ozon» — жирные. */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(10) .sp-cell .sp-plan { font-weight: 700; }
-
-/* Значения «СПП Ozon» — зелёный, как в РНП заказы (#38761D). */
-.mp-cross #pl-body[data-sub="index"] table.sp-tbl tbody tr td.sp-mth:nth-of-type(11) .sp-cell .sp-plan { color: #38761D; }
 
 /* ─── Отдельный блок «Pi покупатель» между WB и Ozon ───
    Отделяется от соседних блоков визуальным зазором с двух сторон.
