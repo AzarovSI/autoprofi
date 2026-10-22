@@ -364,6 +364,8 @@ const API = (() => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+    // История СПП товара по дням (подсказка у СПП в «Индексе цен» и «Ценовой модели»).
+    pricesSppHistory: (p) => request('/api/prices/spp_history' + qs(p || {})),
     // Шаблон «Ценовой модели» в Excel: {date_from, date_to, articles} → Response (blob).
     pricesModelExport: async (body) => {
       const resp = await fetch(API_BASE + '/api/prices/model_export', {

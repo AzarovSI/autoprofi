@@ -502,6 +502,37 @@ def model_params(
             "rules": price_model.load_rules(), "rules_defaults": price_model.DEFAULT_RULES}
 
 
+@router.get("/spp_history")
+def spp_history(
+    seller_article: str = Query(..., max_length=200),
+    marketplace: str = Query(...),
+    date_to: str = Query(..., description="ISO YYYY-MM-DD — дата отчёта, из которого СПП в ячейке"),
+    days: int = Query(14, ge=1, le=60),
+    user=Depends(auth.require("prices.index.view", "prices.model.view")),
+):
+    """История СПП товара по дням из ценовых отчётов (mp_price_daily) — подсказка у СПП
+    в «Индексе цен» и «Ценовой модели». Дни — от date_to назад, свежие первыми;
+    spp None — за день нет отчёта или СПП пустая (товара не было в продаже)."""
+    mp = MP_MAP.get((marketplace or "").strip().lower())
+    if mp not in ("Wildberries", "Ozon"):
+        raise HTTPException(status_code=400, detail=f"Неизвестный маркетплейс: {marketplace!r}")
+    dt = _parse_iso_date(date_to)
+    if not dt:
+        raise HTTPException(status_code=400, detail="Не указана дата")
+    start = dt - datetime.timedelta(days=days - 1)
+    rows = {r["date"]: r for r in db.query_all(
+        """SELECT date, spp_pct, spp_is_estimated FROM mp_price_daily
+            WHERE seller_article = %s AND marketplace = %s AND date BETWEEN %s AND %s""",
+        (seller_article, mp, start, dt))}
+    out = []
+    for i in range(days):
+        d = dt - datetime.timedelta(days=i)
+        r = rows.get(d)
+        spp = float(r["spp_pct"]) if r and r["spp_pct"] is not None else None
+        out.append({"date": d.isoformat(), "spp": spp, "est": bool(r and r["spp_is_estimated"] and spp is not None)})
+    return {"seller_article": seller_article, "marketplace": mp, "date_to": dt.isoformat(), "days": out}
+
+
 @router.put("/model_rules")
 def model_rules_save(payload: dict = Body(...), user=Depends(auth.require("prices.model.settings"))):
     """Пороги сигнала корректировки (кнопка ⚙): {"rules": {площадка: доля}} → все пороги после записи."""

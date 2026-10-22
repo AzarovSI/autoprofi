@@ -2375,6 +2375,12 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .pm-tip-badge.down { color: #12539e; background: rgba(18, 83, 158, .10); }
 .pm-tip-badge.ok   { color: var(--text-dim); background: var(--bg-hover); }
 .pm-tip-dev { color: var(--text-mute); margin-left: 4px; }
+/* История СПП: значение в заголовке, мини-график, 14 дней в две колонки (свежие сверху). */
+.pm-tip-hv { font-weight: 600; color: #38761D; }
+.pm-tip-spark { display: block; margin: 2px 0 6px; }
+.pm-tip-days { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+.pm-tip-day { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
+.pm-tip-day .k { color: var(--text-dim); }
 .pm-tip-dev.up { color: #b02a1e; }
 .pm-tip-dev.down { color: #12539e; }
 /* ⚙ «Пороги корректировки» — как ⚙ в ABC (abc.css, .abc-rules-*). */

@@ -330,6 +330,36 @@ class PriceModelExcelTest(PriceModelTest):
         self.assertEqual(self.upload(xlsx([]), uid=102).status_code, 403)
 
 
+class SppHistoryTest(PriceModelTest):
+    """История СПП по дням для подсказки у СПП в «Индексе цен» и «Ценовой модели» (22.10.2026)."""
+
+    def test_days_back_from_date(self):
+        with db.transaction() as tx:
+            tx.execute("""INSERT INTO mp_price_daily (seller_article, marketplace, date, upload_price, buyer_price,
+                              spp_pct, spp_source_date, upload_source, spp_is_estimated) VALUES
+                          ('SKU-1', 'Wildberries', '2026-10-20', 1000, 700, .3, '2026-10-20', 'upload_wb_spp', false),
+                          ('SKU-1', 'Wildberries', '2026-10-18', 1000, NULL, NULL, NULL, 'upload_wb_spp', false),
+                          ('SKU-1', 'Wildberries', '2026-10-17', 1000, 720, .28, '2026-10-16', 'legacy', true),
+                          ('SKU-1', 'Wildberries', '2026-10-05', 1000, 800, .2, '2026-10-05', 'upload_wb_spp', false),
+                          ('SKU-1', 'Ozon', '2026-10-20', 1000, 500, .5, '2026-10-20', 'upload_ozon_coinvest', false)""")
+        r = self.call(101, "GET", "/api/prices/spp_history?seller_article=SKU-1&marketplace=wb&date_to=2026-10-20&days=4")
+        self.assertEqual(r.status_code, 200, r.text)
+        # Свежие первыми; нет отчёта и пустая СПП — None; оценочная помечена; другая площадка и дни вне окна не попадают.
+        self.assertEqual(r.json()["days"], [
+            {"date": "2026-10-20", "spp": 0.3, "est": False}, {"date": "2026-10-19", "spp": None, "est": False},
+            {"date": "2026-10-18", "spp": None, "est": False}, {"date": "2026-10-17", "spp": 0.28, "est": True}])
+        self.assertEqual(len(self.call(101, "GET", "/api/prices/spp_history?seller_article=SKU-1&marketplace=ozon"
+                                                   "&date_to=2026-10-20").json()["days"]), 14)
+
+    def test_bad_params_and_rights(self):
+        base = "/api/prices/spp_history?seller_article=SKU-1"
+        self.assertEqual(self.call(101, "GET", base + "&marketplace=ya&date_to=2026-10-20").status_code, 400)
+        self.assertEqual(self.call(101, "GET", base + "&marketplace=wb&date_to=").status_code, 400)
+        self.assertEqual(self.call(101, "GET", base + "&marketplace=wb&date_to=2026-10-20&days=61").status_code, 422)
+        # Продакт с правом «Ценовая модель» (без «Индекса цен») видит историю.
+        self.assertEqual(self.call(103, "GET", base + "&marketplace=wb&date_to=2026-10-20").status_code, 200)
+
+
 class PriceModelMoveTest(PriceModelTest):
     """Перенос цен категории, введённых после выкладки 21.10, из price_category_hist."""
     category_rows = (("SKU-1", "Wildberries", YESTERDAY, 900), ("SKU-1", "Wildberries", TODAY, None),
