@@ -1,9 +1,17 @@
 /*************************************************************************************************
- * OZON → GOOGLE ТАБЛИЦА (Apps Script) — v5, оптимизировано под лимит 6 минут
+ * OZON → GOOGLE ТАБЛИЦА (Apps Script) — v6, оптимизировано под лимит 6 минут
  * -----------------------------------------------------------------------------------------------
  * Ежедневная выгрузка метрик по каждому товару из Ozon Seller API. Подписка: Premium Plus.
  *
- * ЧТО ИЗМЕНИЛОСЬ В v5:
+ * ЧТО ИЗМЕНИЛОСЬ В v6:
+ *   1. СВЕЖИЕ ДАННЫЕ СВЕРХУ: строки нового дня вставляются сразу под шапкой, а не в конец
+ *      листа — при открытии отчёта видно, обновился ли он.
+ *   2. ХРАНЕНИЕ ТОЛЬКО ПОСЛЕДНИХ 5 ДНЕЙ (CONFIG.KEEP_DAYS): в начале утреннего запуска
+ *      (runBase) удаляются строки старше 5 календарных дней. При данных за 21.10
+ *      остаются 17–21.10. Если порядок «свежие сверху» нарушен (лист из v5, где дни шли
+ *      сверху вниз по возрастанию, или ручная сортировка) — лист один раз сортируется по дате.
+ *
+ * ЧТО БЫЛО В v5:
  *   1. ПЕРЕХОДЫ В КАРТОЧКУ: раньше бралась метрика hits_view = «Показы, всего»
  *      (сколько раз товар показали) — это сильно завышало число. Теперь берём session_view_pdp
  *      = «Посетители с просмотром карточки товара» (уникальные сессии = реальные переходы).
@@ -31,8 +39,9 @@
  *   • Каждый блок данных пишется в лист СРАЗУ и НЕЗАВИСИМО.
  *   • Настоящие частичные кнопки: каждая делает ТОЛЬКО свой блок. Запись по SKU.
  *
- * ЛОГИКА ЛИСТА: один накопительный лист «Данные» с колонкой Дата. Новые строки добавляются
- * вниз, старые не перезатираются. Повтор за ту же дату не плодит дубли.
+ * ЛОГИКА ЛИСТА: один лист «Данные» с колонкой Дата. Новые строки вставляются под шапку
+ * (свежие сверху), старые не перезатираются. Повтор за ту же дату не плодит дубли.
+ * Хранятся только последние CONFIG.KEEP_DAYS дней — более старые удаляет runBase.
  *
  * КЛЮЧИ: хранятся в Script Properties (Настройки проекта → Свойства скрипта):
  *   OZON_CLIENT_ID, OZON_API_KEY
@@ -45,7 +54,9 @@ const CONFIG = {
 
   SELLER_HOST: 'https://api-seller.ozon.ru',
 
-  TRIGGER_HOUR: 9           // час запуска по умолчанию (если пользователь ещё не задал свой)
+  TRIGGER_HOUR: 9,          // час запуска по умолчанию (если пользователь ещё не задал свой)
+
+  KEEP_DAYS: 5              // сколько последних календарных дней хранить в листе (считая «вчера»)
 };
 
 const PROP = {
@@ -258,6 +269,7 @@ function dataDate_() { return dateStr_(daysAgo_(1)); } // данные «за в
 /**
  * Гарантирует, что за текущую дату в листе есть строка на каждый товар.
  * Если строки за эту дату уже есть — ничего не делает (не дублирует).
+ * Новые строки вставляются сразу под шапкой (свежие сверху).
  * Возвращает карту sku → номер строки.
  */
 function ensureRowsForToday_() {
@@ -280,8 +292,74 @@ function ensureRowsForToday_() {
     row[cSku - 1] = sku;
     return row;
   });
-  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, width).setValues(rows);
+  if (rows.length) {
+    // Вставляем под шапку. Новые строки наследуют её оформление (синий фон, белый жирный
+    // шрифт) — сбрасываем его; процентный формат колонок проставляет applyPercentFormat_.
+    sheet.insertRowsAfter(1, rows.length);
+    const block = sheet.getRange(2, 1, rows.length, width);
+    block.clearFormat();
+    block.setValues(rows);
+  }
   return rowMapForDate_(sheet, date);
+}
+
+/** Дата ячейки как 'yyyy-MM-dd' (ячейка-дата или текст); пусто — ''. */
+function cellDateStr_(d) {
+  if (d instanceof Date) return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  return String(d === null || d === undefined ? '' : d).trim();
+}
+
+/**
+ * Оставляет в листе только последние CONFIG.KEEP_DAYS календарных дней, считая «вчера»
+ * (дату данных): при KEEP_DAYS = 5 и данных за 21.10 остаются 17–21.10.
+ * Заодно держит порядок «свежие сверху»: если он нарушен — сортирует лист по дате
+ * по убыванию (шапка не участвует). Строки с пустой или нераспознанной датой не удаляются.
+ */
+function trimOldDays_() {
+  const sheet = getSheet_();
+  if (sheet.getLastRow() < 2) return;
+  const width = COLUMNS.length;
+  const cDate = colIndex_('date');
+  const isDate = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(s); };
+  const readDates = function () {
+    return sheet.getRange(2, cDate, sheet.getLastRow() - 1, 1).getValues()
+      .map(function (r) { return cellDateStr_(r[0]); });
+  };
+
+  // 1. Порядок: даты (без пустых) должны идти по убыванию.
+  let dates = readDates();
+  let prev = null, sorted = true;
+  for (let i = 0; i < dates.length; i++) {
+    if (!isDate(dates[i])) continue;
+    if (prev !== null && dates[i] > prev) { sorted = false; break; }
+    prev = dates[i];
+  }
+  if (!sorted) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, width).sort({ column: cDate, ascending: false });
+    dates = readDates();
+  }
+
+  // 2. Удаляем дни раньше окна. После сортировки они лежат внизу одним блоком —
+  //    удаляем группами подряд идущих строк, снизу вверх (номера выше не сдвигаются).
+  const keepFrom = dateStr_(daysAgo_(CONFIG.KEEP_DAYS));
+  const old = [];
+  for (let i = 0; i < dates.length; i++) {
+    if (isDate(dates[i]) && dates[i] < keepFrom) old.push(i + 2); // 1-based + шапка
+  }
+  // Google не даёт удалить все незакреплённые строки листа (скрипт не запускался дольше
+  // KEEP_DAYS дней) — оставляем одну пустую строку в конце.
+  if (old.length && old.length >= sheet.getMaxRows() - sheet.getFrozenRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), 1);
+  }
+  let removed = 0;
+  for (let j = old.length - 1; j >= 0; ) {
+    let start = j;
+    while (start > 0 && old[start - 1] === old[start] - 1) start--;
+    sheet.deleteRows(old[start], j - start + 1);
+    removed += j - start + 1;
+    j = start - 1;
+  }
+  if (removed) console.log('Удалено строк старше ' + keepFrom + ': ' + removed);
 }
 
 /** Карта sku → номер строки для заданной даты. */
@@ -611,8 +689,17 @@ function setupTriggerHour() {
   }
 }
 
-/** Триггерная функция утра: базовые метрики (заказы, остатки, цены/СПП). */
+/**
+ * Триггерная функция утра: очистка старых дней, затем базовые метрики (заказы, остатки, цены/СПП).
+ * Очистка идёт первой, чтобы сбой сбора (лимит Ozon) её не отменил; её собственная ошибка
+ * сбор не останавливает.
+ */
 function runBase() {
+  try {
+    trimOldDays_();
+  } catch (e) {
+    console.error('Очистка старых дней не выполнена: ' + e);
+  }
   ensureRowsForToday_();
   updateAnalytics();
   updateStocks();
