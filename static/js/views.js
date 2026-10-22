@@ -7111,7 +7111,6 @@ const Views = (() => {
               <div class="muted" style="font-size:12px;margin-top:6px;">Отчёт «Рейтинг и отзывы» WB, лист «TDSheet», .xlsx · Количество отзывов + СПП</div>
               <input type="file" id="file-wbreviews" accept=".xlsx,.xls" class="hidden">
             </div>
-            <div class="muted fact-date-hint">Где взять: 1С → отчёт «Статистика рекламных кампаний Wildberries» → период (со вчерашнего дня и два предыдущих) → организация «ТД АВТОПРОФИ» → кнопка «Статистика по карточкам товаров». Откроются два отчёта — «Рейтинг товаров» и «Воронка». Сюда загружаем «Рейтинг товаров».</div>
             <div class="muted fact-date-hint">Дата берётся из колонки «Дата» самого отчёта (поддерживаются многодневные файлы) — указывать её не нужно. Сопоставление по артикулу; пишется только по товарам из справочника WB. СПП (колонка «ПроцентСПП») → метрика «Соинвест (СПП)». Рейтинг берётся из Воронки.</div>
             <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
               Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1ue4fTXgJr3gFyc0RcpSask1AJ_NJta6c_YUXo6_989w/edit?gid=781930537#gid=781930537" target="_blank" rel="noopener noreferrer"
