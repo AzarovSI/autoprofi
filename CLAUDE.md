@@ -54,8 +54,8 @@ production продолжает работать на Perplexity, а код та
   docs и чат. Источники: окружение или `recovery/config.json` (в `.gitignore`).
 - **В БД `avtoprofi` в Yandex Cloud под тем же пользователем `app` работает другой рабочий
   сервис владельца — azarov_capital (личная финансовая аналитика), схема
-  `azarov_capital`, 20 таблиц.** АВТОПРОФИ — только схема `public` (36 таблиц с 21.10.2026,
-  `recovery/schema_contract.json` — 31 базовая, роли, ценовую модель (`price_model_hist`, `price_model_rules`) и пороги ABC создают миграции). Не трогать схему `azarov_capital`, кластер в Yandex
+  `azarov_capital`, 20 таблиц.** АВТОПРОФИ — только схема `public` (38 таблиц с 23.10.2026,
+  `recovery/schema_contract.json` — 31 базовая, роли, ценовую модель (`price_model_hist`, `price_model_rules`), пороги ABC и акции РНП (`rnp_promos`, `rnp_promo_events`) создают миграции). Не трогать схему `azarov_capital`, кластер в Yandex
   не удалять. Дампы — только `pg_dump -n public`, никогда всей базы; права, очистки,
   миграции — только по явному списку таблиц `public`. Пароль `app` не менять, настройки и
   перезапуск кластера — только по согласованию: это остановит оба сервиса.
