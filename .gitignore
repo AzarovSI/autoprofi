@@ -21,3 +21,6 @@ docs/archive/perplexity_export_*/
 
 # Манифест создаётся заново в каждом архиве бэкапа (recovery/build_backup.py)
 BACKUP_MANIFEST.json
+
+# Личные настройки Claude Code (разрешения на Mac владельца)
+.claude/settings.local.json
