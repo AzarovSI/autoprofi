@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Роутер комментариев к дневным ячейкам товара в матрице «РНП заказы Озон».
+"""Роутер комментариев к дневным ячейкам товара в матрице «РНП заказы».
 
-Комментарии привязаны к ЯЧЕЙКЕ = (seller_article, date) на уровне ТОВАРА.
+Комментарии привязаны к ЯЧЕЙКЕ = (marketplace, seller_article, date) на уровне ТОВАРА:
+у РНП каждой площадки свои комментарии (до 23.10.2026 площадки не было, и комментарий
+показывался в РНП всех площадок).
 Аналог комментариев к ячейкам Google Sheets: несколько комментариев на ячейку,
 у каждого — автор (Имя Фамилия из app_users), дата создания/изменения.
 
 Эндпоинты (все требуют авторизации):
-  GET    /api/rnp-comments?date_from=&date_to=  — список за диапазон дат
-                                                    (для видимого периода матрицы)
+  GET    /api/rnp-comments?marketplace=&date_from=&date_to=  — список площадки за диапазон
+                                                    дат (для видимого периода матрицы)
   POST   /api/rnp-comments                       — создать (автор = текущий юзер)
   PATCH  /api/rnp-comments/{id}                   — редактировать (автор или админ)
   DELETE /api/rnp-comments/{id}                   — удалить (автор или админ)
@@ -16,24 +18,57 @@
 с ролью admin. Не-админ не может трогать чужие комментарии (403).
 
 Данные грузятся ОТДЕЛЬНЫМ запросом от матрицы и только за видимый период —
-матрица не тормозит, объём запроса минимален. Индекс (date, seller_article).
+матрица не тормозит, объём запроса минимален. Индекс (marketplace, date, seller_article).
 """
 from datetime import date as date_cls
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, field_validator
 
 from .. import auth, db
+from .rnp_sales_router import MP_MAP
 
 router = APIRouter(prefix="/api/rnp-comments", tags=["rnp-comments"])
 
 MAX_BODY = 2000  # предел длины комментария (символов)
 
+# ALTER существующей таблицы: в TimeWeb применять под gen_user до выкладки.
+MIGRATION = "2026_10_23_rnp_comments_marketplace"
+
+
+def migrate():
+    """Площадка у комментариев: один раз, атомарно, безопасно для нескольких воркеров."""
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(23102026, 0)")
+        tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
+            name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())""")
+        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
+            return
+        path = Path(__file__).resolve().parents[2] / "migrations" / (MIGRATION + ".sql")
+        tx.conn.execute(path.read_text(encoding="utf-8"))
+        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
+
+
+def _mp(value):
+    """Площадка из параметра (ozon | wb | yandex) → имя как в БД; неизвестная — ошибка,
+    чтобы комментарий не попал в РНП чужой площадки."""
+    mp = MP_MAP.get((value or "").strip().lower())
+    if not mp:
+        raise ValueError("Неизвестная площадка")
+    return mp
+
 
 class CommentCreate(BaseModel):
+    marketplace: str
     seller_article: str
     date: date_cls
     body: str
+
+    @field_validator("marketplace")
+    @classmethod
+    def _market(cls, v):
+        return _mp(v)
 
     @field_validator("seller_article")
     @classmethod
@@ -72,6 +107,7 @@ def _row_to_dict(r):
     """Единый формат комментария для фронта."""
     return {
         "id": r["id"],
+        "marketplace": r["marketplace"],
         "seller_article": r["seller_article"],
         "date": r["date"].isoformat() if hasattr(r["date"], "isoformat") else r["date"],
         "body": r["body"],
@@ -84,20 +120,25 @@ def _row_to_dict(r):
 
 @router.get("")
 def list_comments(
+    marketplace: str = Query(..., description="площадка РНП: ozon | wb | yandex"),
     date_from: date_cls = Query(..., description="начало периода (вкл.)"),
     date_to: date_cls = Query(..., description="конец периода (вкл.)"),
     user=Depends(auth.require("rnp.comments.view")),
 ):
-    """Комментарии за видимый диапазон дат. Сортировка: сначала по ячейке,
+    """Комментарии площадки за видимый диапазон дат. Сортировка: сначала по ячейке,
     внутри ячейки — новые сверху (created_at DESC)."""
+    try:
+        mp = _mp(marketplace)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     rows = db.query_all(
-        "SELECT c.id, c.seller_article, c.date, c.body, c.author_id, "
+        "SELECT c.id, c.marketplace, c.seller_article, c.date, c.body, c.author_id, "
         "       u.display_name AS author_name, c.created_at, c.updated_at "
         "FROM rnp_comments c "
         "LEFT JOIN app_users u ON u.id = c.author_id "
-        "WHERE c.date BETWEEN %s AND %s "
+        "WHERE c.marketplace = %s AND c.date BETWEEN %s AND %s "
         "ORDER BY c.seller_article, c.date, c.created_at DESC",
-        (date_from, date_to),
+        (mp, date_from, date_to),
     )
     return {"comments": [_row_to_dict(r) for r in rows]}
 
@@ -106,10 +147,10 @@ def list_comments(
 def create_comment(payload: CommentCreate, user=Depends(auth.require("rnp.comments.add"))):
     """Создать комментарий. Автор = текущий пользователь из сессии."""
     row = db.query_one(
-        "INSERT INTO rnp_comments (seller_article, date, body, author_id) "
-        "VALUES (%s, %s, %s, %s) "
-        "RETURNING id, seller_article, date, body, author_id, created_at, updated_at",
-        (payload.seller_article, payload.date, payload.body, user["id"]),
+        "INSERT INTO rnp_comments (marketplace, seller_article, date, body, author_id) "
+        "VALUES (%s, %s, %s, %s, %s) "
+        "RETURNING id, marketplace, seller_article, date, body, author_id, created_at, updated_at",
+        (payload.marketplace, payload.seller_article, payload.date, payload.body, user["id"]),
     )
     # display_name автора известен из сессии — не делаем лишний запрос.
     row["author_name"] = user.get("display_name")
@@ -143,7 +184,7 @@ def update_comment(comment_id: int, payload: CommentUpdate,
     row = db.query_one(
         "UPDATE rnp_comments SET body = %s, updated_at = now() "
         "WHERE id = %s "
-        "RETURNING id, seller_article, date, body, author_id, created_at, updated_at",
+        "RETURNING id, marketplace, seller_article, date, body, author_id, created_at, updated_at",
         (payload.body, comment_id),
     )
     author = db.query_one(

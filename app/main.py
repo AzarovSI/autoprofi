@@ -59,6 +59,12 @@ def migrate_fact_schema():
 
 
 @app.on_event("startup")
+def migrate_rnp_comments():
+    from .routers.rnp_comments_router import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def start_rnp_warmup():
     # Фоновый прогрев дерева «РНП заказы» (только при RNP_WARMUP=1, см. app/rnp_warmup.py)
     from .rnp_warmup import start

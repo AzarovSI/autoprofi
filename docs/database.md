@@ -56,7 +56,7 @@
 | `ozon_daily_sales` | РНП Ozon: заказы, Pi кабинета, СПП, CR, реклама, рейтинг, отзывы (`delivery_time_hours`), остатки, цены конкурентов | UNIQUE `(date, seller_article)` | 64 214 |
 | `wb_daily_sales` | РНП WB: воронка, отзывы, СПП, реклама, Pi кабинета, цены конкурентов | UNIQUE `(date, seller_article)` | 27 830 |
 | `ya_daily_sales` | РНП Яндекс: воронка, CTR, остаток FBY (`stock_ya_qty`) | День × артикул (уникальность в коде не используется) | 25 209 |
-| `rnp_comments` | Комментарии к ячейкам РНП | `id`; индекс `(date, seller_article)` | 2 |
+| `rnp_comments` | Комментарии к ячейкам РНП — свои у каждой площадки (`marketplace`: `Wildberries`/`Ozon`/`Yandex`, с миграции `2026_10_23_rnp_comments_marketplace`) | `id`; индекс `(marketplace, date, seller_article)` | 8 |
 | `anomaly_rules` | Общие для команды пороги аномалий РНП | PK `rule_key` | 17 |
 | `abc_rules` | Пороги рекомендаций ABC (⚙): рубли в месяц по площадке, общие маржа и кратности, кто и когда менял (миграция `2026_10_19_abc_rules`, рабочая БД — 19.10.2026) | PK `(param, marketplace)`, marketplace `ozon`/`vb`/`ya`/`all` | 11 |
 
@@ -147,6 +147,7 @@
 | `migrations/2026_10_19_abc_rules.sql` | `abc_rules` — пороги рекомендаций ABC с исходными значениями | `abc_rules.migrate()` на старте. В рабочей БД TimeWeb применена 19.10.2026 под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` проверены |
 | `migrations/2026_10_14_wb_payout_with_ads.sql` | `fact_weekly`, `fact_monthly`: колонки WB `wb_payout_with_ads` («Выплата на р/с (с рекл.)»), `wb_ads_balance` («Баланс»), `wb_ads_bonus` («Промо бонусы») | `fact_schema.migrate()` на старте. ALTER существующих таблиц. В рабочей БД TimeWeb применена 14.10.2026 14:32 МСК под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` на новые колонки есть (табличные) |
 | `migrations/2026_10_14_oz_temp_placement.sql` | `fact_weekly`, `fact_monthly`: `oz_temp_placement` (Ozon «Временное размещение») | `fact_schema.migrate()` на старте (список `MIGRATIONS`). ALTER. В рабочей БД TimeWeb применена 15.10.2026 11:07 МСК под `gen_user` до выкладки; права `autoprofi_app`/`autoprofi_ro` есть |
+| `migrations/2026_10_23_rnp_comments_marketplace.sql` | `rnp_comments.marketplace` (NOT NULL, CHECK по трём площадкам), прежние комментарии — `Wildberries` (все 8 на 23.10 оставлены в РНП WB, решение владельца); индекс `(marketplace, date, seller_article)` вместо `(date, seller_article)` | `rnp_comments_router.migrate()` на старте. ALTER — в рабочей БД применять под `gen_user` до выкладки. **Пока не применена** |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
 | `migrate_incidents.py` | `wb_wh_incidents` + перенос старых статусов `incident` из `wb_warehouses` | Уже выполнена, повторно не запускать; не учтена |
 

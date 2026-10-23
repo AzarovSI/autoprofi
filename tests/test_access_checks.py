@@ -40,9 +40,10 @@ CASES = [
     *[("GET", f"/api/rnp_sales/tree?marketplace={p}", {}, ["rnp.open", tab("rnp", mp)], [])
       for p, mp in (("wb", WB), ("ozon", OZ), ("yandex", YA))],
     ("GET", "/api/rnp/product_ue?marketplace=wb&article=SKU-1", {}, ["rnp.unit_popup"], []),
-    ("GET", "/api/rnp-comments?date_from=2026-01-01&date_to=2026-01-02", {}, ["rnp.comments.view"], []),
-    ("POST", "/api/rnp-comments", {"json": {"seller_article": "SKU-1", "date": "2026-01-01",
-                                            "body": "тест"}}, ["rnp.comments.add"], []),
+    ("GET", "/api/rnp-comments?marketplace=wb&date_from=2026-01-01&date_to=2026-01-02", {},
+     ["rnp.comments.view"], []),
+    ("POST", "/api/rnp-comments", {"json": {"marketplace": "wb", "seller_article": "SKU-1",
+                                            "date": "2026-01-01", "body": "тест"}}, ["rnp.comments.add"], []),
     ("GET", "/api/rnp_sales/anomaly_rules", {}, [("rnp.anomalies.view", "rnp.anomalies.rules")], []),
     ("PUT", "/api/rnp_sales/anomaly_rules", {"json": {"rules": []}}, ["rnp.anomalies.rules"], []),
     ("GET", "/api/rnp_sales/anomalies?marketplace=ozon", {}, ["rnp.anomalies.view"], []),

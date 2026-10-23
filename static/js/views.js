@@ -5291,7 +5291,7 @@ const Views = (() => {
     _reqSeq: 0,
     searchArt: '', mgrFilter: '', statusFilter: '', from: '', to: '',
     filterExpandSig: '',
-    // Комментарии к дневным ячейкам: Map по ключу `sa|date` → массив комментов (новые сверху).
+    // Комментарии к дневным ячейкам текущего МП: Map по ключу `sa|date` → массив комментов (новые сверху).
     comments: new Map(),
     // === Фильтр аномалий (отклонений от нормы) ===
     anomOn: false,                 // открыт ли режим аномалий (панель доступна)
@@ -6540,7 +6540,7 @@ const Views = (() => {
         if (!body) { newTa.focus(); return; }
         addBtn.disabled = true;
         try {
-          const c = await API.rnpCommentCreate(sa, date, body);
+          const c = await API.rnpCommentCreate(rnpSalesState.mp, sa, date, body);
           const k = rnpsCmtKey(sa, date);
           const arr = rnpSalesState.comments.get(k) || [];
           arr.unshift(c); // новые сверху
@@ -6716,8 +6716,8 @@ const Views = (() => {
       if (data.tree && data.tree.key && Object.keys(rnpSalesState.expanded).length === 0) {
         rnpsExpandAll(data.tree);
       }
-      // Комментарии — отдельным запросом за видимый диапазон дат.
-      await rnpsLoadComments();
+      // Комментарии — отдельным запросом за видимый диапазон дат, только этого МП.
+      await rnpsLoadComments(myMp, isStale);
       if (isStale()) return false;
     } catch (err) {
       if (isStale()) return false;
@@ -6730,10 +6730,12 @@ const Views = (() => {
     return !isStale();
   }
 
-  // Загрузка комментариев за видимый диапазон дат текущего ответа → в Map.
+  // Загрузка комментариев МП `mp` за видимый диапазон дат текущего ответа → в Map.
   // Диапазон берём по фактическим дням месяцев (первый..последний),
   // чтобы охватить все ячейки независимо от того, развёрнут ли месяц.
-  async function rnpsLoadComments() {
+  // isStale() — запрос устарел (сменили МП): ответ не пишем, иначе
+  // в РНП одной площадки окажутся комментарии другой.
+  async function rnpsLoadComments(mp, isStale) {
     rnpSalesState.comments = new Map();
     const months = (rnpSalesState.data && rnpSalesState.data.months) || [];
     let dfrom = null, dto = null;
@@ -6749,7 +6751,8 @@ const Views = (() => {
     if (!dfrom || !dto) return;
     if (!App.can('rnp.comments.view')) return;
     try {
-      const res = await API.rnpCommentsList(dfrom, dto);
+      const res = await API.rnpCommentsList(mp, dfrom, dto);
+      if (isStale()) return;
       const list = (res && res.comments) || [];
       const map = new Map();
       list.forEach(c => {
@@ -6761,6 +6764,7 @@ const Views = (() => {
       rnpSalesState.comments = map;
     } catch (err) {
       // Комментарии — некритичны: матрица отрисуется и без них.
+      if (isStale()) return;
       rnpSalesState.comments = new Map();
     }
   }

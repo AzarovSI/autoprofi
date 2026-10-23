@@ -404,13 +404,13 @@ const API = (() => {
       if (p && p.year) fd.append('year', p.year);
       return request('/api/sales/plan_import', { method: 'POST', body: fd });
     },
-    // Комментарии к дневным ячейкам товара в матрице «РНП заказы Озон».
-    // Список — за видимый диапазон дат (date_from..date_to, YYYY-MM-DD).
-    rnpCommentsList: (dateFrom, dateTo) =>
-      request('/api/rnp-comments' + qs({ date_from: dateFrom, date_to: dateTo })),
-    rnpCommentCreate: (sellerArticle, date, body) => request('/api/rnp-comments', {
+    // Комментарии к дневным ячейкам товара в матрице «РНП заказы» — свои у каждой площадки
+    // (mp: ozon | wb | yandex). Список — за видимый диапазон дат (date_from..date_to, YYYY-MM-DD).
+    rnpCommentsList: (mp, dateFrom, dateTo) =>
+      request('/api/rnp-comments' + qs({ marketplace: mp, date_from: dateFrom, date_to: dateTo })),
+    rnpCommentCreate: (mp, sellerArticle, date, body) => request('/api/rnp-comments', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seller_article: sellerArticle, date: date, body: body }),
+      body: JSON.stringify({ marketplace: mp, seller_article: sellerArticle, date: date, body: body }),
     }),
     rnpCommentUpdate: (id, body) => request('/api/rnp-comments/' + id, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
