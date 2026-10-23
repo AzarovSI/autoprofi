@@ -417,6 +417,22 @@ const API = (() => {
       body: JSON.stringify({ body: body }),
     }),
     rnpCommentDelete: (id) => request('/api/rnp-comments/' + id, { method: 'DELETE' }),
+    // Акции товаров в РНП — свои у каждой площадки (mp: ozon | wb | yandex).
+    rnpPromosList: (mp, dateFrom, dateTo) =>
+      request('/api/rnp-promos' + qs({ marketplace: mp, date_from: dateFrom, date_to: dateTo })),
+    rnpPromoCreate: (body) => request('/api/rnp-promos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
+    rnpPromoUpdate: (id, body) => request('/api/rnp-promos/' + id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }),
+    rnpPromoClose: (id, dateToFact) => request('/api/rnp-promos/' + id + '/close', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_to_fact: dateToFact }),
+    }),
+    rnpPromoCancel: (id) => request('/api/rnp-promos/' + id + '/cancel', { method: 'POST' }),
+    rnpPromosJournal: (p) => request('/api/rnp-promos/journal' + qs(p)),
+    rnpPromoEvents: (id) => request('/api/rnp-promos/' + id + '/events'),
     // Склады — стоимостная оценка по складам/дням (тепловая карта + KPI).
     whByWh: (p) => cget('/api/warehouses/by_wh' + qs(p)),
     // Справочник складов (owner-only).

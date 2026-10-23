@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from .routers import (
     auth_router, metrics_router, trend_router,
     rnp_router, catalog_router, upload_router, users_router,
-    abc_router, sales_router, rnp_sales_router, rnp_comments_router,
+    abc_router, sales_router, rnp_sales_router, rnp_comments_router, rnp_promos_router,
     rnp_anomalies_router, warehouses_router, ozon_warehouses_router,
     prices_router, roles_router,
 )
@@ -65,6 +65,13 @@ def migrate_rnp_comments():
 
 
 @app.on_event("startup")
+def migrate_rnp_promos():
+    # После migrate_access_roles: миграция выдаёт права акций по таблицам ролей.
+    from .routers.rnp_promos_router import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def start_rnp_warmup():
     # Фоновый прогрев дерева «РНП заказы» (только при RNP_WARMUP=1, см. app/rnp_warmup.py)
     from .rnp_warmup import start
@@ -96,6 +103,7 @@ app.include_router(abc_router.router)
 app.include_router(sales_router.router)
 app.include_router(rnp_sales_router.router)
 app.include_router(rnp_comments_router.router)
+app.include_router(rnp_promos_router.router)
 app.include_router(rnp_anomalies_router.router)
 app.include_router(warehouses_router.router)
 app.include_router(ozon_warehouses_router.router)

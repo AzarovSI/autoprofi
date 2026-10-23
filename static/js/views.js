@@ -5293,6 +5293,8 @@ const Views = (() => {
     filterExpandSig: '',
     // Комментарии к дневным ячейкам текущего МП: Map по ключу `sa|date` → массив комментов (новые сверху).
     comments: new Map(),
+    // Акции товаров текущего МП: Map артикул → акции по дате входа; promoToday — «сегодня» сервера (МСК).
+    promos: new Map(), promoToday: '',
     // === Фильтр аномалий (отклонений от нормы) ===
     anomOn: false,                 // открыт ли режим аномалий (панель доступна)
     anomApplied: false,            // применён ли фильтр (только по кнопке «Применить»)
@@ -5322,6 +5324,25 @@ const Views = (() => {
   function rnpsCmtKey(sa, date) { return String(sa) + '|' + String(date); }
   // Массив комментариев для ячейки (может быть пустым).
   function rnpsCmtFor(sa, date) { return rnpSalesState.comments.get(rnpsCmtKey(sa, date)) || []; }
+
+  // Акции товара (docs/business_rules.md, «Акции в РНП»): последний день — фактический выход, иначе плановый.
+  function rnpsPromoEnd(p) { return p.date_to_fact || p.date_to_plan; }
+  // Акция товара, в которую входит день date (у товара одна акция одновременно).
+  function rnpsPromoAt(sa, date) {
+    return (rnpSalesState.promos.get(String(sa)) || []).find(p => p.date_from <= date && date <= rnpsPromoEnd(p)) || null;
+  }
+  // Короткая дата «дд.мм».
+  function rnpsDM(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) : ''; }
+  // Дней с a по b включительно (ISO-даты).
+  function rnpsDaysIncl(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1; }
+  function rnpsPromoTitle(p) {
+    return `Акция «${p.name}» · ${rnpsDM(p.date_from)} — ${p.date_to_fact ? rnpsDM(p.date_to_fact) + ' (завершена раньше)' : 'до ' + rnpsDM(p.date_to_plan)}`;
+  }
+  // Контурная ракета — в стиле иконки-монеток.
+  const RNPS_ROCKET_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" '
+    + 'stroke-linecap="round" stroke-linejoin="round"><path d="M9.6 2.6C11.8 1.4 14.5 1.5 14.5 1.5s.1 2.7-1.1 4.9L8.6 11.2 4.8 7.4z"/>'
+    + '<circle cx="10.6" cy="5.4" r="1.1"/><path d="M4.8 7.4 2.4 7l2-2.2h2.6"/><path d="M8.6 11.2 9 13.6l2.2-2V9"/>'
+    + '<path d="M4.4 11.6c-1.1.5-1.6 2.4-1.6 2.4s1.9-.5 2.4-1.6"/></svg>';
 
   // Форматирование значения ячейки по типу метрики.
   function rnpsFmt(v, kind) {
@@ -5444,9 +5465,10 @@ const Views = (() => {
     let style = '';
     // Светофором красим ТОЛЬКО дни у товаров (лист); группы/«Итоги» — без окраски.
     // Итог месяца всегда без светофора (нейтральная подложка из CSS).
+    // background-color, а не background: штриховку акции даёт класс .rnps-promo (background-image).
     if (col.type === 'day' && isItem) {
       const bg = rnpsHeatColor(v, range.mn, range.mx);
-      if (bg) style = ` style="background:${bg}"`;
+      if (bg) style = ` style="background-color:${bg}"`;
     }
     const text = rnpsFmt(v, kind);
     let cls = col.type === 'total' ? ' rnps-total'
@@ -5459,17 +5481,24 @@ const Views = (() => {
     }
     // Комментарии к дневной ячейке товара (как в Google Sheets): по клику
     // открывается popover. Маркер-уголок слева-вверху — только если есть комментарии.
+    // Дни акции — штриховка поверх светофора, по клику — вкладка «Акция» того же окна.
     let cmtAttrs = '';
     let cmtMark = '';
-    if (col.type === 'day' && isItem && node.leaf_info && App.can('rnp.comments.view')) {
+    const canCmt = App.can('rnp.comments.view'), canPromo = App.can('rnp.promos.view');
+    if (col.type === 'day' && isItem && node.leaf_info && (canCmt || canPromo)) {
       const sa = node.leaf_info.seller_article || '';
       const date = col.key;
       cls += ' rnps-cell-cmt';
       cmtAttrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(date)}"`;
-      const list = rnpsCmtFor(sa, date);
+      const list = canCmt ? rnpsCmtFor(sa, date) : [];
       if (list.length) {
         cls += ' has-cmt';
         cmtMark = `<span class="rnps-cmt-mark" title="Комментарии: ${list.length}"></span>`;
+      }
+      const promo = canPromo ? rnpsPromoAt(sa, date) : null;
+      if (promo) {
+        cls += ' rnps-promo';
+        cmtAttrs += ` title="${U.esc(rnpsPromoTitle(promo))}"`;
       }
     }
     // Оборачиваемость (дни запаса) — бейдж-пилюля в ЛЕВОЙ части ячейки итога,
@@ -5586,13 +5615,22 @@ const Views = (() => {
     // ue_neg — флаг с бэкенда: у товара ОТРИЦАТЕЛЬНАЯ маржинальность (%)
     // по последней подгруженной неделе → монетки красим в красный (--bad).
     const ueNeg = !!(node.leaf_info || {}).ue_neg;
-    const mBtn = isItem
+    // Акции: колонка шире на ракету (у всех строк — для выравнивания); ракета — у товара в акции сегодня.
+    let promoIco = '';
+    if (App.can('rnp.promos.view')) {
+      const pNow = isItem && rnpSalesState.promoToday
+        ? rnpsPromoAt((node.leaf_info || {}).seller_article || '', rnpSalesState.promoToday) : null;
+      promoIco = pNow
+        ? `<span class="rnps-promo-ico" title="${U.esc(rnpsPromoTitle(pNow))}">${RNPS_ROCKET_SVG}</span>`
+        : '<span class="rnps-promo-ico"></span>';
+    }
+    const mBtn = promoIco + (isItem
       ? (!App.can('rnp.unit_popup') ? '' : `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v3c0 1.1 2.24 2 5 2s5-.9 5-2V4"/><path d="M3 7.5v3c0 1.1 2.24 2 5 2s5-.9 5-2v-3"/></svg>`
         + `</button>`)
       : `<button class="rnp-mbtn ${metricsOpen ? 'on' : ''}" data-mkey="${U.esc(node.key)}" title="Показать/скрыть показатели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"/><line x1="8" y1="13" x2="8" y2="4"/><line x1="13" y1="13" x2="13" y2="9"/></svg>`
-        + `</button>`;
+        + `</button>`);
 
     // Светофор считается по мин/макс «Заказы, шт» ИМЕННО этой строки.
     const heatRange = rnpsNodeHeatRange(node, cols);
@@ -6402,7 +6440,9 @@ const Views = (() => {
   // КОММЕНТАРИИ К ЯЧЕЙКАМ (popover, как в Google Sheets)
   // ------------------------------------------------------------------
   // Открыт ли popover и для какой ячейки.
-  const rnpsCmtPop = { el: null, sa: null, date: null, anchor: null, editingId: null, onDoc: null, onScroll: null };
+  // tab — вкладка окна: 'cmt' (комментарии) | 'promo' (акция); promoMode — 'view' | 'edit' | 'close'.
+  const rnpsCmtPop = { el: null, sa: null, date: null, anchor: null, editingId: null, onDoc: null, onScroll: null,
+    tab: 'cmt', promoMode: 'view' };
 
   // Формат даты-времени создания/правки: «дд.мм.гггг, чч:мм» (локальное время).
   function rnpsFmtDT(iso) {
@@ -6423,8 +6463,8 @@ const Views = (() => {
     return App.can(own ? 'rnp.comments.edit_own' : 'rnp.comments.edit_any');
   }
 
-  // Отрисовка содержимого popover (список + форма добавления).
-  function rnpsCmtPopHtml(sa, date) {
+  // Вкладка «Комментарии»: список + форма добавления.
+  function rnpsCmtPaneHtml(sa, date) {
     const list = rnpsCmtFor(sa, date);
     let items = '';
     if (!list.length) {
@@ -6459,15 +6499,170 @@ const Views = (() => {
       });
     }
     return `
-      <div class="rnps-cmt-head">
-        <span class="rnps-cmt-title">${U.esc(sa)} · ${U.esc(fmtRu(date))}</span>
-        <button class="rnps-cmt-close" title="Закрыть">×</button>
-      </div>
       <div class="rnps-cmt-list">${items}</div>
       ${App.can('rnp.comments.add') ? `<div class="rnps-cmt-add">
         <textarea class="rnps-cmt-new-ta" placeholder="Добавить комментарий…" maxlength="2000"></textarea>
         <button class="btn-sm rnps-cmt-addbtn">Добавить</button>
       </div>` : ''}`;
+  }
+
+  // Окно ячейки: заголовок, вкладки «Комментарии | Акция» (если видны обе) и содержимое вкладки.
+  function rnpsCmtPopHtml(sa, date) {
+    const canCmt = App.can('rnp.comments.view'), canPromo = App.can('rnp.promos.view');
+    const tab = canCmt && canPromo ? rnpsCmtPop.tab : (canPromo ? 'promo' : 'cmt');
+    let tabs = '';
+    if (canCmt && canPromo) {
+      const n = rnpsCmtFor(sa, date).length;
+      tabs = `<div class="rnps-pop-tabs">
+        <button class="rnps-pop-tab${tab === 'cmt' ? ' on' : ''}" data-ptab="cmt">Комментарии${n ? ' · ' + n : ''}</button>
+        <button class="rnps-pop-tab${tab === 'promo' ? ' on' : ''}${rnpsPromoAt(sa, date) ? ' has-promo' : ''}" data-ptab="promo">Акция</button>
+      </div>`;
+    }
+    return `
+      <div class="rnps-cmt-head">
+        <span class="rnps-cmt-title">${U.esc(sa)} · ${U.esc(fmtRu(date))}</span>
+        <button class="rnps-cmt-close" title="Закрыть">×</button>
+      </div>
+      ${tabs}
+      ${tab === 'promo' ? rnpsPromoPaneHtml(sa, date) : rnpsCmtPaneHtml(sa, date)}`;
+  }
+
+  // Может ли текущий пользователь менять акцию (UI-уровень; сервер проверяет сам): своя — «свою», чужая — «чужую».
+  function rnpsCanModifyPromo(p) {
+    const u = API.getUser && API.getUser();
+    if (!u) return false;
+    const own = u.id != null && p.created_by != null && String(u.id) === String(p.created_by);
+    return App.can(own ? 'rnp.promos.edit_own' : 'rnp.promos.edit_any');
+  }
+
+  // Вкладка «Акция»: карточка акции дня, её правка / досрочное завершение или форма новой акции.
+  function rnpsPromoPaneHtml(sa, date) {
+    const p = rnpsPromoAt(sa, date);
+    const field = (label, cls, value, extra) =>
+      `<label class="rnps-promo-field">${label}<input class="${cls}" value="${U.esc(value || '')}"${extra || ''}></label>`;
+    if (!p) {
+      if (!App.can('rnp.promos.add')) return '<div class="rnps-promo-pane"><div class="rnps-cmt-empty">В этот день товар не в акции.</div></div>';
+      return `<div class="rnps-promo-pane">
+        ${field('Название акции', 'rnps-pf-name', '', ' maxlength="200" placeholder="Например, «Распродажа 11.11»"')}
+        ${field('Вход в акцию', 'rnps-pf-from', date, ' type="date"')}
+        ${field('Плановый выход', 'rnps-pf-plan', '', ` type="date" min="${date}"`)}
+        <div class="rnps-promo-btns"><button class="btn-sm rnps-pf-create">Начать акцию</button></div>
+      </div>`;
+    }
+    const can = rnpsCanModifyPromo(p);
+    const mode = can ? rnpsCmtPop.promoMode : 'view';
+    if (mode === 'edit') {
+      return `<div class="rnps-promo-pane">
+        ${field('Название акции', 'rnps-pf-name', p.name, ' maxlength="200"')}
+        ${field('Вход в акцию', 'rnps-pf-from', p.date_from, ' type="date"')}
+        ${field('Плановый выход', 'rnps-pf-plan', p.date_to_plan, ' type="date"')}
+        <div class="rnps-promo-btns"><button class="btn-sm rnps-pf-save">Сохранить</button><button class="btn-sm rnps-pf-back">Отмена</button></div>
+      </div>`;
+    }
+    if (mode === 'close') {
+      const d = date < p.date_from ? p.date_from : (date > p.date_to_plan ? p.date_to_plan : date);
+      return `<div class="rnps-promo-pane">
+        <div class="rnps-promo-title">${RNPS_ROCKET_SVG}${U.esc(p.name)}</div>
+        ${field('Последний день акции', 'rnps-pf-fact', p.date_to_fact || d, ` type="date" min="${p.date_from}" max="${p.date_to_plan}"`)}
+        <div class="rnps-promo-btns"><button class="btn-sm rnps-pf-close">Завершить</button><button class="btn-sm rnps-pf-back">Отмена</button></div>
+      </div>`;
+    }
+    const today = rnpSalesState.promoToday;
+    const total = rnpsDaysIncl(p.date_from, p.date_to_plan);
+    let pct = 100, state;
+    if (p.status === 'active') {
+      const n = rnpsDaysIncl(p.date_from, today);
+      pct = Math.round(n / total * 100);
+      state = `Идёт ${n}-й день из ${total}`;
+    } else if (p.status === 'planned') {
+      pct = 0; state = `Начнётся ${fmtRu(p.date_from)}`;
+    } else if (p.status === 'closed') {
+      state = `Завершена раньше: последний день ${fmtRu(p.date_to_fact)}`;
+    } else {
+      state = `Завершена ${fmtRu(p.date_to_plan)}`;
+    }
+    let who = `Открыта ${U.esc(rnpsFmtDT(p.created_at))} · ${U.esc(p.created_by_name || '—')}`;
+    if (p.closed_at) who += `<br>Завершена раньше ${U.esc(rnpsFmtDT(p.closed_at))} · ${U.esc(p.closed_by_name || '—')}`;
+    // Завершить раньше можно и задним числом — у акции, уже дошедшей до планового выхода.
+    const closeLabel = (p.status === 'active' || p.status === 'finished') ? 'Завершить раньше'
+      : (p.status === 'closed' ? 'Изменить последний день' : '');
+    return `<div class="rnps-promo-pane">
+      <div class="rnps-promo-title">${RNPS_ROCKET_SVG}${U.esc(p.name)}</div>
+      <div class="rnps-promo-row"><span>Вход в акцию</span><span>${fmtRu(p.date_from)}</span></div>
+      <div class="rnps-promo-row"><span>Плановый выход</span><span>${fmtRu(p.date_to_plan)}</span></div>
+      ${p.date_to_fact ? `<div class="rnps-promo-row"><span>Фактический выход</span><span>${fmtRu(p.date_to_fact)}</span></div>` : ''}
+      <div class="rnps-promo-prog"><i style="width:${pct}%"></i></div>
+      <div class="rnps-promo-note">${U.esc(state)}<br>${who}</div>
+      ${can ? `<div class="rnps-promo-btns">
+        ${closeLabel ? `<button class="btn-sm rnps-pf-toclose">${closeLabel}</button>` : ''}
+        <button class="btn-sm rnps-pf-toedit">Изменить</button>
+        <button class="rnps-promo-link rnps-pf-cancel" title="Ошибочная запись: из РНП пропадёт, в журнале останется с пометкой">Отменить запись</button>
+      </div>` : ''}
+    </div>`;
+  }
+
+  // Перечитать акции вкладки и перерисовать таблицу (после открытия / правки / отмены акции).
+  async function rnpsReloadPromos() {
+    const mp = rnpSalesState.mp;
+    await rnpsLoadPromos(mp, () => rnpSalesState.mp !== mp);
+    if (rnpSalesState.mp === mp) rnpsRenderMatrix();
+  }
+
+  // Обработчики вкладки «Акция».
+  function rnpsBindPromoPane(pop, sa, date) {
+    const q = (sel) => pop.querySelector(sel);
+    const p = rnpsPromoAt(sa, date);
+    const run = async (btn, action, okMsg) => {
+      btn.disabled = true;
+      try {
+        await action();
+        rnpsCloseCmtPopover();
+        App.toast(okMsg, 'ok');
+        await rnpsReloadPromos();
+      } catch (err) {
+        App.toast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'err');
+        btn.disabled = false;
+      }
+    };
+    const form = () => ({
+      name: (q('.rnps-pf-name').value || '').trim(), date_from: q('.rnps-pf-from').value, date_to_plan: q('.rnps-pf-plan').value,
+    });
+    const valid = (f) => {
+      if (!f.name) { q('.rnps-pf-name').focus(); return false; }
+      if (!f.date_from) { q('.rnps-pf-from').focus(); return false; }
+      if (!f.date_to_plan) { q('.rnps-pf-plan').focus(); return false; }
+      if (f.date_to_plan < f.date_from) { App.toast('Плановый выход раньше входа в акцию', 'err'); return false; }
+      return true;
+    };
+    const mode = (m) => { rnpsCmtPop.promoMode = m; rnpsRefreshCmtPop(); };
+    const create = q('.rnps-pf-create');
+    if (create) create.addEventListener('click', () => {
+      const f = form();
+      if (valid(f)) run(create, () => API.rnpPromoCreate({ marketplace: rnpSalesState.mp, seller_article: sa, ...f }), 'Акция открыта');
+    });
+    if (!p) return;
+    const save = q('.rnps-pf-save');
+    if (save) save.addEventListener('click', () => {
+      const f = form();
+      if (valid(f)) run(save, () => API.rnpPromoUpdate(p.id, f), 'Акция изменена');
+    });
+    const close = q('.rnps-pf-close');
+    if (close) close.addEventListener('click', () => {
+      const d = q('.rnps-pf-fact').value;
+      if (d) run(close, () => API.rnpPromoClose(p.id, d), 'Акция завершена');
+    });
+    const cancel = q('.rnps-pf-cancel');
+    if (cancel) cancel.addEventListener('click', () => {
+      if (window.confirm(`Отменить запись об акции «${p.name}»? В РНП она пропадёт, в журнале акций останется с пометкой «отменена».`)) {
+        run(cancel, () => API.rnpPromoCancel(p.id), 'Запись об акции отменена');
+      }
+    });
+    const toEdit = q('.rnps-pf-toedit');
+    if (toEdit) toEdit.addEventListener('click', () => mode('edit'));
+    const toClose = q('.rnps-pf-toclose');
+    if (toClose) toClose.addEventListener('click', () => mode('close'));
+    const back = q('.rnps-pf-back');
+    if (back) back.addEventListener('click', () => mode('view'));
   }
 
   // Позиционирование popover относительно ячейки (с учётом краёв экрана).
@@ -6493,6 +6688,7 @@ const Views = (() => {
     if (rnpsCmtPop.onEsc) { document.removeEventListener('keydown', rnpsCmtPop.onEsc); rnpsCmtPop.onEsc = null; }
     if (rnpsCmtPop.el && rnpsCmtPop.el.parentNode) rnpsCmtPop.el.parentNode.removeChild(rnpsCmtPop.el);
     rnpsCmtPop.el = null; rnpsCmtPop.sa = null; rnpsCmtPop.date = null; rnpsCmtPop.anchor = null; rnpsCmtPop.editingId = null;
+    rnpsCmtPop.tab = 'cmt'; rnpsCmtPop.promoMode = 'view';
   }
 
   // Перерисовать только внутренности popover (после CRUD) без потери позиции.
@@ -6530,6 +6726,15 @@ const Views = (() => {
     // Клики внутри popover не закрывают его (обрабатывает onDoc).
     const close = pop.querySelector('.rnps-cmt-close');
     if (close) close.addEventListener('click', () => rnpsCloseCmtPopover());
+    // Вкладки «Комментарии | Акция».
+    pop.querySelectorAll('.rnps-pop-tab').forEach(b => {
+      b.addEventListener('click', () => {
+        rnpsCmtPop.tab = b.getAttribute('data-ptab');
+        rnpsCmtPop.promoMode = 'view'; rnpsCmtPop.editingId = null;
+        rnpsRefreshCmtPop();
+      });
+    });
+    rnpsBindPromoPane(pop, sa, date);
 
     // Добавить.
     const addBtn = pop.querySelector('.rnps-cmt-addbtn');
@@ -6621,12 +6826,15 @@ const Views = (() => {
     const pop = document.createElement('div');
     pop.className = 'rnps-cmt-pop';
     rnpsCmtPop.el = pop; rnpsCmtPop.sa = sa; rnpsCmtPop.date = date; rnpsCmtPop.anchor = anchor; rnpsCmtPop.editingId = null;
+    // В день акции без комментариев окно открывается на вкладке «Акция».
+    rnpsCmtPop.promoMode = 'view';
+    rnpsCmtPop.tab = (App.can('rnp.promos.view') && rnpsPromoAt(sa, date) && !rnpsCmtFor(sa, date).length) ? 'promo' : 'cmt';
     pop.innerHTML = rnpsCmtPopHtml(sa, date);
     document.body.appendChild(pop);
     rnpsBindCmtPop();
     rnpsPositionCmtPop();
     // Фокус в поле добавления.
-    const ta = pop.querySelector('.rnps-cmt-new-ta');
+    const ta = pop.querySelector('.rnps-cmt-new-ta, .rnps-pf-name');
     if (ta) ta.focus();
     // Закрытие по клику вне и по Esc.
     rnpsCmtPop.onDoc = (e) => {
@@ -6716,8 +6924,8 @@ const Views = (() => {
       if (data.tree && data.tree.key && Object.keys(rnpSalesState.expanded).length === 0) {
         rnpsExpandAll(data.tree);
       }
-      // Комментарии — отдельным запросом за видимый диапазон дат, только этого МП.
-      await rnpsLoadComments(myMp, isStale);
+      // Комментарии и акции — отдельными запросами за видимый диапазон дат, только этого МП.
+      await Promise.all([rnpsLoadComments(myMp, isStale), rnpsLoadPromos(myMp, isStale)]);
       if (isStale()) return false;
     } catch (err) {
       if (isStale()) return false;
@@ -6737,17 +6945,7 @@ const Views = (() => {
   // в РНП одной площадки окажутся комментарии другой.
   async function rnpsLoadComments(mp, isStale) {
     rnpSalesState.comments = new Map();
-    const months = (rnpSalesState.data && rnpSalesState.data.months) || [];
-    let dfrom = null, dto = null;
-    months.forEach(m => {
-      (m.days || []).forEach(d => {
-        if (!dfrom || d.key < dfrom) dfrom = d.key;
-        if (!dto || d.key > dto) dto = d.key;
-      });
-    });
-    // Фоллбэк на явно выбранный период, если дни ещё не развёрнуты.
-    if (!dfrom && rnpSalesState.from) dfrom = rnpSalesState.from;
-    if (!dto && rnpSalesState.to) dto = rnpSalesState.to;
+    const [dfrom, dto] = rnpsVisibleRange();
     if (!dfrom || !dto) return;
     if (!App.can('rnp.comments.view')) return;
     try {
@@ -6766,6 +6964,48 @@ const Views = (() => {
       // Комментарии — некритичны: матрица отрисуется и без них.
       if (isStale()) return;
       rnpSalesState.comments = new Map();
+    }
+  }
+
+  // Видимый диапазон дат текущего ответа [с, по]: фактические дни месяцев (первый..последний),
+  // иначе — явно выбранный период.
+  function rnpsVisibleRange() {
+    const months = (rnpSalesState.data && rnpSalesState.data.months) || [];
+    let dfrom = null, dto = null;
+    months.forEach(m => {
+      (m.days || []).forEach(d => {
+        if (!dfrom || d.key < dfrom) dfrom = d.key;
+        if (!dto || d.key > dto) dto = d.key;
+      });
+    });
+    // Фоллбэк на явно выбранный период, если дни ещё не развёрнуты.
+    if (!dfrom && rnpSalesState.from) dfrom = rnpSalesState.from;
+    if (!dto && rnpSalesState.to) dto = rnpSalesState.to;
+    return [dfrom, dto];
+  }
+
+  // Акции МП `mp` за видимый диапазон (и идущие сегодня — для ракеты) → Map артикул → акции.
+  // isStale() — запрос устарел (сменили МП): ответ не пишем.
+  async function rnpsLoadPromos(mp, isStale) {
+    rnpSalesState.promos = new Map();
+    if (!App.can('rnp.promos.view')) return;
+    const [dfrom, dto] = rnpsVisibleRange();
+    if (!dfrom || !dto) return;
+    try {
+      const res = await API.rnpPromosList(mp, dfrom, dto);
+      if (isStale()) return;
+      const map = new Map();
+      ((res && res.promos) || []).forEach(p => {
+        const k = String(p.seller_article);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(p);
+      });
+      rnpSalesState.promos = map;
+      rnpSalesState.promoToday = (res && res.today) || '';
+    } catch (err) {
+      // Акции — некритичны: матрица отрисуется и без них.
+      if (isStale()) return;
+      rnpSalesState.promos = new Map();
     }
   }
 
@@ -6946,8 +7186,135 @@ const Views = (() => {
   function rnpsTabs() {
     const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'], ['yandex', 'Yandex', 'yandex']]
       .filter(([id]) => App.canTab('rnp', id));
-    if (App.can('rnp.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    // Справа: «Журнал акций» и «Загрузка данных»; вправо прижимается первая из них.
+    const journal = App.can('rnp.promos.journal');
+    if (journal) tabs.push(['promos', 'Журнал акций', 'cross', true]);
+    if (App.can('rnp.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', !journal]);
     return tabs;
+  }
+
+  // ===== ЖУРНАЛ АКЦИЙ (вкладка РНП, право rnp.promos.journal) =====
+  // Все акции всех площадок, включая отменённые; клик по строке — история изменений.
+  // Площадка и период — на сервер, статус и поиск — на клиенте.
+  const promoJState = { mp: '', status: '', q: '', from: '', to: '', data: null, open: {}, events: {} };
+  const PJ_MP = { Wildberries: ['WB', 'wb'], Ozon: ['OZON', 'ozon'], Yandex: ['Yandex', 'ya'] };
+  const PJ_STATUS = { active: 'Идёт', planned: 'Запланирована', finished: 'Завершена', closed: 'Завершена раньше', cancelled: 'Отменена' };
+  const PJ_FIELDS = { name: 'название', date_from: 'вход', date_to_plan: 'плановый выход', date_to_fact: 'последний день' };
+
+  function pjVal(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? fmtRu(String(v)) : `«${v}»`;
+  }
+  function pjEventText(e) {
+    const c = e.changes || {};
+    if (e.action === 'create') return `Открыта: «${c.name}», ${fmtRu(c.date_from)} — ${fmtRu(c.date_to_plan)}`;
+    if (e.action === 'close') return `Завершена раньше: последний день ${fmtRu((c.date_to_fact || [])[1])}`;
+    if (e.action === 'cancel') return 'Запись отменена';
+    return 'Изменена: ' + Object.keys(c).map(k => `${PJ_FIELDS[k] || k} ${pjVal(c[k][0])} → ${pjVal(c[k][1])}`).join('; ');
+  }
+
+  function pjFiltered() {
+    const q = promoJState.q.toLowerCase();
+    return ((promoJState.data && promoJState.data.promos) || []).filter(p =>
+      (!promoJState.status || p.status === promoJState.status)
+      && (!q || p.seller_article.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)));
+  }
+
+  function pjRender(root) {
+    const body = root.querySelector('#pj-body'), sum = root.querySelector('#pj-summary');
+    if (!body) return;
+    const rows = pjFiltered();
+    const live = rows.filter(p => p.status !== 'cancelled');
+    const cnt = (st) => rows.filter(p => p.status === st).length;
+    const avg = live.length ? Math.round(live.reduce((a, p) => a + p.days, 0) / live.length * 10) / 10 : 0;
+    sum.innerHTML = `Всего: <b>${rows.length}</b> · идут: <b>${cnt('active')}</b> · запланированы: <b>${cnt('planned')}</b>`
+      + ` · завершены раньше: <b>${cnt('closed')}</b> · отменены: <b>${cnt('cancelled')}</b>`
+      + ` · средняя длительность: <b>${String(avg).replace('.', ',')}</b> дн.`;
+    if (!rows.length) { body.innerHTML = '<div class="empty" style="padding:24px;">Акций не найдено.</div>'; return; }
+    let h = `<table class="tbl pj-tbl"><thead><tr>
+      <th class="l">Площадка</th><th class="l">Товар</th><th class="l">Акция</th><th>Вход</th><th>Плановый выход</th>
+      <th>Фактический выход</th><th>Дней</th><th class="l">Статус</th><th class="l">Открыта</th><th class="l">Завершена / отменена</th>
+    </tr></thead><tbody>`;
+    rows.forEach(p => {
+      const [mpLabel, mpCls] = PJ_MP[p.marketplace] || [p.marketplace, ''];
+      const fin = p.cancelled_at ? `${rnpsFmtDT(p.cancelled_at)} · ${p.cancelled_by_name || '—'}`
+        : (p.closed_at ? `${rnpsFmtDT(p.closed_at)} · ${p.closed_by_name || '—'}` : '');
+      const open = !!promoJState.open[p.id];
+      h += `<tr class="pj-row${open ? ' open' : ''}" data-pid="${p.id}">
+        <td class="l"><span class="pj-mp pj-mp-${mpCls}">${U.esc(mpLabel)}</span></td>
+        <td class="l">${U.esc(p.seller_article)}</td>
+        <td class="l">${U.esc(p.name)}</td>
+        <td class="num">${fmtRu(p.date_from)}</td>
+        <td class="num">${fmtRu(p.date_to_plan)}</td>
+        <td class="num">${p.date_to_fact ? fmtRu(p.date_to_fact) : '—'}</td>
+        <td class="num">${p.days}</td>
+        <td class="l"><span class="pj-st pj-st-${p.status}">${PJ_STATUS[p.status] || p.status}</span></td>
+        <td class="l pj-who">${U.esc(rnpsFmtDT(p.created_at))} · ${U.esc(p.created_by_name || '—')}</td>
+        <td class="l pj-who">${U.esc(fin)}</td>
+      </tr>`;
+      if (open) {
+        const ev = promoJState.events[p.id];
+        const inner = !ev ? '<span class="spinner"></span>'
+          : ev.map(e => `<div class="pj-ev"><span>${U.esc(rnpsFmtDT(e.at))} · ${U.esc(e.user_name || '—')}</span>${U.esc(pjEventText(e))}</div>`).join('');
+        h += `<tr class="pj-hist"><td colspan="10">${inner}</td></tr>`;
+      }
+    });
+    body.innerHTML = h + '</tbody></table>';
+    body.querySelectorAll('.pj-row').forEach(tr => tr.addEventListener('click', async () => {
+      const id = Number(tr.dataset.pid);
+      promoJState.open[id] = !promoJState.open[id];
+      pjRender(root);
+      if (promoJState.open[id] && !promoJState.events[id]) {
+        try { promoJState.events[id] = (await API.rnpPromoEvents(id)).events || []; }
+        catch (err) { promoJState.events[id] = []; App.toast('Ошибка: ' + err.message, 'err'); }
+        pjRender(root);
+      }
+    }));
+  }
+
+  async function pjLoad(root) {
+    const body = root.querySelector('#pj-body');
+    if (body) body.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
+    try {
+      promoJState.data = await API.rnpPromosJournal({ marketplace: promoJState.mp, date_from: promoJState.from, date_to: promoJState.to });
+      promoJState.events = {};
+    } catch (err) {
+      if (body) body.innerHTML = `<div class="empty" style="padding:24px;color:#b00;">${U.esc(err.message)}</div>`;
+      return;
+    }
+    pjRender(root);
+  }
+
+  async function rnpsPromoJournal(root) {
+    const opt = (v, label, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${label}</option>`;
+    root.innerHTML = `
+      <div class="card rnp-card mp-cross">
+        <div class="rnp-toolbar"><div class="subtabs" id="rnps-subtabs"></div></div>
+      </div>
+      <div class="card">
+        <h3>Журнал акций</h3>
+        <div class="pj-filters">
+          <select class="input-sm" id="pj-mp">${opt('', 'Все площадки', promoJState.mp)}${opt('wb', 'Wildberries', promoJState.mp)}${opt('ozon', 'OZON', promoJState.mp)}${opt('yandex', 'Yandex', promoJState.mp)}</select>
+          <select class="input-sm" id="pj-status">${opt('', 'Все статусы', promoJState.status)}${Object.keys(PJ_STATUS).map(k => opt(k, PJ_STATUS[k], promoJState.status)).join('')}</select>
+          <input class="input-sm" id="pj-q" placeholder="Товар или акция…" value="${U.esc(promoJState.q)}">
+          <label class="pj-date">с <input type="date" id="pj-from" value="${promoJState.from}"></label>
+          <label class="pj-date">по <input type="date" id="pj-to" value="${promoJState.to}"></label>
+        </div>
+        <div class="pj-summary" id="pj-summary"></div>
+        <div class="tbl-wrap"><div id="pj-body"></div></div>
+      </div>`;
+    rnpsSubtabs(root.querySelector('#rnps-subtabs'));
+    const el = (id) => root.querySelector('#' + id);
+    el('pj-mp').addEventListener('change', () => { promoJState.mp = el('pj-mp').value; pjLoad(root); });
+    el('pj-from').addEventListener('change', () => { promoJState.from = el('pj-from').value; pjLoad(root); });
+    el('pj-to').addEventListener('change', () => { promoJState.to = el('pj-to').value; pjLoad(root); });
+    el('pj-status').addEventListener('change', () => { promoJState.status = el('pj-status').value; pjRender(root); });
+    let t = null;
+    el('pj-q').addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => { promoJState.q = el('pj-q').value.trim(); pjRender(root); }, 200);
+    });
+    await pjLoad(root);
   }
 
   function rnpsSubtabs(host) {
@@ -7009,6 +7376,11 @@ const Views = (() => {
       rnpSalesState.to = isoDate(toD);
       // Раскрыть текущий месяц по дням (ключ формата YYYY-MM).
       rnpSalesState.monthsOpen[curKey] = true;
+    }
+
+    if (rnpSalesState.mp === 'promos') {
+      await rnpsPromoJournal(root);
+      return;
     }
 
     // ЗАГРУЗКА ДАННЫХ — подраздел (только админ): дневной API-файл Ozon + журнал (daily).
@@ -7305,7 +7677,7 @@ const Views = (() => {
 
     root.innerHTML = `
       ${undistHtml}
-      <div class="card rnp-card ${mpCls}">
+      <div class="card rnp-card ${mpCls}${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}">
         <div class="rnp-toolbar">
           <div class="subtabs" id="rnps-subtabs"></div>
           <div class="rnp-filters-host">
