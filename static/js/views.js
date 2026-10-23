@@ -5320,8 +5320,15 @@ const Views = (() => {
     forecast_plan: 'План', no_ads: 'Без рекл.',
   };
 
-  // Ключ ячейки комментариев.
+  // Ключ ячейки комментариев. Адрес ячейки (sa) — артикул товара или 'cat:' + ключ узла
+  // категории третьего уровня («L1|L2|L3»); у категорий нет акций.
   function rnpsCmtKey(sa, date) { return String(sa) + '|' + String(date); }
+  const RNPS_CAT = 'cat:';
+  function rnpsIsCat(sa) { return String(sa).startsWith(RNPS_CAT); }
+  // Ячейка для API комментариев.
+  function rnpsCmtRef(sa) {
+    return rnpsIsCat(sa) ? { category_key: String(sa).slice(RNPS_CAT.length) } : { seller_article: sa };
+  }
   // Массив комментариев для ячейки (может быть пустым).
   function rnpsCmtFor(sa, date) { return rnpSalesState.comments.get(rnpsCmtKey(sa, date)) || []; }
 
@@ -5499,6 +5506,16 @@ const Views = (() => {
       if (promo) {
         cls += ' rnps-promo';
         cmtAttrs += ` title="${U.esc(rnpsPromoTitle(promo))}"`;
+      }
+    } else if (col.type === 'day' && node.level === 3 && canCmt) {
+      // Категория третьего уровня (над товарами): только комментарии, без акций.
+      const sa = RNPS_CAT + node.key;
+      cls += ' rnps-cell-cmt';
+      cmtAttrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(col.key)}" data-title="${U.esc(node.name)}"`;
+      const list = rnpsCmtFor(sa, col.key);
+      if (list.length) {
+        cls += ' has-cmt';
+        cmtMark = `<span class="rnps-cmt-mark" title="Комментарии: ${list.length}"></span>`;
       }
     }
     // Оборачиваемость (дни запаса) — бейдж-пилюля в ЛЕВОЙ части ячейки итога,
@@ -6440,9 +6457,10 @@ const Views = (() => {
   // КОММЕНТАРИИ К ЯЧЕЙКАМ (popover, как в Google Sheets)
   // ------------------------------------------------------------------
   // Открыт ли popover и для какой ячейки.
-  // tab — вкладка окна: 'cmt' (комментарии) | 'promo' (акция); promoMode — 'view' | 'edit' | 'close'.
+  // tab — вкладка окна: 'cmt' (комментарии) | 'promo' (акция); promoMode — 'view' | 'edit' | 'close';
+  // title — заголовок окна у категории третьего уровня (у товара — артикул).
   const rnpsCmtPop = { el: null, sa: null, date: null, anchor: null, editingId: null, onDoc: null, onScroll: null,
-    tab: 'cmt', promoMode: 'view' };
+    tab: 'cmt', promoMode: 'view', title: null };
 
   // Формат даты-времени создания/правки: «дд.мм.гггг, чч:мм» (локальное время).
   function rnpsFmtDT(iso) {
@@ -6508,7 +6526,7 @@ const Views = (() => {
 
   // Окно ячейки: заголовок, вкладки «Комментарии | Акция» (если видны обе) и содержимое вкладки.
   function rnpsCmtPopHtml(sa, date) {
-    const canCmt = App.can('rnp.comments.view'), canPromo = App.can('rnp.promos.view');
+    const canCmt = App.can('rnp.comments.view'), canPromo = App.can('rnp.promos.view') && !rnpsIsCat(sa);
     const tab = canCmt && canPromo ? rnpsCmtPop.tab : (canPromo ? 'promo' : 'cmt');
     let tabs = '';
     if (canCmt && canPromo) {
@@ -6520,7 +6538,7 @@ const Views = (() => {
     }
     return `
       <div class="rnps-cmt-head">
-        <span class="rnps-cmt-title">${U.esc(sa)} · ${U.esc(fmtRu(date))}</span>
+        <span class="rnps-cmt-title">${U.esc(rnpsCmtPop.title || sa)} · ${U.esc(fmtRu(date))}</span>
         <button class="rnps-cmt-close" title="Закрыть">×</button>
       </div>
       ${tabs}
@@ -6688,7 +6706,7 @@ const Views = (() => {
     if (rnpsCmtPop.onEsc) { document.removeEventListener('keydown', rnpsCmtPop.onEsc); rnpsCmtPop.onEsc = null; }
     if (rnpsCmtPop.el && rnpsCmtPop.el.parentNode) rnpsCmtPop.el.parentNode.removeChild(rnpsCmtPop.el);
     rnpsCmtPop.el = null; rnpsCmtPop.sa = null; rnpsCmtPop.date = null; rnpsCmtPop.anchor = null; rnpsCmtPop.editingId = null;
-    rnpsCmtPop.tab = 'cmt'; rnpsCmtPop.promoMode = 'view';
+    rnpsCmtPop.tab = 'cmt'; rnpsCmtPop.promoMode = 'view'; rnpsCmtPop.title = null;
   }
 
   // Перерисовать только внутренности popover (после CRUD) без потери позиции.
@@ -6745,7 +6763,7 @@ const Views = (() => {
         if (!body) { newTa.focus(); return; }
         addBtn.disabled = true;
         try {
-          const c = await API.rnpCommentCreate(rnpSalesState.mp, sa, date, body);
+          const c = await API.rnpCommentCreate(rnpSalesState.mp, rnpsCmtRef(sa), date, body);
           const k = rnpsCmtKey(sa, date);
           const arr = rnpSalesState.comments.get(k) || [];
           arr.unshift(c); // новые сверху
@@ -6826,6 +6844,8 @@ const Views = (() => {
     const pop = document.createElement('div');
     pop.className = 'rnps-cmt-pop';
     rnpsCmtPop.el = pop; rnpsCmtPop.sa = sa; rnpsCmtPop.date = date; rnpsCmtPop.anchor = anchor; rnpsCmtPop.editingId = null;
+    // Заголовок окна: название категории третьего уровня или артикул.
+    rnpsCmtPop.title = anchor.getAttribute('data-title') || null;
     // В день акции без комментариев окно открывается на вкладке «Акция».
     rnpsCmtPop.promoMode = 'view';
     rnpsCmtPop.tab = (App.can('rnp.promos.view') && rnpsPromoAt(sa, date) && !rnpsCmtFor(sa, date).length) ? 'promo' : 'cmt';
@@ -6954,7 +6974,7 @@ const Views = (() => {
       const list = (res && res.comments) || [];
       const map = new Map();
       list.forEach(c => {
-        const k = rnpsCmtKey(c.seller_article, c.date);
+        const k = rnpsCmtKey(c.category_key ? RNPS_CAT + c.category_key : c.seller_article, c.date);
         if (!map.has(k)) map.set(k, []);
         map.get(k).push(c);
       });

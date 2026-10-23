@@ -19,7 +19,7 @@ def reset_comments():
     with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
         conn.execute("DROP TABLE IF EXISTS rnp_comments")
         if conn.execute("SELECT to_regclass('app_schema_migrations')").fetchone()[0]:
-            conn.execute("DELETE FROM app_schema_migrations WHERE name=%s", (rnp_comments_router.MIGRATION,))
+            conn.execute("DELETE FROM app_schema_migrations WHERE name = ANY(%s)", (rnp_comments_router.MIGRATIONS,))
         conn.execute("""CREATE TABLE rnp_comments (
             id bigserial PRIMARY KEY, seller_article text NOT NULL, date date NOT NULL,
             body text NOT NULL, author_id bigint NOT NULL,
@@ -72,6 +72,21 @@ class RnpCommentsTest(unittest.TestCase):
         self.assertEqual(self.bodies("wb"), ["бюджет WB", "старый"])
         self.assertEqual(self.bodies("ozon"), ["бюджет Ozon"])
         self.assertEqual(self.bodies("yandex"), [])
+
+    def test_category_comment(self):
+        cat = "Продукция ECOM|Автолампы|Автолампы LED ecom"
+        r = self.call("POST", "/api/rnp-comments",
+                      json={"marketplace": "wb", "category_key": cat, "date": "2026-10-22", "body": "акция по группе"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["category_key"], r.json()["seller_article"]), (cat, None))
+        r = self.call("GET", f"/api/rnp-comments?marketplace=wb&{PERIOD}")
+        self.assertEqual([(c["category_key"], c["body"]) for c in r.json()["comments"] if c["category_key"]],
+                         [(cat, "акция по группе")])
+        self.assertEqual(self.bodies("ozon"), [])  # категория тоже своя у площадки
+        # Ровно одно: товар или категория.
+        for body in ({"seller_article": "SKU-1", "category_key": cat}, {}):
+            r = self.call("POST", "/api/rnp-comments", json={"marketplace": "wb", "date": "2026-10-22", "body": "x", **body})
+            self.assertEqual(r.status_code, 422, body)
 
     def test_marketplace_required(self):
         r = self.call("POST", "/api/rnp-comments",

@@ -408,9 +408,10 @@ const API = (() => {
     // (mp: ozon | wb | yandex). Список — за видимый диапазон дат (date_from..date_to, YYYY-MM-DD).
     rnpCommentsList: (mp, dateFrom, dateTo) =>
       request('/api/rnp-comments' + qs({ marketplace: mp, date_from: dateFrom, date_to: dateTo })),
-    rnpCommentCreate: (mp, sellerArticle, date, body) => request('/api/rnp-comments', {
+    // ref — ячейка: { seller_article } у товара или { category_key: 'L1|L2|L3' } у категории третьего уровня.
+    rnpCommentCreate: (mp, ref, date, body) => request('/api/rnp-comments', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ marketplace: mp, seller_article: sellerArticle, date: date, body: body }),
+      body: JSON.stringify({ marketplace: mp, ...ref, date: date, body: body }),
     }),
     rnpCommentUpdate: (id, body) => request('/api/rnp-comments/' + id, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
