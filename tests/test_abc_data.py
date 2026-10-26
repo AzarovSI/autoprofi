@@ -19,7 +19,8 @@ ADMIN = {"id": 1, "is_admin": True}
 
 def row(sku, ad_spend, revenue=1000.0):
     return dict(year=2026, month=9, sku=sku, name="Товар " + sku, revenue=revenue, profit=100.0,
-                margin=0.1, sales_qty=5, orders_qty=6, returns_qty=1, ad_spend=ad_spend, status="CORE")
+                margin=0.1, payout=600.0, sales_qty=5, orders_qty=6, returns_qty=1, ad_spend=ad_spend,
+                status="CORE")
 
 
 class AdSpendSignTest(unittest.TestCase):
@@ -45,6 +46,12 @@ class AdSpendSignTest(unittest.TestCase):
         for r in res["rows"]:
             self.assertEqual(r["ad_spend"], 0.0)
             self.assertEqual(str(r["ad_spend"]), "0.0")  # не «-0.0»
+
+    def test_payout_without_yandex(self):
+        """«К оплате на р/с» — у Ozon и WB; выплату Яндекса не сверяли — None, а не 0."""
+        res = self.data([row("OZ-1", -1.0)], [row("WB-1", 1.0)], [row("YA-1", -1.0)])
+        got = {r["mp"]: r["payout"] for r in res["rows"]}
+        self.assertEqual(got, {"ozon": 600.0, "vb": 600.0, "ya": None})
 
 
 class PartialMonthTest(unittest.TestCase):

@@ -20,6 +20,9 @@
   wb_margin_with_ads_pct), т.к. реклама WB вычитается отдельно.
   Исключение — месяцы WB без рекламы по товарам (WB_NO_ADS_MONTHS): там
   MPPROFIT «(с рекл.)» не вычитает рекламу вовсе, берём profit/margin_pct.
+- payout («К оплате на р/с») — по тому же правилу: Ozon — payout, WB —
+  wb_payout_with_ads, а в месяцах без рекламы по товарам — payout (как в
+  юнит-экономике). Яндекс — None: его выплату ещё не сверяли.
 
 Также отдаём список доступных месяцев с границами дат — клиентский
 фильтр периода (календарный диапазон) переводит выбранный диапазон
@@ -76,7 +79,7 @@ SQL_OZON = """
         f.year, f.month,
         UPPER(COALESCE(f.seller_article, '')) AS sku,
         f.item_name           AS name,
-        f.revenue, f.profit, f.margin_pct AS margin,
+        f.revenue, f.profit, f.margin_pct AS margin, f.payout,
         f.sales_qty, f.orders_qty, f.returns_qty,
         f.promo_total         AS ad_spend,
         cm.status             AS status
@@ -114,6 +117,7 @@ SQL_WB = """
         f.revenue,
         CASE WHEN na.year IS NULL THEN f.wb_profit_with_ads ELSE f.profit END AS profit,
         CASE WHEN na.year IS NULL THEN f.wb_margin_with_ads_pct ELSE f.margin_pct END AS margin,
+        CASE WHEN na.year IS NULL THEN f.wb_payout_with_ads ELSE f.payout END AS payout,
         f.sales_qty, f.orders_qty, f.returns_qty,
         f.wb_ads_total        AS ad_spend,
         cm.status             AS status
@@ -160,13 +164,15 @@ SQL_YA = """
 # артикула и выручки — это удержания МП, не привязанные к конкретному
 # товару. В товарных «Прибылях» они НЕ учтены, поэтому для итоговой
 # прибыли/маржи МП их нужно прибавлять помесячно отдельно.
-# Прибыль берём так же, как у товаров: Ozon — profit, WB — с учётом рекламы.
+# Прибыль и выплату берём так же, как у товаров: Ozon — profit/payout, WB — с учётом рекламы.
 # Яндекс — как Ozon (обычный profit); WB — с учётом рекламы.
 SQL_HOLDS = """
     SELECT
         f.year, f.month, f.marketplace,
         CASE WHEN f.marketplace = 'Wildberries' AND na.year IS NULL
-             THEN f.wb_profit_with_ads ELSE f.profit END AS profit
+             THEN f.wb_profit_with_ads ELSE f.profit END AS profit,
+        CASE WHEN f.marketplace = 'Wildberries' AND na.year IS NULL
+             THEN f.wb_payout_with_ads ELSE f.payout END AS payout
     FROM fact_monthly f
     LEFT JOIN (""" + WB_NO_ADS_MONTHS + """) na
            ON f.marketplace = 'Wildberries' AND na.year = f.year AND na.month = f.month
@@ -202,6 +208,8 @@ def _shape(row, mp):
         "revenue": _num(row["revenue"]),
         "profit": _num(row["profit"]),
         "margin": _num(row["margin"]),
+        # К оплате на р/с; у Яндекса выплата не сверена (нет у строки общих удержаний) — None.
+        "payout": None if mp == "ya" else _num(row["payout"]),
         "sales_qty": _num(row["sales_qty"]),
         "orders_qty": _num(row["orders_qty"]),
         "returns_qty": _num(row["returns_qty"]),
@@ -233,6 +241,7 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             "year": int(r["year"]),
             "month": MONTH_RU.get(int(r["month"]), str(r["month"])),
             "profit": _num(r["profit"]),
+            "payout": None if r["marketplace"] == "Yandex" else _num(r["payout"]),
         }
         for r in hold_rows
     ]
