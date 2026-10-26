@@ -5295,29 +5295,6 @@ const Views = (() => {
     comments: new Map(),
     // Акции товаров текущего МП: Map артикул → акции по дате входа; promoToday — «сегодня» сервера (МСК).
     promos: new Map(), promoToday: '',
-    // === Фильтр аномалий (отклонений от нормы) ===
-    anomOn: false,                 // открыт ли режим аномалий (панель доступна)
-    anomApplied: false,            // применён ли фильтр (только по кнопке «Применить»)
-    anomBase: 'rolling7',          // период сравнения: week | rolling7 | custom
-    anomCurFrom: '', anomCurTo: '',// для custom
-    anomSelected: [],              // выбранные rule_key (мультивыбор)
-    anomRulesDef: null,            // определения правил из БД [{rule_key,label,...}]
-    anomHits: null,                // { art_upper: [rule_key,...] } — результат применённого фильтра
-    anomCounts: null,              // { rule_key: N } — превью-счётчики по всем правилам
-    anomPeriods: null,             // { cur:[..], prev:[..] }
-    anomRelAvailable: false,       // доступен ли предыдущий период
-    anomNote: '',                  // подсказка (нет базы и т.п.)
-    anomLoading: false,
-  };
-
-  // Карта rule_key → короткая метка для бейджа (компактно).
-  const ANOM_BADGE = {
-    orders_qty: 'Заказы',  cancels_qty: 'Отмены', card_visits: 'Переходы',
-    cr_cart_pct: 'CR корз.', cr_order_pct: 'CR заказ', avg_position: 'Позиция',
-    spp_pct: 'СПП', drr_total_pct: 'ДРР', ctr_pct: 'CTR',
-    rating: 'Рейтинг', reviews: 'Отзывы', price_index_pi: 'Pi',
-    stock_ozon_cover: 'Ост.Ozon', stock_ap_cover: 'Наш склад',
-    forecast_plan: 'План', no_ads: 'Без рекл.',
   };
 
   // Ключ ячейки комментариев. Адрес ячейки (sa) — артикул товара или 'cat:' + ключ узла
@@ -5596,24 +5573,14 @@ const Views = (() => {
     }
 
     let nameHtml;
-    let anomRowCls = '';
     if (isItem && node.leaf_info) {
-      // При применённом фильтре — НЕ показываем бейджи у артикула (они перекрывали текст).
-      // Вместо этого — мягкая подсветка строки + компактный индикатор числа отклонений.
-      let mark = '';
-      const keys = rnpsAnomFor(node.leaf_info.seller_article);
-      if (keys.length) {
-        anomRowCls = ' rnp-anom-hit';
-        const titleFull = keys.map(k => rnpsAnomRuleLabel(k)).join(', ');
-        mark = `<span class="rnp-anom-mark" title="Отклонения: ${U.esc(titleFull)}">${keys.length}</span>`;
-      }
       // Клик по артикулу → открыть ссылку на товар из справочника (новая вкладка),
       // либо, если ссылка не задана, подсказка. Треугольник рядом раскрывает метрики.
       const purl = node.leaf_info.product_url || '';
       const artTitle = purl ? 'Открыть карточку товара' : 'Добавьте ссылку на товар в справочнике';
       nameHtml = App.can('rnp.product_link')
-        ? `<span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(purl)}" title="${U.esc(artTitle)}">${U.esc(node.leaf_info.seller_article)}</span>${mark}`
-        : `<span class="rnp-nm rnp-art-main">${U.esc(node.leaf_info.seller_article)}</span>${mark}`;
+        ? `<span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(purl)}" title="${U.esc(artTitle)}">${U.esc(node.leaf_info.seller_article)}</span>`
+        : `<span class="rnp-nm rnp-art-main">${U.esc(node.leaf_info.seller_article)}</span>`;
     } else {
       nameHtml = `<span class="rnp-nm">${U.esc(node.name)}</span>`;
     }
@@ -5655,7 +5622,7 @@ const Views = (() => {
     cols.forEach(c => { topCells += rnpsTopCell(node, c, heatRange, isItem); });
 
     let h = `<div class="rnp-node lvl-${node.level} ${childrenOpen ? 'open' : ''}">
-      <div class="rnp-node-head${anomRowCls}">
+      <div class="rnp-node-head">
         <div class="rnp-node-name rnp-fixleft" data-key="${U.esc(node.key)}" style="padding-left:${indent + 3}px">${arrow}${nameHtml}</div>
         ${statusHtml}
         <span class="rnp-node-mbtn rnp-fixleft">${mBtn}</span>
@@ -5694,51 +5661,10 @@ const Views = (() => {
     return html;
   }
 
-  // Активен ли пользовательский фильтр (поиск/менеджер/статус/аномалии).
+  // Активен ли пользовательский фильтр (поиск/менеджер/статус).
   function rnpsFilterActive() {
     return !!(rnpSalesState.searchArt && rnpSalesState.searchArt.trim())
-      || !!rnpSalesState.mgrFilter || !!rnpSalesState.statusFilter
-      || (rnpSalesState.anomApplied && !!rnpSalesState.anomHits);
-  }
-
-  // Сработавшие правила аномалий для артикула (только когда фильтр применён).
-  function rnpsAnomFor(sa) {
-    if (!rnpSalesState.anomApplied || !rnpSalesState.anomHits) return [];
-    return rnpSalesState.anomHits[String(sa || '').toUpperCase()] || [];
-  }
-
-  // Полная метка правила из БД (для title бейджа/чекбокса).
-  function rnpsAnomRuleLabel(k) {
-    const def = (rnpSalesState.anomRulesDef || []).find(r => r.rule_key === k);
-    return (def && def.label) || ANOM_BADGE[k] || k;
-  }
-
-  // Короткая подпись порога правила для показа в списке (чтобы не открывать шестерёнку).
-  function rnpsAnomThreshText(r) {
-    if (!r) return '';
-    const t = (r.threshold != null) ? U.fmtNum(r.threshold, (Math.abs(r.threshold) < 10 && r.threshold % 1 !== 0) ? 1 : 0) : '';
-    const t2 = (r.threshold2 != null) ? U.fmtNum(r.threshold2, 0) : '';
-    switch (r.kind) {
-      case 'rel': {
-        // Относительное изменение в % между периодами.
-        if (r.direction === 'both' || r.direction === 'dev') return `±${t}%`;
-        if (r.direction === 'up')   return `>+${t}%`;
-        if (r.direction === 'down') return `−${t}%`;
-        return `${t}%`;
-      }
-      case 'abs':
-        if (r.direction === 'lt') return `< ${t}`;
-        if (r.direction === 'gt') return `> ${t}`;
-        return t;
-      case 'cover':
-        return `< ${t} дн`;
-      case 'forecast':
-        return `< ${t}% или > ${t2}%`;
-      case 'filter':
-        return '';
-      default:
-        return t;
-    }
+      || !!rnpSalesState.mgrFilter || !!rnpSalesState.statusFilter;
   }
 
   // Проходит ли лист (товар) текущий фильтр.
@@ -5748,315 +5674,7 @@ const Views = (() => {
     if (q && !String(li.seller_article || '').toLowerCase().includes(q)) return false;
     if (rnpSalesState.mgrFilter && (li.manager || '') !== rnpSalesState.mgrFilter) return false;
     if (rnpSalesState.statusFilter && stDisplay(li.status) !== rnpSalesState.statusFilter) return false;
-    // Фильтр аномалий: товар проходит, если сработало ХОТЯ БЫ ОДНО из выбранных правил (только после Применить).
-    if (rnpSalesState.anomApplied && rnpSalesState.anomHits) {
-      if (rnpsAnomFor(li.seller_article).length === 0) return false;
-    }
     return true;
-  }
-
-  // Загрузка аномалий с бэкенда.
-  // forApply=false — ПРЕВЬЮ: грузим счётчики по ВСЕМ правилам (без фильтрации дерева).
-  // forApply=true  — ПРИМЕНЕНИЕ: грузим hits по ВЫБРАННЫМ правилам (фильтр дерева).
-  async function rnpsLoadAnomalies(forApply) {
-    rnpSalesState.anomLoading = true;
-    try {
-      // Определения правил (один раз или после правки порогов).
-      if (!rnpSalesState.anomRulesDef) {
-        const rr = await API.anomalyRules();
-        rnpSalesState.anomRulesDef = (rr && rr.rules) || [];
-      }
-      const p = { marketplace: 'ozon', base: rnpSalesState.anomBase };
-      if (rnpSalesState.anomBase === 'custom') {
-        p.cur_from = rnpSalesState.anomCurFrom;
-        p.cur_to = rnpSalesState.anomCurTo;
-      }
-      // Фильтрация hits по выбранным правилам — только при применении.
-      if (forApply && rnpSalesState.anomSelected && rnpSalesState.anomSelected.length) {
-        p.rules = rnpSalesState.anomSelected.join(',');
-      }
-      if (API.cacheClear) API.cacheClear('/api/rnp_sales/anomalies');
-      const d = await API.anomalies(p);
-      // Счётчики и мета-данные периода обновляем всегда (для панели).
-      rnpSalesState.anomCounts = d.counts || {};
-      rnpSalesState.anomPeriods = d.periods || null;
-      rnpSalesState.anomRelAvailable = !!d.rel_available;
-      rnpSalesState.anomNote = d.note || '';
-      // hits применяем к дереву только при forApply.
-      if (forApply) {
-        rnpSalesState.anomHits = d.hits || {};
-        rnpSalesState.anomApplied = true;
-      }
-    } catch (e) {
-      if (forApply) rnpSalesState.anomHits = {};
-      rnpSalesState.anomNote = 'Ошибка загрузки аномалий: ' + (e && e.message || e);
-    } finally {
-      rnpSalesState.anomLoading = false;
-    }
-  }
-
-  // Группы правил для панели выбора (порядок и заголовки).
-  const ANOM_GROUPS = [
-    { kind: 'rel',      title: 'Динамика (сравнение периодов)' },
-    { kind: 'abs',      title: 'Абсолютные пороги' },
-    { kind: 'cover',    title: 'Покрытие остатками' },
-    { kind: 'turnover', title: 'Оборачиваемость (дни запаса)' },
-    { kind: 'forecast', title: 'Прогноз плана' },
-    { kind: 'filter',   title: 'Срезы' },
-  ];
-  // Виды правил, которые НЕ участвуют в фильтре аномалий (только окраска/пороги).
-  const ANOM_NONFILTER_KINDS = new Set(['turnover']);
-
-  // Счётчик найденных SKU (только когда фильтр применён).
-  function rnpsAnomTotal() {
-    if (!rnpSalesState.anomApplied || !rnpSalesState.anomHits) return 0;
-    return Object.keys(rnpSalesState.anomHits).length;
-  }
-
-  // Дата YYYY-MM-DD → ДД.ММ (коротко).
-  function _anomDM(s) {
-    if (!s) return '';
-    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return m ? `${m[3]}.${m[2]}` : String(s);
-  }
-
-  // Короткая понятная подпись периодов сравнения.
-  // Формат: «11.07–13.07 сравнивается с 08.07–10.07».
-  function rnpsAnomPeriodInfo() {
-    const p = rnpSalesState.anomPeriods;
-    if (!p || !p.cur) return '';
-    const cur = `${_anomDM(p.cur[0])}–${_anomDM(p.cur[1])}`;
-    if (rnpSalesState.anomRelAvailable && p.prev) {
-      return `${cur} ↔ предыд. ${_anomDM(p.prev[0])}–${_anomDM(p.prev[1])}`;
-    }
-    return cur;
-  }
-
-  // Рендер переключателя «Аномалии» + выпадающая панель (мультивыбор правил + период + пороги).
-  function rnpsRenderAnomHost() {
-    const host = document.getElementById('rnps-anom-host');
-    if (!host) return;
-    if (!App.can('rnp.anomalies.view')) { host.innerHTML = ''; return; }
-    const on = rnpSalesState.anomOn;
-    const applied = rnpSalesState.anomApplied;
-    const total = applied ? rnpsAnomTotal() : 0;
-    // Счётчик на кнопке — только когда фильтр применён.
-    const cnt = applied ? `<span class="rnp-anom-count">${total}</span>` : '';
-    const loading = rnpSalesState.anomLoading ? ' is-loading' : '';
-    const cls = (on ? ' on' : '') + (applied ? ' applied' : '');
-    host.innerHTML = `
-      <button class="btn-sm rnp-anom-toggle${cls}${loading}" id="rnps-anom-btn" type="button" title="Показать товары с отклонениями от нормы">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        Аномалии${cnt}
-      </button>
-      <div class="rnp-anom-panel" id="rnps-anom-panel" hidden></div>`;
-    rnpsBindAnomHost();
-  }
-
-  // Содержимое выпадающей панели (перестраивается при открытии).
-  function rnpsAnomPanelHtml() {
-    const defs = rnpSalesState.anomRulesDef || [];
-    const sel = new Set(rnpSalesState.anomSelected || []);
-    const relOff = !rnpSalesState.anomRelAvailable;
-    // Период сравнения.
-    const baseOpt = (v, lbl) => `<option value="${v}"${rnpSalesState.anomBase === v ? ' selected' : ''}>${lbl}</option>`;
-    let periodRow = `
-      <div class="rnp-anom-row">
-        <label class="rnp-anom-lbl">База сравнения</label>
-        <select class="input-sm" id="rnps-anom-base">
-          ${baseOpt('week', 'Неделя (ISO)')}
-          ${baseOpt('rolling7', 'Скользящие 7 дней')}
-          ${baseOpt('custom', 'Произвольный')}
-        </select>
-      </div>`;
-    if (rnpSalesState.anomBase === 'custom') {
-      periodRow += `
-        <div class="rnp-anom-row">
-          <input type="date" class="input-sm" id="rnps-anom-from" value="${U.esc(rnpSalesState.anomCurFrom || '')}">
-          <span class="rnp-anom-dash">—</span>
-          <input type="date" class="input-sm" id="rnps-anom-to" value="${U.esc(rnpSalesState.anomCurTo || '')}">
-        </div>`;
-    }
-    const info = rnpsAnomPeriodInfo();
-    const infoRow = info ? `<div class="rnp-anom-info">${U.esc(info)}</div>` : '';
-    const noteRow = rnpSalesState.anomNote ? `<div class="rnp-anom-note">${U.esc(rnpSalesState.anomNote)}</div>` : '';
-
-    // Группы правил с чекбоксами.
-    let groupsHtml = '';
-    ANOM_GROUPS.forEach(g => {
-      // Оборачиваемость — не фильтр аномалий, а окраска метрики; в список чекбоксов не попадает.
-      if (ANOM_NONFILTER_KINDS.has(g.kind)) return;
-      const items = defs.filter(r => r.kind === g.kind && r.enabled);
-      if (!items.length) return;
-      const relBlocked = (g.kind === 'rel' && relOff);
-      let rows = '';
-      items.forEach(r => {
-        const cnt = (rnpSalesState.anomCounts && rnpSalesState.anomCounts[r.rule_key] != null)
-          ? `<span class="rnp-anom-rc">${rnpSalesState.anomCounts[r.rule_key]}</span>` : '';
-        const checked = sel.has(r.rule_key) ? ' checked' : '';
-        const th = rnpsAnomThreshText(r);
-        const thHtml = th ? `<span class="rnp-anom-th">${U.esc(th)}</span>` : '';
-        // Убираем хвосты типа «<», «>», «(< / >)», «< дней» — порог теперь показан отдельно.
-        let lbl = String(r.label || r.rule_key)
-          .replace(/\s*[:：]?\s*покрытие\s*<\s*дней\s*$/i, ': покрытие')
-          .replace(/\s*\(<\s*\/\s*>\)\s*$/i, '')
-          .replace(/\s*[<>]\s*$/,'')
-          .trim();
-        rows += `
-          <label class="rnp-anom-item${relBlocked ? ' is-disabled' : ''}">
-            <input type="checkbox" class="rnp-anom-cb" value="${U.esc(r.rule_key)}"${checked}${relBlocked ? ' disabled' : ''}>
-            <span class="rnp-anom-item-lbl">${U.esc(lbl)}</span>${thHtml}${cnt}
-          </label>`;
-      });
-      const warn = relBlocked ? ' <span class="rnp-anom-gwarn">— нет предыдущего периода</span>' : '';
-      groupsHtml += `<div class="rnp-anom-group"><div class="rnp-anom-gtitle">${U.esc(g.title)}${warn}</div>${rows}</div>`;
-    });
-
-    return `
-      <div class="rnp-anom-phead">
-        <span>Правила отклонений</span>
-        <button class="rnp-anom-gear" id="rnps-anom-gear" type="button" title="Настройка порогов"${App.can('rnp.anomalies.rules') ? '' : ' hidden'}>
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-      </div>
-      ${periodRow}
-      ${infoRow}
-      ${noteRow}
-      <div class="rnp-anom-groups">${groupsHtml || '<div class="rnp-anom-empty">Нет включённых правил</div>'}</div>
-      <div class="rnp-anom-actions">
-        <button class="btn-sm" id="rnps-anom-all" type="button">Все</button>
-        <button class="btn-sm" id="rnps-anom-none" type="button">Сбросить</button>
-        <span class="rnp-anom-actions-sp"></span>
-        <button class="btn-sm primary" id="rnps-anom-apply" type="button">Применить</button>
-      </div>`;
-  }
-
-  // Применить аномалии: загрузить hits по выбранным правилам, применить фильтр, СВЕРНУТЬ панель.
-  async function rnpsAnomApply() {
-    // Нужно выбрать хотя бы одно правило.
-    if (!rnpSalesState.anomSelected || !rnpSalesState.anomSelected.length) {
-      if (App && App.toast) App.toast('Выберите хотя бы одно правило отклонения', 'err');
-      return;
-    }
-    rnpSalesState.filterExpandSig = '';
-    rnpsRenderAnomHost();       // показать состояние «загрузка»
-    await rnpsLoadAnomalies(true);   // forApply=true → hits + anomApplied=true
-    closePanel();               // сворачиваем панель после применения
-    rnpsRenderAnomHost();       // обновить счётчик на кнопке
-    rnpsRenderMatrix();
-  }
-
-  // Открыть/закрыть панель — вынесено наружу для повторного вызова.
-  let _anomPanelDocHandler = null;
-  function openPanel() {
-    const panel = document.getElementById('rnps-anom-panel');
-    if (!panel) return;
-    panel.innerHTML = rnpsAnomPanelHtml();
-    panel.hidden = false;
-    rnpsBindAnomPanel();
-    // Закрытие по клику вне панели.
-    if (_anomPanelDocHandler) document.removeEventListener('click', _anomPanelDocHandler, true);
-    _anomPanelDocHandler = (e) => {
-      const host = document.getElementById('rnps-anom-host');
-      if (host && !host.contains(e.target)) closePanel();
-    };
-    setTimeout(() => document.addEventListener('click', _anomPanelDocHandler, true), 0);
-  }
-  function closePanel() {
-    const panel = document.getElementById('rnps-anom-panel');
-    if (panel) panel.hidden = true;
-    if (_anomPanelDocHandler) { document.removeEventListener('click', _anomPanelDocHandler, true); _anomPanelDocHandler = null; }
-  }
-
-  // Привязка кнопки-переключателя и открытия панели.
-  function rnpsBindAnomHost() {
-    const btn = document.getElementById('rnps-anom-btn');
-    if (!btn) return;
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!rnpSalesState.anomOn) {
-        // ВКЛЮЧАЕМ режим: только открываем панель и грузим превью-счётчики.
-        // Фильтр НЕ применяется — только после выбора правил и кнопки «Применить».
-        rnpSalesState.anomOn = true;
-        rnpsRenderAnomHost();
-        await rnpsLoadAnomalies(false);   // превью: счётчики по всем правилам
-        rnpsRenderAnomHost();
-        openPanel();
-      } else {
-        // ВЫКЛЮЧАЕМ режим полностью: снимаем фильтр и закрываем панель.
-        rnpSalesState.anomOn = false;
-        rnpSalesState.anomApplied = false;
-        closePanel();
-        rnpsRenderAnomHost();
-        rnpsRenderMatrix();
-      }
-    });
-  }
-
-  // Привязка элементов внутри панели.
-  function rnpsBindAnomPanel() {
-    const panel = document.getElementById('rnps-anom-panel');
-    if (!panel) return;
-    panel.addEventListener('click', (e) => e.stopPropagation());
-    // База сравнения.
-    const baseEl = panel.querySelector('#rnps-anom-base');
-    if (baseEl) baseEl.addEventListener('change', async () => {
-      rnpSalesState.anomBase = baseEl.value;
-      // Для готовых баз (не custom) сразу обновляем счётчики превью.
-      if (rnpSalesState.anomBase !== 'custom') { await rnpsLoadAnomalies(false); }
-      openPanel();  // перерисовать (показать/скрыть даты, обновить счётчики)
-    });
-    const fromEl = panel.querySelector('#rnps-anom-from');
-    if (fromEl) fromEl.addEventListener('change', async () => {
-      rnpSalesState.anomCurFrom = fromEl.value;
-      if (rnpSalesState.anomCurFrom && rnpSalesState.anomCurTo) { await rnpsLoadAnomalies(false); openPanel(); }
-    });
-    const toEl = panel.querySelector('#rnps-anom-to');
-    if (toEl) toEl.addEventListener('change', async () => {
-      rnpSalesState.anomCurTo = toEl.value;
-      if (rnpSalesState.anomCurFrom && rnpSalesState.anomCurTo) { await rnpsLoadAnomalies(false); openPanel(); }
-    });
-    // Чекбоксы правил.
-    panel.querySelectorAll('.rnp-anom-cb').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const set = new Set(rnpSalesState.anomSelected || []);
-        if (cb.checked) set.add(cb.value); else set.delete(cb.value);
-        rnpSalesState.anomSelected = Array.from(set);
-      });
-    });
-    // Все / Сбросить.
-    const allEl = panel.querySelector('#rnps-anom-all');
-    if (allEl) allEl.addEventListener('click', () => {
-      const defs = (rnpSalesState.anomRulesDef || []).filter(r => r.enabled);
-      const relOff = !rnpSalesState.anomRelAvailable;
-      rnpSalesState.anomSelected = defs
-        .filter(r => !(r.kind === 'rel' && relOff))
-        .map(r => r.rule_key);
-      openPanel();
-    });
-    const noneEl = panel.querySelector('#rnps-anom-none');
-    if (noneEl) noneEl.addEventListener('click', () => { rnpSalesState.anomSelected = []; openPanel(); });
-    // Применить.
-    const applyEl = panel.querySelector('#rnps-anom-apply');
-    if (applyEl) applyEl.addEventListener('click', () => { rnpsAnomApply(); });
-    // Шестерёнка — настройка порогов.
-    const gearEl = panel.querySelector('#rnps-anom-gear');
-    if (gearEl) gearEl.addEventListener('click', (e) => { e.stopPropagation(); rnpsOpenThresholds(); });
-  }
-
-  // Формат порога для поля ввода (число как есть).
-  function _thNum(v) { return (v === null || v === undefined) ? '' : String(v); }
-
-  // Подсказка по единице порога в зависимости от вида правила.
-  function _thHint(r) {
-    if (r.kind === 'rel') return '%';
-    if (r.kind === 'cover') return 'дн.';
-    if (r.kind === 'turnover') return 'дн. запаса';
-    if (r.kind === 'forecast') return '% от плана';
-    if (r.rule_key === 'rating') return 'баллы';
-    if (r.rule_key === 'reviews') return 'шт.';
-    if (r.rule_key === 'price_index_pi') return 'Pi';
-    return '';
   }
 
   // Popup юнит-экономики товара (клик по иконке-монеткам в РНП заказы).
@@ -6139,122 +5757,6 @@ const Views = (() => {
     if (!m) return pt;
     const [, d1, mo1, d2, mo2] = m;
     return (mo1 === mo2) ? `${d1}–${d2}.${mo1}` : `${d1}.${mo1}–${d2}.${mo2}`;
-  }
-
-  // Модальное окно настройки порогов (шестерёнка). Пороги общие для команды (БД).
-  function rnpsOpenThresholds() {
-    const defs = (rnpSalesState.anomRulesDef || []).filter(r => r.enabled);
-    // Перекрытие.
-    let ov = document.getElementById('rnps-th-overlay');
-    if (ov) ov.remove();
-    ov = document.createElement('div');
-    ov.id = 'rnps-th-overlay';
-    ov.className = 'rnp-th-overlay';
-
-    let rows = '';
-    ANOM_GROUPS.forEach(g => {
-      const items = defs.filter(r => r.kind === g.kind);
-      if (!items.length) return;
-      rows += `<div class="rnp-th-gtitle">${U.esc(g.title)}</div>`;
-      items.forEach(r => {
-        const hint = _thHint(r);
-        // forecast и turnover — два порога.
-        let inputs;
-        if (r.kind === 'forecast' || r.kind === 'turnover') {
-          // Подписи под вид правила: forecast — невып./перевып.; turnover — недост./излишек.
-          const s1 = (r.kind === 'turnover') ? 'недост. &lt;' : 'невып. &lt;';
-          const s2 = (r.kind === 'turnover') ? 'излишек &gt;' : 'перевып. &gt;';
-          inputs = `
-            <div class="rnp-th-inp2">
-              <span class="rnp-th-sub">${s1}</span>
-              <input type="number" step="any" class="input-sm rnp-th-inp" data-rk="${U.esc(r.rule_key)}" data-f="threshold" value="${_thNum(r.threshold)}">
-              <span class="rnp-th-sub">${s2}</span>
-              <input type="number" step="any" class="input-sm rnp-th-inp" data-rk="${U.esc(r.rule_key)}" data-f="threshold2" value="${_thNum(r.threshold2)}">
-              <span class="rnp-th-hint">${U.esc(hint)}</span>
-            </div>`;
-        } else {
-          inputs = `
-            <div class="rnp-th-inp2">
-              <input type="number" step="any" class="input-sm rnp-th-inp" data-rk="${U.esc(r.rule_key)}" data-f="threshold" value="${_thNum(r.threshold)}">
-              <span class="rnp-th-hint">${U.esc(hint)}</span>
-            </div>`;
-        }
-        rows += `
-          <div class="rnp-th-row">
-            <label class="rnp-th-enable" title="Включить/выключить правило">
-              <input type="checkbox" class="rnp-th-en" data-rk="${U.esc(r.rule_key)}"${r.enabled ? ' checked' : ''}>
-            </label>
-            <span class="rnp-th-lbl">${U.esc(r.label || r.rule_key)}</span>
-            ${inputs}
-          </div>`;
-      });
-    });
-
-    ov.innerHTML = `
-      <div class="rnp-th-modal">
-        <div class="rnp-th-head">
-          <span>Настройка порогов аномалий</span>
-          <button class="rnp-th-x" id="rnps-th-x" type="button" title="Закрыть">✕</button>
-        </div>
-        <div class="rnp-th-note">Пороги общие для всей команды. Относительные — в %, покрытие — в днях.</div>
-        <div class="rnp-th-body">${rows}</div>
-        <div class="rnp-th-foot">
-          <button class="btn-sm" id="rnps-th-cancel" type="button">Отмена</button>
-          <button class="btn-sm primary" id="rnps-th-save" type="button">Сохранить</button>
-        </div>
-      </div>`;
-    document.body.appendChild(ov);
-
-    const close = () => { ov.remove(); };
-    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
-    ov.querySelector('#rnps-th-x').addEventListener('click', close);
-    ov.querySelector('#rnps-th-cancel').addEventListener('click', close);
-    ov.querySelector('#rnps-th-save').addEventListener('click', async () => {
-      // Собрать изменённые значения по rule_key.
-      const byKey = {};
-      ov.querySelectorAll('.rnp-th-inp').forEach(inp => {
-        const rk = inp.getAttribute('data-rk'); const f = inp.getAttribute('data-f');
-        if (!byKey[rk]) byKey[rk] = { rule_key: rk };
-        const v = inp.value.trim();
-        byKey[rk][f] = (v === '') ? null : Number(v);
-      });
-      ov.querySelectorAll('.rnp-th-en').forEach(cb => {
-        const rk = cb.getAttribute('data-rk');
-        if (!byKey[rk]) byKey[rk] = { rule_key: rk };
-        byKey[rk].enabled = cb.checked;
-      });
-      const rules = Object.values(byKey);
-      const saveBtn = ov.querySelector('#rnps-th-save');
-      saveBtn.disabled = true; saveBtn.textContent = 'Сохранение…';
-      try {
-        await API.anomalyRulesUpdate(rules);
-        if (API.cacheClear) API.cacheClear('/api/rnp_sales/anomaly_rules');
-        rnpSalesState.anomRulesDef = null;  // перечитать при след. загрузке
-        App.toast('Пороги сохранены', 'ok');
-        close();
-        // Оборачиваемость: пороги влияют на окраску бейджа — обновим локально и перерисуем.
-        const trn = byKey['turnover_days'];
-        if (trn && rnpSalesState.data && rnpSalesState.data.turnover_cfg) {
-          const cfg = rnpSalesState.data.turnover_cfg;
-          if (trn.threshold != null) cfg.red = Number(trn.threshold);
-          if (trn.threshold2 != null) cfg.blue = Number(trn.threshold2);
-          if (trn.enabled != null) cfg.enabled = !!trn.enabled;
-          rnpsRenderMatrix();
-        }
-        // Пересчёт после изменения порогов.
-        if (rnpSalesState.anomApplied) {
-          // Фильтр уже применён — пересчитать и перерисовать дерево.
-          await rnpsAnomApply();
-        } else if (rnpSalesState.anomOn) {
-          // Режим открыт (превью) — обновить счётчики в панели.
-          await rnpsLoadAnomalies(false);
-          if (document.getElementById('rnps-anom-panel') && !document.getElementById('rnps-anom-panel').hidden) openPanel();
-        }
-      } catch (err) {
-        App.toast('Ошибка сохранения: ' + (err && err.message || err), 'err');
-        saveBtn.disabled = false; saveBtn.textContent = 'Сохранить';
-      }
-    });
   }
 
   // Отфильтрованная копия дерева: группа остаётся, если есть подходящий лист.
@@ -7706,7 +7208,6 @@ const Views = (() => {
             <select class="input-sm" id="rnps-status">${stOpts}</select>
             <button class="btn-sm" id="rnps-expand">Развернуть всё</button>
             <button class="btn-sm" id="rnps-collapse">Свернуть всё</button>
-            <div class="rnp-anom" id="rnps-anom-host"></div>
             <div class="rnp-period" id="rnps-period">
               <button class="rnp-period-field" id="rnps-period-field" type="button" title="Выбрать период (показываются дни в выбранном диапазоне)">
                 <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
@@ -7781,9 +7282,6 @@ const Views = (() => {
       if (rootKey) rnpSalesState.expanded[rootKey] = true;
       rnpsRenderMatrix();
     });
-
-    // Переключатель «Аномалии» (мультивыбор правил + период + пороги).
-    rnpsRenderAnomHost();
 
     rnpsRenderMatrix();
     // Восстанавливаем вертикальную прокрутку окна на место, где были до ухода.

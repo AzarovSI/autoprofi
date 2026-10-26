@@ -1619,139 +1619,12 @@ table.tbl.pj-tbl tr.pj-hist td { background:var(--bg-elev2); white-space:normal;
 .pj-ev { font-size:12px; line-height:1.6; color:var(--text); }
 .pj-ev span { color:var(--text-mute); margin-right:6px; }
 
-/* ======================================================================
-   ФИЛЬТР АНОМАЛИЙ (РНП заказы Ozon) — светлая тема
-   ---------------------------------------------------------------------- */
-.rnp-anom { position:relative; display:inline-flex; }
-
-/* Кнопка-переключатель «Аномалии» */
-.rnp-anom-toggle { display:inline-flex; align-items:center; gap:6px; }
-.rnp-anom-toggle svg { flex:0 0 auto; }
-/* Режим открыт (панель видна), но фильтр ещё не применён — мягкая Ozon-обводка */
-.rnp-anom-toggle.on {
-  background: var(--ozon-bg); border-color: var(--ozon); color: var(--ozon-soft);
-}
-.rnp-anom-toggle.on:hover { background: var(--ozon-bg); border-color: var(--ozon-soft); }
-/* Фильтр ПРИМЕНЁН — насыщенный Ozon-синий */
-.rnp-anom-toggle.applied {
-  background: var(--ozon); border-color: var(--ozon); color:#fff;
-}
-.rnp-anom-toggle.applied:hover { background: var(--ozon-soft); border-color: var(--ozon-soft); }
-.rnp-anom-toggle.is-loading { opacity:.75; cursor:progress; }
-.rnp-anom-count {
-  display:inline-flex; align-items:center; justify-content:center;
-  min-width:18px; height:18px; padding:0 5px; border-radius:9px;
-  background:#fff; color:var(--ozon-soft); font-size:11px; font-weight:700; line-height:1;
-}
-
-/* Выпадающая панель выбора правил */
-.rnp-anom-panel {
-  position:absolute; top:calc(100% + 8px); left:0; z-index:60;
-  width:340px; max-height:70vh; overflow:auto;
-  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius-sm);
-  box-shadow:var(--shadow); padding:12px;
-}
-.rnp-anom-phead {
-  display:flex; align-items:center; justify-content:space-between;
-  font-weight:700; font-size:13px; color:var(--text); margin-bottom:10px;
-}
-.rnp-anom-gear {
-  display:inline-flex; align-items:center; justify-content:center;
-  width:26px; height:26px; border:1px solid var(--border); border-radius:7px;
-  background:var(--bg-elev); color:var(--text-dim); cursor:pointer;
-}
-.rnp-anom-gear:hover { background:var(--bg-hover); color:var(--text); border-color:var(--text-mute); }
-
-.rnp-anom-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-.rnp-anom-lbl { font-size:12px; color:var(--text-dim); flex:0 0 auto; }
-.rnp-anom-row .input-sm { flex:1 1 auto; }
-.rnp-anom-dash { color:var(--text-mute); }
-.rnp-anom-info { font-size:11px; color:var(--text-mute); margin:2px 0 8px; }
-.rnp-anom-note {
-  font-size:11px; color:var(--warn); background:rgba(217,138,0,.10);
-  border-radius:7px; padding:6px 8px; margin-bottom:8px;
-}
-
-.rnp-anom-groups { border-top:1px solid var(--border-soft); padding-top:8px; }
-.rnp-anom-group { margin-bottom:10px; }
-.rnp-anom-gtitle {
-  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.02em;
-  color:var(--text-mute); margin-bottom:5px;
-}
-.rnp-anom-gwarn { font-weight:500; text-transform:none; letter-spacing:0; color:var(--warn); }
-.rnp-anom-item {
-  display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px;
-  cursor:pointer; font-size:13px; color:var(--text);
-}
-.rnp-anom-item:hover { background:var(--bg-hover); }
-.rnp-anom-item.is-disabled { opacity:.45; cursor:not-allowed; }
-.rnp-anom-item input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; accent-color:var(--ozon); }
-.rnp-anom-item-lbl { flex:1 1 auto; }
-/* Порог правила — виден прямо в списке, без открытия шестерёнки */
-.rnp-anom-th {
-  flex:0 0 auto; font-size:11px; font-weight:600; color:var(--ozon-soft);
-  background:var(--ozon-bg); border:1px solid var(--ozon-line); border-radius:6px;
-  padding:0 6px; line-height:16px; white-space:nowrap;
-}
-.rnp-anom-rc {
-  flex:0 0 auto; font-size:11px; font-weight:700; color:var(--text-dim);
-  background:var(--bg-elev2); border-radius:8px; padding:1px 7px; min-width:16px; text-align:center;
-}
-.rnp-anom-empty { font-size:12px; color:var(--text-mute); padding:8px 0; }
-
-.rnp-anom-actions {
-  display:flex; align-items:center; gap:8px; margin-top:10px;
-  border-top:1px solid var(--border-soft); padding-top:10px;
-}
-.rnp-anom-actions-sp { flex:1 1 auto; }
-
-/* Подсветка строки товара с отклонениями (вместо бейджей, которые перекрывали артикул) */
-.rnp-node-head.rnp-anom-hit {
-  background: var(--ozon-bg);
-  box-shadow: inset 3px 0 0 var(--ozon);
-}
-/* Компактный индикатор числа отклонений (не переносится, не скрывает артикул) */
-.rnp-anom-mark {
-  display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
-  min-width:16px; height:16px; padding:0 5px; margin-left:6px; vertical-align:middle;
-  border-radius:8px; font-size:10px; font-weight:700; line-height:1; white-space:nowrap;
-  background: var(--ozon); color:#fff; cursor:default;
-}
-
-/* Модальное окно настройки порогов */
-.rnp-th-overlay {
-  position:fixed; inset:0; z-index:200; background:rgba(20,30,48,.34);
-  display:flex; align-items:center; justify-content:center; padding:24px;
-}
-.rnp-th-modal {
-  width:520px; max-width:100%; max-height:82vh; display:flex; flex-direction:column;
-  background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow); overflow:hidden;
-}
-.rnp-th-head {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:14px 18px; border-bottom:1px solid var(--border); font-weight:700; font-size:15px;
-}
+/* Кнопка закрытия ✕ (popup юнит-экономики товара в РНП заказы) */
 .rnp-th-x {
   border:none; background:none; color:var(--text-mute); font-size:16px; cursor:pointer;
   width:28px; height:28px; border-radius:6px;
 }
 .rnp-th-x:hover { background:var(--bg-hover); color:var(--text); }
-.rnp-th-note { padding:10px 18px 0; font-size:12px; color:var(--text-dim); }
-.rnp-th-body { padding:12px 18px; overflow:auto; }
-.rnp-th-gtitle {
-  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.02em;
-  color:var(--text-mute); margin:12px 0 6px;
-}
-.rnp-th-gtitle:first-child { margin-top:0; }
-.rnp-th-row { display:flex; align-items:center; gap:10px; padding:5px 0; }
-.rnp-th-enable { flex:0 0 auto; display:inline-flex; }
-.rnp-th-enable input { width:15px; height:15px; accent-color:var(--warn); cursor:pointer; }
-.rnp-th-lbl { flex:1 1 auto; font-size:13px; color:var(--text); }
-.rnp-th-inp2 { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; }
-.rnp-th-inp { width:78px; text-align:right; }
-.rnp-th-sub { font-size:11px; color:var(--text-mute); }
-.rnp-th-hint { font-size:11px; color:var(--text-mute); min-width:24px; }
 
 /* === Popup юнит-экономики товара (из РНП заказы) === */
 .rnp-ue-overlay {
@@ -1792,10 +1665,6 @@ table.tbl.pj-tbl tr.pj-hist td { background:var(--bg-elev2); white-space:normal;
 .rnp-ue-r-promo .rnp-ue-mname, .rnp-ue-r-promo .rnp-ue-v { color:#9900ff; }
 .rnp-ue-r-holds .rnp-ue-mname, .rnp-ue-r-holds .rnp-ue-v { color:var(--bad); }
 .rnp-ue-foot { margin-top:10px; font-size:11px; color:var(--text-mute); }
-.rnp-th-foot {
-  display:flex; align-items:center; justify-content:flex-end; gap:10px;
-  padding:12px 18px; border-top:1px solid var(--border);
-}
 
 /* ============================================================
    Склады · Wildberries · подтаб «По складам» (V5)

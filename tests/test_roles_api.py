@@ -44,7 +44,8 @@ class RolesApiTest(unittest.TestCase):
         self.assertEqual(len(data["functions"]), len(permissions.FUNCTIONS))
         self.assertEqual(len(data["roles"]), 8)
         self.assertEqual(len(self.role(data, "Администратор")["permissions"]), len(permissions.FUNCTIONS))
-        self.assertEqual(len(self.role(data, "РОП")["permissions"]), 92)
+        # 92 по матрице минус «Аномалии» (№14–15, permissions.REMOVED) — их список не показывает.
+        self.assertEqual(len(self.role(data, "РОП")["permissions"]), 90)
         self.assertEqual([u["email"] for u in self.role(data, "Маркетинг")["users"]], ["mkt@local.test"])
         self.assertTrue(self.call(101, "GET", "/api/roles").json()["can_edit"])
 

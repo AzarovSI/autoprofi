@@ -218,13 +218,6 @@ const API = (() => {
     rnpSalesTree: (p) => cget('/api/rnp_sales/tree' + qs(p)),
     // Лёгкая юнит-экономика ОДНОГО артикула за N последних недель (popup в РНП заказы).
     rnpProductUe: (p) => cget('/api/rnp/product_ue' + qs(p)),
-    // Аномалии РНП заказы: список правил (пороги) и расчёт сработавших по SKU.
-    anomalyRules: () => cget('/api/rnp_sales/anomaly_rules'),
-    anomalyRulesUpdate: (rules) => request('/api/rnp_sales/anomaly_rules', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules: rules }),
-    }),
-    anomalies: (p) => cget('/api/rnp_sales/anomalies' + qs(p)),
     // Загрузка дневного API-файла Ozon (лист «Данные»)
     uploadOzonDaily: (file) => {
       const fd = new FormData();

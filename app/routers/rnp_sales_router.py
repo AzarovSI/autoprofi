@@ -926,21 +926,9 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
     undist_list = [{"seller_article": a, "item_name": u["item_name"], "orders_rub": round(u["orders_rub"], 2)}
                    for a, u in sorted(undistributed.items())]
 
-    # Пороги светофора оборачиваемости из anomaly_rules (настраиваются в шестерёнке).
-    # red — недостаточно (< threshold), blue — излишек (> threshold2), между — зелёный.
+    # Пороги светофора оборачиваемости, дни запаса: red — недостаточно (< 20), blue — излишек (> 60),
+    # между — зелёный. До 26.10.2026 настраивались в шестерёнке «Аномалий» (таблица anomaly_rules).
     turn_red, turn_blue, turn_on = 20.0, 60.0, True
-    try:
-        tr = db.query_one(
-            "SELECT threshold, threshold2, enabled FROM anomaly_rules "
-            "WHERE rule_key='turnover_days'")
-        if tr:
-            if tr.get("threshold") is not None:
-                turn_red = float(tr["threshold"])
-            if tr.get("threshold2") is not None:
-                turn_blue = float(tr["threshold2"])
-            turn_on = bool(tr.get("enabled"))
-    except Exception:
-        pass
 
     return {
         "marketplace": mp,

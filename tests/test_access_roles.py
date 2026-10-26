@@ -46,12 +46,15 @@ def reset_roles():
 class CatalogTest(unittest.TestCase):
     def test_catalog_matches_xlsx(self):
         _, rows, _ = matrix()
-        # Первые 99 функций — матрица xlsx от 12.10.2026; новые идут после неё.
+        # Первые 99 функций — матрица xlsx от 12.10.2026 без убранных (REMOVED); новые идут после неё.
         self.assertEqual(len(rows), 99)
         self.assertEqual(len(permissions.CODES), len(permissions.FUNCTIONS))
-        self.assertEqual([f[0] for f in permissions.FUNCTIONS],
-                         list(range(1, len(permissions.FUNCTIONS) + 1)))
-        for f, r in zip(permissions.FUNCTIONS, rows):
+        nums = [f[0] for f in permissions.FUNCTIONS]
+        self.assertEqual(nums, sorted(nums))
+        self.assertEqual(sorted(nums + list(permissions.REMOVED)),
+                         list(range(1, len(nums) + len(permissions.REMOVED) + 1)))
+        self.assertFalse(set(permissions.REMOVED.values()) & permissions.CODES)
+        for f, r in zip(permissions.FUNCTIONS, [r for r in rows if r[0] not in permissions.REMOVED]):
             with self.subTest(n=f[0]):
                 self.assertEqual((f[0], *f[2:]), tuple(r[:6]))
 
@@ -68,6 +71,7 @@ class MigrationTest(unittest.TestCase):
     def test_roles_and_permissions_match_xlsx(self):
         roles, rows, mps = matrix()
         saved = db.query_all("SELECT id, name, is_admin, marketplaces FROM app_roles ORDER BY id")
+        code_of = {f[0]: f[1] for f in permissions.FUNCTIONS} | permissions.REMOVED
         self.assertEqual([r["name"] for r in saved], roles)
         self.assertEqual([r["is_admin"] for r in saved], [True] + [False] * 7)
         self.assertEqual([r["marketplaces"] for r in saved], mps)
@@ -76,9 +80,9 @@ class MigrationTest(unittest.TestCase):
                 got = {r["permission"] for r in db.query_all(
                     "SELECT permission FROM app_role_permissions WHERE role_id=%s", (role["id"],))}
                 expected = set() if role["is_admin"] else {
-                    f[1] for f, r in zip(permissions.FUNCTIONS, rows) if r[7 + i] == "✓"}
+                    code_of[r[0]] for r in rows if r[7 + i] == "✓"}
                 self.assertEqual(got, expected)
-                self.assertLessEqual(got, permissions.CODES)
+                self.assertLessEqual(got, permissions.CODES | set(permissions.REMOVED.values()))
 
     def test_owner_gets_admin_role_others_untouched(self):
         reset_roles()
