@@ -2483,6 +2483,19 @@ window.ABCDash = (function () {
 
     <div class="card">
       <div class="card-head">
+        <h3>Год к году — к оплате на р/с</h3>
+        <p class="muted">Выплата площадки на расчётный счёт за <b>весь период</b>, с общими удержаниями. Сопоставимая сумма — только по месяцам, активным в обоих годах (по выручке). Яндекса нет: его выплату ещё не сверяли.</p>
+      </div>
+      <div class="yoy-grid yoy-grid-payout yoy-grid-4">
+        <div class="yoy-card" data-mp="oz"><div class="yoy-head">ОЗОН</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+        <div class="yoy-card" data-mp="vb"><div class="yoy-head">Wildberries</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+        <div class="yoy-card" data-mp="ya"><div class="yoy-head">Яндекс</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
         <h3>Год к году — прибыль</h3>
         <p class="muted">То же сравнение за <b>весь период</b>, но по прибыли. Сопоставимая прибыль считается только по тем месяцам, которые были активны в обоих годах (по выручке).</p>
       </div>
@@ -2513,19 +2526,6 @@ window.ABCDash = (function () {
         <p class="muted">Отношение прибыли к «К оплате на р/с» за <b>весь период</b> — какая часть выплаты площадки остаётся прибылью. Сопоставимая маржа — по суммам в месяцах, активных в обоих годах; дельта — в процентных пунктах (pp). Яндекса нет: его выплату ещё не сверяли.</p>
       </div>
       <div class="yoy-grid yoy-grid-net-margin yoy-grid-4">
-        <div class="yoy-card" data-mp="oz"><div class="yoy-head">ОЗОН</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-        <div class="yoy-card" data-mp="vb"><div class="yoy-head">Wildberries</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-        <div class="yoy-card" data-mp="ya"><div class="yoy-head">Яндекс</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <h3>Год к году — к оплате на р/с</h3>
-        <p class="muted">Выплата площадки на расчётный счёт за <b>весь период</b>, с общими удержаниями. Сопоставимая сумма — только по месяцам, активным в обоих годах (по выручке). Яндекса нет: его выплату ещё не сверяли.</p>
-      </div>
-      <div class="yoy-grid yoy-grid-payout yoy-grid-4">
         <div class="yoy-card" data-mp="oz"><div class="yoy-head">ОЗОН</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="vb"><div class="yoy-head">Wildberries</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="ya"><div class="yoy-head">Яндекс</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
