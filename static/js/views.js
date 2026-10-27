@@ -11287,7 +11287,47 @@ const Views = (() => {
     });
   }
 
-  Object.assign(api, { rnp_sales: rnpSales, rnp, dynamics, compare, categories, skus, catalog, upload, users, abc, warehouses, prices });
+  // ------------------------------------------------------------------
+  // Раздел «Реклама» (27.10.2026, в разработке): вкладки Wildberries, OZON
+  // и справа «Загрузка данных» — как в юнит-экономике. Пока только надпись.
+  // ------------------------------------------------------------------
+  const adsState = { mp: 'wb' };
+
+  // Вкладки, доступные роли (функция вкладки и площадка роли).
+  function adsTabs() {
+    const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon']]
+      .filter(([id]) => App.canTab('ads', id));
+    if (App.can('ads.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
+    return tabs;
+  }
+
+  function ads(root, ctl) {
+    ctl.innerHTML = '';
+    ctl.className = 'ctl';
+    const tabs = adsTabs();
+    if (!tabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!tabs.some(([id]) => id === adsState.mp)) adsState.mp = tabs[0][0];
+    const cls = tabs.find(([id]) => id === adsState.mp)[2];
+    root.innerHTML = `
+      <div class="card rnp-card mp-${cls}">
+        <div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div>
+        <div class="empty">Раздел в разработке</div>
+      </div>`;
+    const host = root.querySelector('#ads-subtabs');
+    tabs.forEach(([id, label, c, pushRight]) => {
+      const b = document.createElement('button');
+      b.className = 'subtab ' + c + (adsState.mp === id ? ' active' : '') + (pushRight ? ' subtab-right' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (id === adsState.mp) return;
+        adsState.mp = id;
+        App.renderView();
+      });
+      host.appendChild(b);
+    });
+  }
+
+  Object.assign(api, { rnp_sales: rnpSales, rnp, ads, dynamics, compare, categories, skus, catalog, upload, users, abc, warehouses, prices });
 
   // Сохранить вертикальную прокрутку окна для активного РНП-отчёта перед
   // уходом на другой раздел (вызывается из App.setView). Снимок раскрытия

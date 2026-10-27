@@ -8,15 +8,15 @@ const App = (() => {
   };
 
   const titles = {
-    rnp_sales: 'РНП', rnp: 'Юнит-экономика', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
+    rnp_sales: 'РНП', rnp: 'Юнит-экономика', ads: 'Реклама', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
   };
 
   // Раздел → функция «Открыть раздел» (коды — app/permissions.py, docs/access_roles.md).
   const VIEW_RIGHTS = {
-    rnp_sales: 'rnp.open', rnp: 'unit.open', prices: 'prices.open', skus: 'sales.open',
+    rnp_sales: 'rnp.open', rnp: 'unit.open', ads: 'ads.open', prices: 'prices.open', skus: 'sales.open',
     abc: 'abc.open', warehouses: 'stock.open', catalog: 'catalog.open', users: 'users.open',
   };
-  const MENU_ORDER = ['rnp_sales', 'rnp', 'prices', 'skus', 'abc', 'warehouses', 'catalog', 'users'];
+  const MENU_ORDER = ['rnp_sales', 'rnp', 'ads', 'prices', 'skus', 'abc', 'warehouses', 'catalog', 'users'];
 
   // --- Разделы «только для владельца» (временно скрыты от всех, кроме меня) ---
   // Пока раздел «в разработке», он виден и доступен ТОЛЬКО этим e-mail'ам.
@@ -53,7 +53,7 @@ const App = (() => {
     return !!(u && (u.is_admin || (u.marketplaces || []).includes(mpName(mp))));
   }
   // Вкладка площадки раздела: функция вкладки и (кроме РНП и ABC) площадка роли.
-  // section: 'rnp' | 'unit' | 'sales' | 'abc' | 'stock'.
+  // section: 'rnp' | 'unit' | 'ads' | 'sales' | 'abc' | 'stock'.
   function canTab(section, mp) {
     const name = mpName(mp);
     if (!can(section + '.tab.' + MP_SUFFIX[name])) return false;

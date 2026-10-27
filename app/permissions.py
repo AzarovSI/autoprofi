@@ -12,6 +12,7 @@ from pathlib import Path
 from . import db
 
 MIGRATION = "2026_10_12_access_roles"
+ADS_MIGRATION = "2026_10_27_ads_section"
 
 MARKETPLACES = ("Wildberries", "Ozon", "Yandex")
 
@@ -250,6 +251,16 @@ FUNCTIONS = (
      'То же для акций, открытых другими пользователями'),
     (115, 'rnp.promos.journal', 'РНП (заказы по дням)', 'Журнал акций', 'Вкладка «Журнал акций»', 'Просмотр',
      'Все акции всех площадок с историей изменений и сводкой'),
+    # №116–119 — раздел «Реклама» (27.10.2026, пока в разработке); миграция ADS_MIGRATION
+    # выдаёт их роли «Маркетинг», остальным — только администратор.
+    (116, 'ads.open', 'Реклама', '—', 'Открыть раздел', 'Просмотр',
+     'Раздел в меню (в разработке)'),
+    (117, 'ads.tab.wb', 'Реклама', 'Wildberries', 'Вкладка Wildberries', 'Просмотр',
+     'Реклама WB (в разработке)'),
+    (118, 'ads.tab.ozon', 'Реклама', 'OZON', 'Вкладка OZON', 'Просмотр',
+     'Реклама Ozon (в разработке)'),
+    (119, 'ads.uploads.open', 'Реклама', 'Загрузка данных', 'Открыть вкладку «Загрузка данных»', 'Просмотр',
+     'Загрузка отчётов рекламы (в разработке)'),
 )
 
 CODES = frozenset(f[1] for f in FUNCTIONS)
@@ -294,3 +305,14 @@ def migrate():
                       WHERE role_id IS NULL AND lower(email) = ANY(%s)""",
                    ([e.lower() for e in OWNER_EMAILS],))
         tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
+
+
+def migrate_ads():
+    """Права раздела «Реклама» (№116–119) роли «Маркетинг»: один раз, после migrate()."""
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(27102026, 0)")
+        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (ADS_MIGRATION,)):
+            return
+        path = Path(__file__).resolve().parent.parent / "migrations" / (ADS_MIGRATION + ".sql")
+        tx.conn.execute(path.read_text(encoding="utf-8"))
+        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (ADS_MIGRATION,))

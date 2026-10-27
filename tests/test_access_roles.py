@@ -126,5 +126,27 @@ class MigrationTest(unittest.TestCase):
             "SELECT 1 AS x FROM app_role_permissions WHERE role_id=%s", (role_id,)))
 
 
+class AdsMigrationTest(unittest.TestCase):
+    def setUp(self):
+        prepare_local_db()
+        reset_roles()
+        permissions.migrate()
+        db.execute("DELETE FROM app_schema_migrations WHERE name=%s", (permissions.ADS_MIGRATION,))
+        permissions.migrate_ads()
+        permissions.migrate_ads()  # повторный запуск ничего не меняет
+
+    def tearDown(self):
+        db.execute("DELETE FROM app_schema_migrations WHERE name=%s", (permissions.ADS_MIGRATION,))
+        reset_roles()
+
+    def test_ads_rights_only_for_marketing(self):
+        rows = db.query_all("SELECT r.name, p.permission FROM app_role_permissions p "
+                            "JOIN app_roles r ON r.id = p.role_id WHERE p.permission LIKE 'ads.%%'")
+        self.assertEqual({r["name"] for r in rows}, {"Маркетинг"})
+        self.assertEqual({r["permission"] for r in rows},
+                         {"ads.open", "ads.tab.wb", "ads.tab.ozon", "ads.uploads.open"})
+        self.assertLessEqual({r["permission"] for r in rows}, permissions.CODES)
+
+
 if __name__ == "__main__":
     unittest.main()

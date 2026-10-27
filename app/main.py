@@ -41,6 +41,13 @@ def migrate_access_roles():
 
 
 @app.on_event("startup")
+def migrate_ads_rights():
+    # После migrate_access_roles: права раздела «Реклама» выдаются по таблицам ролей.
+    from .permissions import migrate_ads
+    migrate_ads()
+
+
+@app.on_event("startup")
 def migrate_price_model():
     from .price_model import migrate
     migrate()
