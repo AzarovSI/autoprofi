@@ -11298,7 +11298,9 @@ const Views = (() => {
   // ------------------------------------------------------------------
   const adsState = {
     mp: 'wb', from: '', to: '', manager: '', placement: '', scope: 'ads', status: '', search: '',
-    data: null, error: '', expanded: null, open: {}, metricsOpen: {}, monthsOpen: null, filterSig: '',
+    // collapsed — группы, свёрнутые вручную: остальные раскрыты, поэтому дерево открывается до товаров
+    // (как РНП) и после первой загрузки, смены периода и фильтров. open — разворот товара и кампании.
+    data: null, error: '', collapsed: {}, open: {}, metricsOpen: {}, monthsOpen: null, filterSig: '',
     scrollEnd: false,  // после загрузки данных — прокрутить колонки к последним дням
   };
 
@@ -11430,7 +11432,7 @@ const Views = (() => {
   function adsNodeHtml(node, cols, depth) {
     const isGroup = node.kind === 'root' || node.kind === 'group';
     const isCamp = node.kind === 'campaign';
-    const open = isGroup ? !!adsState.expanded[node.key] : !!adsState.open[node.key];
+    const open = isGroup ? !adsState.collapsed[node.key] : !!adsState.open[node.key];
     const kids = node.children || [];
     const k = U.esc(node.key);
     const head = cols.map(c => adsCell(node, c.key)[isCamp ? 'clicks' : 'visits']);
@@ -11477,14 +11479,11 @@ const Views = (() => {
 
   function adsWalk(node, fn) { fn(node); (node.children || []).forEach(ch => adsWalk(ch, fn)); }
 
-  // По умолчанию дерево раскрыто до товаров, последний месяц — по дням.
+  // По умолчанию последний месяц — по дням. Пока данных нет, не решаем: иначе после первой
+  // загрузки файла месяц остался бы свёрнутым.
   function adsDefaultView() {
     const d = adsState.data;
-    if (!adsState.expanded) {
-      adsState.expanded = {};
-      adsWalk(d.tree, n => { if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true; });
-    }
-    if (!adsState.monthsOpen) {
+    if (!adsState.monthsOpen && (d.months || []).length) {
       adsState.monthsOpen = {};
       const last = (d.months || [])[d.months.length - 1];
       if (last) adsState.monthsOpen[last.key] = true;
@@ -11503,7 +11502,7 @@ const Views = (() => {
     if (adsState.search.trim() || adsState.status) {
       tree = adsFilterTree(d.tree);
       if (adsState.filterSig !== sig) {
-        adsWalk(tree, n => { if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true; });
+        adsWalk(tree, n => { delete adsState.collapsed[n.key]; });
         adsState.filterSig = sig;
       }
     } else {
@@ -11539,7 +11538,7 @@ const Views = (() => {
     });
     const toggle = (btn) => {
       const x = btn.getAttribute('data-xkey'), o = btn.getAttribute('data-okey'), m = btn.getAttribute('data-mkey');
-      if (x != null) adsState.expanded[x] = !adsState.expanded[x];
+      if (x != null) adsState.collapsed[x] = !adsState.collapsed[x];
       else if (o != null) adsState.open[o] = !adsState.open[o];
       else if (m != null) adsState.metricsOpen[m] = !adsState.metricsOpen[m];
       adsRenderMatrix();
@@ -11738,15 +11737,15 @@ const Views = (() => {
     root.querySelector('#ads-mgr').addEventListener('change', (e) => { adsState.manager = e.target.value; reload(); });
     root.querySelector('#ads-placement').addEventListener('change', (e) => { adsState.placement = e.target.value; reload(); });
     root.querySelector('#ads-scope').addEventListener('change', (e) => { adsState.scope = e.target.value; reload(); });
+    // Как в РНП: «Развернуть всё» — дерево до товаров (показатели товаров не открываются),
+    // «Свернуть всё» — только «Итоги» с группами первого уровня, показатели закрыты.
     root.querySelector('#ads-expand').addEventListener('click', () => {
-      adsWalk(d.tree, n => {
-        if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true;
-        else if (n.kind === 'product') adsState.open[n.key] = true;
-      });
+      adsState.collapsed = {};
       adsRenderMatrix();
     });
     root.querySelector('#ads-collapse').addEventListener('click', () => {
-      adsState.expanded = { [d.tree.key]: true }; adsState.open = {}; adsState.metricsOpen = {};
+      adsState.collapsed = {}; adsState.open = {}; adsState.metricsOpen = {};
+      adsWalk(d.tree, n => { if (n.kind === 'group') adsState.collapsed[n.key] = true; });
       adsRenderMatrix();
     });
     bindAdsPeriod(root.querySelector('.rnp-filters-host'), () => { adsState.monthsOpen = null; reload(); });
