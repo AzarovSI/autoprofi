@@ -2785,24 +2785,28 @@ const Views = (() => {
       const dt = r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU') : '—';
       const seen = fmtSeen(r.last_seen_at);
       const editBtn = !App.can('users.edit') ? '' : `<button class="btn-sm usr-edit" data-id="${r.id}" data-name="${U.esc(r.display_name || '')}" data-email="${U.esc(r.email)}" data-role-id="${r.role_id == null ? '' : r.role_id}">Изменить</button>`;
-      const delCell = isMe
+      const off = !!r.disabled_at;
+      const offCell = isMe
         ? '<span class="muted" style="font-size:11.5px;">это вы</span>'
         : !App.can('users.delete') ? ''
-        : `<button class="btn-sm usr-del" data-id="${r.id}" data-email="${U.esc(r.email)}">Удалить</button>`;
+        : `<button class="btn-sm usr-off-btn" data-id="${r.id}" data-email="${U.esc(r.email)}" data-off="${off ? '1' : ''}">${off ? 'Включить' : 'Отключить'}</button>`;
+      const offPill = off
+        ? ` <span class="pill pill-off" title="Отключён ${U.esc(fmtSeen(r.disabled_at))}: вход на сайт закрыт">Отключён</span>`
+        : '';
       const seenCell = seen === '—'
         ? '<span class="muted">—</span>'
         : `<span class="usr-seen">${U.esc(seen)}</span>`;
-      h += `<tr data-uid="${r.id}"><td class="l">${U.esc(r.display_name || '—')}</td>`
+      h += `<tr data-uid="${r.id}"${off ? ' class="usr-off"' : ''}><td class="l">${U.esc(r.display_name || '—')}</td>`
         + `<td class="l">${U.esc(r.email)}</td>`
-        + `<td class="l">${rolePillHtml(r)}</td>`
+        + `<td class="l">${rolePillHtml(r)}${offPill}</td>`
         + `<td class="l">${seenCell}</td>`
         + `<td class="l muted">${dt}</td>`
-        + `<td class="l"><span class="usr-actions">${editBtn}${delCell}</span></td></tr>`;
+        + `<td class="l"><span class="usr-actions">${editBtn}${offCell}</span></td></tr>`;
     });
     h += '</tbody></table></div>';
     el.innerHTML = h;
-    el.querySelectorAll('.usr-del').forEach(btn => {
-      btn.addEventListener('click', () => deleteUser(btn.dataset.id, btn.dataset.email, root));
+    el.querySelectorAll('.usr-off-btn').forEach(btn => {
+      btn.addEventListener('click', () => toggleUserDisabled(btn.dataset.id, btn.dataset.email, !btn.dataset.off, root));
     });
     el.querySelectorAll('.usr-edit').forEach(btn => {
       btn.addEventListener('click', () => openEditUserForm(btn, root));
@@ -2904,14 +2908,15 @@ const Views = (() => {
     }
   }
 
-  async function deleteUser(id, email, root) {
-    if (!confirm('Удалить пользователя ' + email + '?\nДоступ будет немедленно прекращён. При необходимости его можно добавить заново.')) return;
+  // Пользователей не удаляют, а отключают: вход закрыт, комментарии и история остаются.
+  async function toggleUserDisabled(id, email, disable, root) {
+    if (disable && !confirm('Отключить пользователя ' + email + '?\nВход на сайт будет закрыт сразу. Комментарии и история действий сохранятся. Включить обратно можно в любой момент.')) return;
     try {
-      await API.userDelete(id);
-      App.toast('Пользователь удалён: ' + email, 'ok');
+      await (disable ? API.userDisable(id) : API.userEnable(id));
+      App.toast((disable ? 'Пользователь отключён: ' : 'Пользователь включён: ') + email, 'ok');
       await loadUsersList(root);
     } catch (e) {
-      App.toast('Ошибка удаления: ' + e.message, 'err');
+      App.toast('Ошибка: ' + e.message, 'err');
     }
   }
 

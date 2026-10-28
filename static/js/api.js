@@ -191,7 +191,9 @@ const API = (() => {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-    userDelete: (id) => request('/api/users/' + id, { method: 'DELETE' }),
+    // Пользователей не удаляют, а отключают: их комментарии и история остаются.
+    userDisable: (id) => request('/api/users/' + id + '/disable', { method: 'POST' }),
+    userEnable: (id) => request('/api/users/' + id + '/enable', { method: 'POST' }),
     // Роли доступа: каталог функций, роли, сотрудники; копия, сохранение, удаление.
     rolesList: () => request('/api/roles'),
     roleCopy: (body) => request('/api/roles', {

@@ -95,7 +95,7 @@ def load_user(uid):
     обращений к БД, а изменённые права действуют со следующего запроса, без перезахода.
     """
     row = db.query_one(
-        """SELECT u.id, u.email, u.display_name, u.role, u.role_id,
+        """SELECT u.id, u.email, u.display_name, u.role, u.role_id, u.disabled_at,
                   r.name AS role_name, r.is_admin, r.marketplaces,
                   ARRAY(SELECT p.permission FROM app_role_permissions p
                          WHERE p.role_id = u.role_id) AS permissions
@@ -123,7 +123,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     if not uid:
         raise creds_exc
     row = load_user(uid)
-    if not row:
+    # Отключённого пользователя выводим сразу, даже с действующим токеном: 401 — фронт покажет вход.
+    if not row or row.get("disabled_at"):
         raise creds_exc
     if not can(row, "login"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=NO_LOGIN)
@@ -136,6 +137,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
 # --- Права доступа по ролям ---
 NO_LOGIN = "Нет доступа к сайту: роль не назначена или вход для неё закрыт"
+DISABLED = "Учётная запись отключена. Обратитесь к администратору."
 
 
 def _apply_access(user):

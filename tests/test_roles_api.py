@@ -146,7 +146,7 @@ class RolesApiTest(unittest.TestCase):
         r = self.call(101, "PATCH", "/api/users/104", json={"display_name": "Владелец", "email": OWNER,
                                                             "role_id": self.ids["РОП"]})
         self.assertEqual(r.status_code, 400)
-        self.assertEqual(self.call(101, "DELETE", "/api/users/104").status_code, 400)
+        self.assertEqual(self.call(101, "POST", "/api/users/104/disable").status_code, 400)
 
     def test_unknown_role_rejected(self):
         r = self.call(101, "POST", "/api/users", json={"display_name": "Н", "email": "z@local.test",

@@ -5,20 +5,40 @@ CRUD по таблице app_users:
   GET    /api/users        — список пользователей
   POST   /api/users        — создать пользователя (ФИО, email, пароль, роль)
   PATCH  /api/users/{id}   — изменить пользователя (ФИО, email, роль, пароль)
-  DELETE /api/users/{id}   — жёсткое удаление пользователя
+  POST   /api/users/{id}/disable, /enable — отключить / включить пользователя
+
+Пользователей не удаляют, а отключают (28.10.2026): удаление стирало бы их комментарии РНП.
+Отключённый (app_users.disabled_at) не входит на сайт, его записи и имя в них остаются.
 
 Права — функции раздела «Пользователи» (docs/access_roles.md). Роль — из справочника ролей
 (app_users.role_id). Роль «Администратор» назначает и роль сотрудника меняет только
-администратор; владельца нельзя снять с роли «Администратор», сменить ему e-mail и удалить.
+администратор; владельца нельзя снять с роли «Администратор», сменить ему e-mail и отключить.
 Старая колонка role (admin/user) заполняется по роли — для отката на прежнюю версию сайта.
 Пароли хранятся только в виде bcrypt-хэша. Логин = email.
 """
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from .. import auth, db
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+MIGRATION = "2026_10_28_users_disabled"
+
+
+def migrate():
+    """Колонка app_users.disabled_at: один раз, атомарно, безопасно для нескольких воркеров."""
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(28102026, 0)")
+        tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
+            name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())""")
+        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
+            return
+        path = Path(__file__).resolve().parents[2] / "migrations" / (MIGRATION + ".sql")
+        tx.conn.execute(path.read_text(encoding="utf-8"))
+        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
 
 
 def _is_owner_email(email):
@@ -73,11 +93,12 @@ def _user_out(r):
         "role_is_admin": bool(r.get("role_is_admin")),
         "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
         "last_seen_at": r["last_seen_at"].isoformat() if r.get("last_seen_at") else None,
+        "disabled_at": r["disabled_at"].isoformat() if r.get("disabled_at") else None,
     }
 
 
 _SELECT = """SELECT u.id, u.email, u.display_name, u.role_id, r.name AS role_name,
-                    r.is_admin AS role_is_admin, u.created_at, u.last_seen_at
+                    r.is_admin AS role_is_admin, u.created_at, u.last_seen_at, u.disabled_at
              FROM app_users u LEFT JOIN app_roles r ON r.id = u.role_id"""
 
 
@@ -146,15 +167,24 @@ def update_user(user_id: int, payload: UserUpdate, admin=Depends(auth.require("u
     return _user_out(db.query_one(_SELECT + " WHERE u.id = %s", (user_id,)))
 
 
-@router.delete("/{user_id}")
-def delete_user(user_id: int, admin=Depends(auth.require("users.delete"))):
-    """Жёсткое удаление пользователя. Нельзя удалить самого себя и владельца."""
+@router.post("/{user_id}/disable")
+def disable_user(user_id: int, admin=Depends(auth.require("users.delete"))):
+    """Отключить пользователя: вход закрыт сразу, записи остаются. Нельзя себя и владельца."""
     if int(user_id) == int(admin["id"]):
-        raise _bad("Нельзя удалить собственную учётную запись.")
+        raise _bad("Нельзя отключить собственную учётную запись.")
     target = db.query_one("SELECT id, email FROM app_users WHERE id = %s", (user_id,))
     if not target:
         raise _bad("Пользователь не найден.", status.HTTP_404_NOT_FOUND)
     if _is_owner_email(target["email"]):
-        raise _bad("Учётную запись владельца удалить нельзя.")
-    db.execute("DELETE FROM app_users WHERE id = %s", (user_id,))
-    return {"deleted": user_id}
+        raise _bad("Учётную запись владельца отключить нельзя.")
+    db.execute("UPDATE app_users SET disabled_at = now() WHERE id = %s AND disabled_at IS NULL", (user_id,))
+    return _user_out(db.query_one(_SELECT + " WHERE u.id = %s", (user_id,)))
+
+
+@router.post("/{user_id}/enable")
+def enable_user(user_id: int, admin=Depends(auth.require("users.delete"))):
+    """Включить отключённого пользователя обратно."""
+    if not db.query_one("SELECT id FROM app_users WHERE id = %s", (user_id,)):
+        raise _bad("Пользователь не найден.", status.HTTP_404_NOT_FOUND)
+    db.execute("UPDATE app_users SET disabled_at = NULL WHERE id = %s", (user_id,))
+    return _user_out(db.query_one(_SELECT + " WHERE u.id = %s", (user_id,)))

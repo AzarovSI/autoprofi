@@ -56,7 +56,12 @@ class CatalogTest(unittest.TestCase):
         self.assertFalse(set(permissions.REMOVED.values()) & permissions.CODES)
         for f, r in zip(permissions.FUNCTIONS, [r for r in rows if r[0] not in permissions.REMOVED]):
             with self.subTest(n=f[0]):
-                self.assertEqual((f[0], *f[2:]), tuple(r[:6]))
+                got, want = (f[0], *f[2:]), tuple(r[:6])
+                if f[0] in permissions.RENAMED:
+                    # Название и описание сменились, раздел, вкладка и тип действия — как в xlsx.
+                    self.assertEqual(r[3], permissions.RENAMED[f[0]])
+                    got, want = got[:3] + got[4:5], want[:3] + want[4:5]
+                self.assertEqual(got, want)
 
 
 class MigrationTest(unittest.TestCase):

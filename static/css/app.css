@@ -1005,7 +1005,7 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 .usr-form .field { margin-bottom: 6px; }
 .usr-form .input-sm, .usr-form .select { width:100%; }
 .usr-form-actions { display:flex; gap:10px; margin-top:12px; }
-/* Кнопки действий в строке пользователя (Изменить / Удалить) */
+/* Кнопки действий в строке пользователя (Изменить / Отключить) */
 .usr-actions { display:inline-flex; gap:6px; }
 /* Строка-вставка с формой редактирования: без лишних отступов формы внутри ячейки */
 .usr-edit-row .usr-form { margin-bottom:0; }
@@ -1025,6 +1025,9 @@ table.rnp-mtbl { width:max-content; min-width:100%; table-layout:auto; border-co
 /* Ролевые pill: Администратор — фирменный красный, Пользователь — серый */
 .pill.pill-admin { background:var(--accent-bg); color:var(--accent); }
 .pill.pill-user  { background:rgba(150,165,175,.16); color:var(--text-dim); }
+/* Отключённый пользователь: бледная строка (кроме кнопок) и отметка «Отключён» */
+.usr-off td:not(:last-child) { opacity:.55; }
+.pill.pill-off   { background:var(--bad-bg); color:var(--bad); }
 
 /* Последний визит: аккуратная дата+время, графитовый текст, моноширинные цифры */
 .usr-seen { color:var(--text-dim); font-variant-numeric:tabular-nums; white-space:nowrap; }

@@ -29,6 +29,13 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 app = FastAPI(title="ТД АВТОПРОФИ — аналитика маркетплейсов")
 
 @app.on_event("startup")
+def migrate_users_disabled():
+    # Первой: auth.load_user читает app_users.disabled_at на каждом запросе.
+    from .routers.users_router import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def migrate_daily_pi():
     from .daily_pi import migrate
     migrate()

@@ -33,6 +33,8 @@ def login(form: OAuth2PasswordRequestForm = Depends()):
             detail="Неверный email или пароль",
         )
     user = auth.load_user(user["id"])
+    if user.get("disabled_at"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=auth.DISABLED)
     if not auth.can(user, "login"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=auth.NO_LOGIN)
     token = auth.create_token(user)

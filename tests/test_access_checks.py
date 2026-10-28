@@ -151,7 +151,8 @@ CASES = [
                                      "password": "x", "role_id": 999999}}, ["users.add"], []),
     ("PATCH", "/api/users/999999", {"json": {"display_name": "Тест", "email": "x@local.test",
                                              "role_id": 999999}}, ["users.edit"], []),
-    ("DELETE", "/api/users/999999", {}, ["users.delete"], []),
+    ("POST", "/api/users/999999/disable", {}, ["users.delete"], []),
+    ("POST", "/api/users/999999/enable", {}, ["users.delete"], []),
     # Роли: смотреть — с разделом «Пользователи», менять — только администратор
     ("GET", "/api/roles", {}, ["users.open"], []),
     ("POST", "/api/roles", {"json": {"copy_from": 999999, "name": "Копия"}}, [ADMIN], []),
@@ -308,13 +309,13 @@ class AccessRulesTest(unittest.TestCase):
                 data = prices_router.pricelist(date_from=None, date_to=None, user=fake(permissions=perms))
                 self.assertEqual(data["items"][0]["cost"], expected)
 
-    def test_owner_cannot_be_demoted_or_deleted(self):
+    def test_owner_cannot_be_demoted_or_disabled(self):
         admin = fake(is_admin=True)
         target = {"id": 5, "email": OWNER, "role_id": 1}
         with patch.object(db, "query_one", side_effect=rows(target, {"id": 3, "is_admin": False})), \
              patch.object(db, "execute") as ex:
             with self.assertRaises(HTTPException) as e:
-                users_router.delete_user(5, admin=admin)
+                users_router.disable_user(5, admin=admin)
             self.assertEqual(e.exception.status_code, 400)
             body = users_router.UserUpdate(display_name="В", email=OWNER, role_id=3)
             with self.assertRaises(HTTPException) as e:
