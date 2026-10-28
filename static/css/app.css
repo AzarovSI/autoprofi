@@ -2334,3 +2334,21 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .rnp-filters .rnp-pkind { flex:0 0 auto; }
 .rnp-filters .rnp-pkind .seg-btn { padding:5px 10px; font-size:12px; }
 .rnp-wkh-d2.rnp-wkh-partial { color:#e08a00; font-weight:600; }
+/* Раздел «Реклама → Wildberries» (28.10.2026): разметка РНП, шире колонка названий (кампании),
+   метка числа кампаний у товара, статус кампании, заголовки блоков показателей. */
+.rnp-card.ads-card { --rnp-name-w:430px; }
+.ads-card .rnp-node-name { white-space:nowrap; overflow:hidden; }
+.ads-card .rnp-nm.ads-camp { overflow:hidden; text-overflow:ellipsis; font-weight:400; }
+.ads-camp b { font-weight:600; }
+.ads-camp-name { margin-left:8px; color:var(--text-mute); }
+.ads-camp-node > .rnp-node-head { background:#faf8fd; }
+.ads-badge { flex:0 0 auto; margin-left:6px; font-size:10.5px; font-weight:600; color:#674EA7; background:#efeaf7; border-radius:8px; padding:1px 7px; }
+.ads-badge-none { color:var(--text-mute); background:#f0f2f5; }
+.ads-st { margin-left:8px; font-size:10.5px; font-weight:600; border-radius:8px; padding:1px 7px; }
+.ads-st-on { color:#16733f; background:#e3f4ea; }
+.ads-st-off { color:#8a5a00; background:#fbf0d9; }
+.ads-sec { font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text); }
+.ads-sub { font-weight:400; color:var(--text-mute); font-size:12.5px; }
+/* Общая нижняя полоса прокрутки на 12 px шире строк и не докручивает до конца — запас справа,
+   чтобы итог последнего месяца был виден целиком. */
+.ads-card .rnps-legend, .ads-card .rnps-node-vals, .ads-card .rnps-m-vals { padding-right:12px; }

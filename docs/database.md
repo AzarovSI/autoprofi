@@ -97,6 +97,14 @@
 |---|---|---|---:|
 | `sales_plan` | План продаж, шт.: `plan_qty`, признак ручной правки `is_manual`, `prev_qty` | PK `(seller_article, marketplace, year, month)` | 5 512 |
 
+### Реклама
+
+| Таблица | Назначение | Ключ / грануляция | Строк |
+|---|---|---|---:|
+| `wb_ads_campaign_daily` | Статистика рекламы WB (лист «Статистика кампаний» файла «Дашборд - рекламная статистика»): день × кампания × артикул WB, все колонки файла; `in_campaign` — рекламируемый товар, false — «связанный заказ» другого товара; `ctr_pct`/`cr_pct` — доли; `campaign_status` — снимок на момент выгрузки | PK `(date, campaign_id, nm_id)`; индекс `(seller_article, date)` | с 28.10.2026 |
+| `wb_ads_cluster_daily` | Поисковые кластеры WB: день × кампания × запрос; у кампаний «за клики» показов, CTR, CPM нет (NULL) | PK `(date, campaign_id, nm_id, cluster)` | с 28.10.2026 |
+| `wb_ads_items` | Справочник файла: артикул WB → артикул продавца (последняя загрузка) | PK `nm_id` | с 28.10.2026 |
+
 ### Журналы
 
 | Таблица | Назначение | Ключ / грануляция | Строк |
@@ -152,6 +160,8 @@
 | `migrations/2026_10_23_rnp_comments_marketplace.sql` | `rnp_comments.marketplace` (NOT NULL, CHECK по трём площадкам), прежние комментарии — `Wildberries` (все 8 на 23.10 оставлены в РНП WB, решение владельца); индекс `(marketplace, date, seller_article)` вместо `(date, seller_article)` | `rnp_comments_router.migrate()` на старте. ALTER — в рабочей БД применена 23.10.2026 12:04 МСК под `gen_user` до выкладки (запустил владелец); снимок строк — `~/AUTOPROFI_backups/db/rnp_comments_before_marketplace_2026-10-23.csv`; права `autoprofi_app` на колонку проверены |
 | `migrations/2026_10_23_rnp_promos.sql` | `rnp_promos`, `rnp_promo_events`; права №111–114 ролям с такими же правами на комментарии, №115 — РОП и Маркетингу | `rnp_promos_router.migrate()` на старте (после миграции ролей). В рабочей БД применена 23.10.2026 20:05 МСК под `gen_user` до выкладки (запустил владелец); снимок прав ролей до неё — `~/AUTOPROFI_backups/db/app_role_permissions_before_promos_2026-10-23.csv`; у `autoprofi_app` есть права на таблицы и последовательности (по default privileges `gen_user`) |
 | `migrations/2026_10_23_rnp_comments_category.sql` | `rnp_comments.category_key`, `seller_article` может быть NULL, CHECK «товар или категория» | `rnp_comments_router.migrate()` на старте (список `MIGRATIONS`, после `…_marketplace`). ALTER — в рабочей БД применена 23.10.2026 20:56 МСК под `gen_user` до выкладки (запустил владелец); строки не менялись (8 комментариев); права `autoprofi_app` на колонку проверены |
+| `migrations/2026_10_27_ads_section.sql` | Права №116–119 раздела «Реклама» роли «Маркетинг» | `permissions.migrate_ads()` на старте (после миграции ролей). Только INSERT в `app_role_permissions` — применилась при выкладке 27.10.2026 под `autoprofi_app` |
+| `migrations/2026_10_28_wb_ads_stats.sql` | `wb_ads_campaign_daily`, `wb_ads_cluster_daily`, `wb_ads_items`; права №120–121 роли «Маркетинг» | `ads_router.migrate()` на старте (после `…_ads_section`). Создаёт таблицы — в рабочей БД применять под `gen_user` до выкладки (права ролей сайта — по default privileges). **На 28.10 в рабочую БД не применена** |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
 | `migrate_incidents.py` | `wb_wh_incidents` + перенос старых статусов `incident` из `wb_warehouses` | Уже выполнена, повторно не запускать; не учтена |
 

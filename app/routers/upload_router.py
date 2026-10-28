@@ -37,6 +37,7 @@ from .. import wb_stock_loader
 from .. import ya_daily_loader
 from .. import ya_stock_loader          # ежедневные остатки склада Яндекс (FBY) -> ya_daily_sales.stock_ya_qty
 from .. import cost_loader
+from .. import wb_ads_stats_loader      # статистика рекламы WB -> раздел «Реклама»
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -78,6 +79,7 @@ _HISTORY_CODES = {
     **dict.fromkeys(("wb_stock", "ozon_stock", "cost"), "stock.uploads.log"),
     **dict.fromkeys(("daily", "ads", "stock", "reviews", "competitors", "rnps", "rnps_ozon",
                      "rnps_common", "rnps_wb", "rnps_ya"), "rnp.uploads.log"),
+    "ads_wb": "ads.uploads.log",
 }
 
 
@@ -96,9 +98,11 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
     # Право на журнал — по разделу, к которому относится набор (docs/access_roles.md).
     # Неизвестный набор и 'all' (все загрузки) — нужны журналы всех трёх разделов.
     log_codes = _HISTORY_CODES.get(kind)
-    for code in (log_codes,) if log_codes else set(_HISTORY_CODES.values()):
+    # Журнал рекламы (с 28.10.2026) в «все загрузки» не требуется: без права на него
+    # загрузки рекламы WB просто не показываются.
+    for code in (log_codes,) if log_codes else set(_HISTORY_CODES.values()) - {"ads.uploads.log"}:
         auth.check(user, code)
-    where = ""
+    where = "" if log_codes or auth.can(user, "ads.uploads.log") else "WHERE period_kind <> 'wb_ads_stats'"
     params = ()
     # Набор period_kind для РНП заказы WB (Воронка/Реклама/Рейтинг/Pi).
     # wb_stock (остатки по складам) относится к разделу «Склады» и в журнал
@@ -140,6 +144,9 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
         params = (list(YA_KINDS),)
     elif kind == "rnps":
         where = "WHERE period_kind IN ('daily','ads','stock','reviews','competitors')"
+    elif kind == "ads_wb":
+        # Раздел «Реклама» → «Загрузка данных»: статистика рекламы WB.
+        where = "WHERE period_kind = 'wb_ads_stats'"
     elif kind == "unit_econ":
         # Раздел «РНП юнит-экономика» грузит ТОЛЬКО отчёты MPPROFIT
         # (недельные и месячные). Дневные/рекламные/остатки и т.п. относятся
@@ -776,6 +783,35 @@ def upload_wb_ads(file: UploadFile = File(...),
             "period_text": res.get("period_text"),
             "upload_id": res.get("upload_id"),
         }
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+@router.post("/wb_ads_stats")
+def upload_wb_ads_stats(file: UploadFile = File(...),
+                        user=Depends(auth.require("ads.upload.wb"))):
+    """Приём «Дашборд - рекламная статистика» Wildberries для раздела «Реклама».
+
+    Дни из файла перезаписываются целиком (кампании и кластеры), справочник — UPSERT.
+    РНП не меняется: реклама в РНП по-прежнему из отчёта 1С (wb_ads).
+    """
+    suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(file.file.read())
+        conn = psycopg.connect(db.DB_DSN, connect_timeout=15)
+        try:
+            _set_uploader(conn, user)
+            res = wb_ads_stats_loader.load_wb_ads_stats(conn, tmp_path)
+        finally:
+            conn.close()
+        if not res.get("ok"):
+            raise HTTPException(status_code=422, detail=res.get("error") or "Ошибка формата файла рекламы WB")
+        return res
     finally:
         try:
             os.remove(tmp_path)

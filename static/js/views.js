@@ -2486,6 +2486,8 @@ const Views = (() => {
     // Остатки Ozon по складам (раздел «Склады → OZON») — загрузчик ozon_wh_stock_loader.py
     // пишет period_kind='ozon_stock' (константа PERIOD_KIND) — маппим на ту же метку, что и wb_stock.
     if (kind === 'ozon_stock') return '<span class="kind-pill kind-week">Остатки</span>';
+    // Статистика рекламы WB для раздела «Реклама» (wb_ads_stats_loader.py).
+    if (kind === 'wb_ads_stats') return '<span class="kind-pill kind-week">Реклама WB</span>';
     return '<span class="kind-pill kind-na">—</span>';
   }
 
@@ -11288,10 +11290,17 @@ const Views = (() => {
   }
 
   // ------------------------------------------------------------------
-  // Раздел «Реклама» (27.10.2026, в разработке): вкладки Wildberries, OZON
-  // и справа «Загрузка данных» — как в юнит-экономике. Пока только надпись.
+  // Раздел «Реклама» (с 27.10.2026): вкладки Wildberries, OZON и справа «Загрузка данных».
+  // Wildberries (28.10.2026) — отчёт по статистике рекламы WB (/api/ads/wb/tree): дерево как в РНП,
+  // в шапке узла — переходы в карточку из РНП, у кампании — её клики; разворот товара — показатели
+  // и кампании товара. Ячейка узла — массив сумм в порядке data.fields, доли и ДРР считаются здесь.
+  // OZON — в разработке.
   // ------------------------------------------------------------------
-  const adsState = { mp: 'wb' };
+  const adsState = {
+    mp: 'wb', from: '', to: '', manager: '', placement: '', scope: 'ads', status: '', search: '',
+    data: null, error: '', expanded: null, open: {}, metricsOpen: {}, monthsOpen: null, filterSig: '',
+    scrollEnd: false,  // после загрузки данных — прокрутить колонки к последним дням
+  };
 
   // Вкладки, доступные роли (функция вкладки и площадка роли).
   function adsTabs() {
@@ -11301,20 +11310,8 @@ const Views = (() => {
     return tabs;
   }
 
-  function ads(root, ctl) {
-    ctl.innerHTML = '';
-    ctl.className = 'ctl';
-    const tabs = adsTabs();
-    if (!tabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
-    if (!tabs.some(([id]) => id === adsState.mp)) adsState.mp = tabs[0][0];
-    const cls = tabs.find(([id]) => id === adsState.mp)[2];
-    root.innerHTML = `
-      <div class="card rnp-card mp-${cls}">
-        <div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div>
-        <div class="empty">Раздел в разработке</div>
-      </div>`;
-    const host = root.querySelector('#ads-subtabs');
-    tabs.forEach(([id, label, c, pushRight]) => {
+  function adsSubtabs(host) {
+    adsTabs().forEach(([id, label, c, pushRight]) => {
       const b = document.createElement('button');
       b.className = 'subtab ' + c + (adsState.mp === id ? ' active' : '') + (pushRight ? ' subtab-right' : '');
       b.textContent = label;
@@ -11325,6 +11322,497 @@ const Views = (() => {
       });
       host.appendChild(b);
     });
+  }
+
+  async function ads(root, ctl) {
+    ctl.innerHTML = '';
+    ctl.className = 'ctl';
+    const tabs = adsTabs();
+    if (!tabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
+    if (!tabs.some(([id]) => id === adsState.mp)) adsState.mp = tabs[0][0];
+    if (adsState.mp === 'wb') return adsWb(root);
+    if (adsState.mp === 'upload') return adsUpload(root);
+    root.innerHTML = `
+      <div class="card rnp-card mp-ozon">
+        <div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div>
+        <div class="empty">Раздел в разработке</div>
+      </div>`;
+    adsSubtabs(root.querySelector('#ads-subtabs'));
+  }
+
+  // ----- Показатели -----
+  const adsDiv = (a, b) => (a == null || b == null || !b) ? null : a / b;
+  // Строки разворота товара, группы и «Итогов»: [подпись, значение(ячейка), вид, цвет] или раздел.
+  const ADS_NODE_ROWS = [
+    { sec: 'Трафик и заказы' },
+    ['Переходы с рекламы (клики)', c => c.clicks, 'qty', '#000000'],
+    ['Доля рекламы в переходах', c => adsDiv(c.clicks_v, c.visits_a), 'pct', '#1155CC'],
+    ['Заказы, шт (все, из РНП)', c => c.orders_qty, 'qty', '#000000'],
+    ['Заказы с рекламы, шт', c => c.ad_orders, 'qty', '#000000'],
+    ['Доля рекламы в заказах', c => adsDiv(c.ad_orders_q, c.orders_qty_a), 'pct', '#1155CC'],
+    ['Связанные заказы через чужие РК, шт', c => c.linked, 'qty', '#7F6000'],
+    { sec: 'Реклама — все кампании' },
+    ['Расходы на рекламу, руб', c => c.spend, 'rub', '#674EA7'],
+    ['Показы', c => c.views, 'qty', '#000000'],
+    ['CTR', c => adsDiv(c.clicks, c.views), 'pct', '#1155CC'],
+    ['CPC, руб', c => adsDiv(c.spend, c.clicks), 'num', '#000000'],
+    ['Корзины', c => c.atbs, 'qty', '#000000'],
+    ['CR клик → заказ', c => adsDiv(c.ad_orders, c.clicks), 'pct', '#000000'],
+    ['Сумма заказов с рекламы, руб', c => c.ad_sum, 'rub', '#000000'],
+    ['Отмены, шт', c => c.cancels, 'qty', '#990000'],
+    ['ДРР рекламный', c => adsDiv(c.spend, c.ad_sum), 'pct', '#674EA7'],
+    ['ДРР общий (к заказам РНП)', c => adsDiv(c.spend_r, c.orders_rub_a), 'pct', '#674EA7'],
+  ];
+  const ADS_CAMPAIGN_ROWS = [
+    ['Расходы, руб', c => c.spend, 'rub', '#674EA7'],
+    ['Показы', c => c.views, 'qty', '#000000'],
+    ['CTR', c => adsDiv(c.clicks, c.views), 'pct', '#1155CC'],
+    ['CPC, руб', c => adsDiv(c.spend, c.clicks), 'num', '#000000'],
+    ['Корзины', c => c.atbs, 'qty', '#000000'],
+    ['Заказы, шт', c => c.ad_orders, 'qty', '#000000'],
+    ['CR клик → заказ', c => adsDiv(c.ad_orders, c.clicks), 'pct', '#000000'],
+    ['Сумма заказов, руб', c => c.ad_sum, 'rub', '#000000'],
+    ['Отмены, шт', c => c.cancels, 'qty', '#990000'],
+    ['ДРР', c => adsDiv(c.spend, c.ad_sum), 'pct', '#674EA7'],
+    ['Связанные заказы других товаров, шт', c => c.linked, 'qty', '#7F6000'],
+  ];
+
+  // Ячейка узла как объект {поле: значение}; нет данных — все поля null.
+  function adsCell(node, key) {
+    const arr = (node.cells || {})[key];
+    const out = {};
+    (adsState.data.fields || []).forEach((f, i) => { out[f] = arr ? arr[i] : null; });
+    return out;
+  }
+
+  function adsColumns(months) {
+    const cols = [];
+    (months || []).forEach(m => {
+      if (adsState.monthsOpen[m.key]) (m.days || []).forEach(d => cols.push({ type: 'day', key: d.key }));
+      cols.push({ type: 'total', key: m.key });
+    });
+    return cols;
+  }
+
+  function adsLegend(months) {
+    return (months || []).map(m => {
+      const open = !!adsState.monthsOpen[m.key];
+      const days = open ? (m.days || []).map(d => `<span class="rnps-leg rnps-leg-day">${U.esc(d.label)}</span>`).join('') : '';
+      return days + `<span class="rnps-leg rnps-leg-total"><button class="rnp-exp-btn rnps-month-toggle" data-mkey="${U.esc(m.key)}" title="Показать/скрыть дни">${open ? '▾' : '▸'}</button><span class="rnps-leg-mlabel">${U.esc(m.label)}</span></span>`;
+    }).join('');
+  }
+
+  function adsCells(vals, cols, kind, heat) {
+    let mn = Infinity, mx = -Infinity;
+    if (heat) cols.forEach((c, i) => {
+      const v = vals[i];
+      if (c.type === 'day' && v != null) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+    });
+    return cols.map((c, i) => {
+      const bg = heat && c.type === 'day' ? rnpsHeatColor(vals[i], mn, mx) : '';
+      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}"${bg ? ` style="background-color:${bg}"` : ''}>${rnpsFmt(vals[i], kind)}</span>`;
+    }).join('');
+  }
+
+  function adsMetricRows(node, cols, rows) {
+    const cells = cols.map(c => adsCell(node, c.key));
+    return rows.map(r => {
+      if (r.sec) {
+        return `<div class="rnps-m-row ads-sec-row"><span class="rnps-m-name rnp-fixleft ads-sec">${U.esc(r.sec)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals"></span></span></div>`;
+      }
+      const [label, fn, kind, color] = r;
+      return `<div class="rnps-m-row"><span class="rnps-m-name rnp-fixleft" title="${U.esc(label)}" style="color:${color}">${U.esc(label)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals" style="color:${color}">${adsCells(cells.map(fn), cols, kind, false)}</span></span></div>`;
+    }).join('');
+  }
+
+  const ADS_MBTN_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"></line><line x1="8" y1="13" x2="8" y2="4"></line><line x1="13" y1="13" x2="13" y2="9"></line></svg>';
+
+  function adsNodeHtml(node, cols, depth) {
+    const isGroup = node.kind === 'root' || node.kind === 'group';
+    const isCamp = node.kind === 'campaign';
+    const open = isGroup ? !!adsState.expanded[node.key] : !!adsState.open[node.key];
+    const kids = node.children || [];
+    const k = U.esc(node.key);
+    const head = cols.map(c => adsCell(node, c.key)[isCamp ? 'clicks' : 'visits']);
+    let name, status = '', mbtn = '', body = '';
+    if (isGroup) {
+      name = `<button class="rnp-exp-btn" data-xkey="${k}" title="Раскрыть/свернуть">${open ? '▾' : '▸'}</button><span class="rnp-nm">${U.esc(node.name)}</span>`;
+      const mOpen = !!adsState.metricsOpen[node.key];
+      mbtn = `<button class="rnp-mbtn ${mOpen ? 'on' : ''}" data-mkey="${k}" title="Показать/скрыть показатели">${ADS_MBTN_SVG}</button>`;
+      if (mOpen) body += `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_NODE_ROWS)}</div>`;
+      if (open && kids.length) body += `<div class="rnp-children">${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
+    } else if (isCamp) {
+      const st = node.campaign_status || '';
+      const stCls = st === 'Активна' ? 'ads-st-on' : 'ads-st-off';
+      const tip = `Кампания №${node.campaign_id} · ${node.name} · ${(node.payment_type || '').toLowerCase()}`;
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-camp" title="${U.esc(tip)}"><b>РК: ${U.esc(node.placement || '—')}</b>${st ? `<span class="ads-st ${stCls}" title="Статус на момент выгрузки">${U.esc(st)}</span>` : ''}<span class="ads-camp-name">${U.esc(node.name)}</span></span>`;
+      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_CAMPAIGN_ROWS)}</div>`;
+    } else {
+      const n = node.campaigns || 0;
+      const badge = n ? `<span class="ads-badge">${n} РК</span>` : '<span class="ads-badge ads-badge-none">нет РК</span>';
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели и кампании">${open ? '▾' : '▸'}</button><span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(node.url || '')}" title="Открыть карточку товара">${U.esc(node.name)}</span>${badge}`;
+      status = statusSelectHtml(node.name, node.status, false);
+      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_NODE_ROWS)}${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
+    }
+    return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}">
+      <div class="rnp-node-head">
+        <div class="rnp-node-name rnp-fixleft is-clickable" style="padding-left:${3 + 14 * depth}px">${name}</div>
+        <div class="rnp-node-status rnp-fixleft">${status}</div>
+        <span class="rnp-node-mbtn rnp-fixleft">${mbtn}</span>
+        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', !isGroup)}</div></div>
+      </div>${body}</div>`;
+  }
+
+  // Поиск и статус — на клиенте: оставляем товары, подходящие под оба фильтра, и их группы.
+  function adsFilterTree(node) {
+    if (node.kind === 'product') {
+      const q = adsState.search.trim().toLowerCase();
+      if (q && node.name.toLowerCase().indexOf(q) === -1) return null;
+      if (adsState.status && stDisplay(node.status) !== adsState.status) return null;
+      return node;
+    }
+    const kids = (node.children || []).map(adsFilterTree).filter(Boolean);
+    return kids.length || node.kind === 'root' ? Object.assign({}, node, { children: kids }) : null;
+  }
+
+  function adsWalk(node, fn) { fn(node); (node.children || []).forEach(ch => adsWalk(ch, fn)); }
+
+  // По умолчанию дерево раскрыто до товаров, последний месяц — по дням.
+  function adsDefaultView() {
+    const d = adsState.data;
+    if (!adsState.expanded) {
+      adsState.expanded = {};
+      adsWalk(d.tree, n => { if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true; });
+    }
+    if (!adsState.monthsOpen) {
+      adsState.monthsOpen = {};
+      const last = (d.months || [])[d.months.length - 1];
+      if (last) adsState.monthsOpen[last.key] = true;
+    }
+  }
+
+  function adsRenderMatrix() {
+    const d = adsState.data;
+    const host = document.getElementById('ads-matrix');
+    const legHost = document.querySelector('.rnp-card .rnps-legend');
+    if (!host || !d) return;
+    const cols = adsColumns(d.months);
+    if (legHost) legHost.innerHTML = adsLegend(d.months);
+    let tree = d.tree;
+    const sig = JSON.stringify([adsState.search.trim(), adsState.status]);
+    if (adsState.search.trim() || adsState.status) {
+      tree = adsFilterTree(d.tree);
+      if (adsState.filterSig !== sig) {
+        adsWalk(tree, n => { if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true; });
+        adsState.filterSig = sig;
+      }
+    } else {
+      adsState.filterSig = '';
+    }
+    if (!d.months.length || !(tree.children || []).length) {
+      host.innerHTML = `<div class="empty" style="padding:24px 12px;">${d.months.length ? 'Ничего не найдено по заданным фильтрам.' : 'За выбранный период нет данных. Загрузите статистику рекламы во вкладке «Загрузка данных».'}</div>`;
+    } else {
+      host.innerHTML = adsNodeHtml(tree, cols, 0);
+    }
+    adsBindToggles(host);
+    syncRnpHScroll(); syncRnpFiltersHeight();
+    // Свежие данные — сразу последние дни: реклама загружается за последние дни, начало периода пустое.
+    if (adsState.scrollEnd) {
+      adsState.scrollEnd = false;
+      const els = Array.from(document.querySelectorAll('.rnp-card [data-rnp-scroll]'));
+      const ref = document.querySelector('.rnp-card .rnp-wk-scroll[data-rnp-scroll]');
+      const left = ref ? Math.max(0, ref.scrollWidth - ref.clientWidth) : 0;
+      rnpState.hScroll = left;
+      els.forEach(el => { el.scrollLeft = left; });
+    }
+  }
+
+  function adsBindToggles(host) {
+    const legHost = document.querySelector('.rnp-card .rnps-legend');
+    if (legHost) legHost.querySelectorAll('.rnps-month-toggle').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mk = el.getAttribute('data-mkey');
+        adsState.monthsOpen[mk] = !adsState.monthsOpen[mk];
+        adsRenderMatrix();
+      });
+    });
+    const toggle = (btn) => {
+      const x = btn.getAttribute('data-xkey'), o = btn.getAttribute('data-okey'), m = btn.getAttribute('data-mkey');
+      if (x != null) adsState.expanded[x] = !adsState.expanded[x];
+      else if (o != null) adsState.open[o] = !adsState.open[o];
+      else if (m != null) adsState.metricsOpen[m] = !adsState.metricsOpen[m];
+      adsRenderMatrix();
+    };
+    host.querySelectorAll('.rnp-exp-btn, .rnp-mbtn').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); toggle(el); });
+    });
+    // Клик по имени узла = клик по стрелке; по артикулу — карточка товара на WB.
+    host.querySelectorAll('.rnp-node-name').forEach(el => {
+      const btn = el.querySelector('.rnp-exp-btn');
+      el.addEventListener('click', (e) => {
+        const link = e.target.closest('.rnp-art-link');
+        if (link) {
+          const url = (link.getAttribute('data-arturl') || '').trim();
+          if (url) window.open(url, '_blank', 'noopener');
+          else App.toast('Добавьте ссылку на товар в справочнике', 'err');
+          return;
+        }
+        if (btn && !e.target.closest('.rnp-exp-btn')) toggle(btn);
+      });
+    });
+  }
+
+  // ----- Период (как в РНП: два месяца, диапазон двумя кликами, пресеты) -----
+  function adsPeriodLabel() {
+    const f = adsState.from, t = adsState.to;
+    if (f && t) return f === t ? fmtRu(f) : `${fmtRu(f)} — ${fmtRu(t)}`;
+    return f || t ? fmtRu(f || t) : 'Текущий месяц';
+  }
+  function adsPeriodBaseDate() {
+    const d = adsState.data && adsState.data.date_to;
+    return (d && parseISO(d)) || new Date();
+  }
+  function bindAdsPeriod(wrap, onApply) {
+    const periodWrap = wrap.querySelector('#ads-period');
+    const fieldEl = wrap.querySelector('#ads-period-field');
+    const calEl = wrap.querySelector('#ads-cal');
+    if (!fieldEl || !calEl) return;
+    const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const DOW_RU = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+    const cal = { from: '', to: '', view: null, open: false };
+    function openCal() {
+      cal.from = adsState.from || (adsState.data && adsState.data.date_from) || '';
+      cal.to = adsState.to || (adsState.data && adsState.data.date_to) || '';
+      const b = cal.from ? parseISO(cal.from) : adsPeriodBaseDate();
+      cal.view = new Date(b.getFullYear(), b.getMonth() - 1, 1);
+      cal.open = true; calEl.hidden = false; fieldEl.classList.add('open'); drawCal();
+    }
+    function closeCal() { cal.open = false; calEl.hidden = true; fieldEl.classList.remove('open'); }
+    function applyPeriod() {
+      adsState.from = cal.from || ''; adsState.to = cal.to || '';
+      closeCal(); if (onApply) onApply();
+    }
+    function presetRange(kind) {
+      const base = adsPeriodBaseDate();
+      const y = base.getFullYear(), m = base.getMonth();
+      if (kind === 'month') return { from: isoDate(new Date(y, m, 1)), to: isoDate(new Date(y, m + 1, 0)) };
+      if (kind === 'prev') return { from: isoDate(new Date(y, m - 1, 1)), to: isoDate(new Date(y, m + 1, 0)) };
+      const q = Math.floor(m / 3);
+      return { from: isoDate(new Date(y, q * 3, 1)), to: isoDate(new Date(y, q * 3 + 3, 0)) };
+    }
+    function monthHtml(first) {
+      const y = first.getFullYear(), mo = first.getMonth();
+      let lead = first.getDay() - 1; if (lead < 0) lead = 6;
+      const daysIn = new Date(y, mo + 1, 0).getDate();
+      const f = cal.from, t = cal.to;
+      const lo = (f && t) ? (f <= t ? f : t) : f;
+      const hi = (f && t) ? (f <= t ? t : f) : f;
+      const dayCell = (dt, adjacent, pos) => {
+        const iso = isoDate(dt);
+        let c = 'rnp-cal-cell day' + (adjacent ? ' adjacent' : '');
+        const isEnd = iso === lo || iso === hi;
+        const inRange = lo && hi && iso > lo && iso < hi;
+        if (inRange) c += ' in-range';
+        if (isEnd) c += ' end';
+        if (inRange || isEnd) {
+          if (iso === lo || pos === 0) c += ' band-l';
+          if (iso === hi || pos === 6) c += ' band-r';
+        }
+        return `<button type="button" class="${c}" data-cal-day="${iso}"><span class="d">${dt.getDate()}</span></button>`;
+      };
+      let cells = '', pos = 0;
+      for (let i = lead; i > 0; i--) { cells += dayCell(new Date(y, mo, 1 - i), true, pos); pos = (pos + 1) % 7; }
+      for (let dd = 1; dd <= daysIn; dd++) { cells += dayCell(new Date(y, mo, dd), false, pos); pos = (pos + 1) % 7; }
+      for (let i = 1; i <= 42 - (lead + daysIn); i++) { cells += dayCell(new Date(y, mo + 1, i), true, pos); pos = (pos + 1) % 7; }
+      return `<div class="rnp-cal-month"><div class="rnp-cal-mtitle">${MONTHS_RU[mo]} ${y}</div>
+        <div class="rnp-cal-dow">${DOW_RU.map(x => `<span>${x}</span>`).join('')}</div>
+        <div class="rnp-cal-grid">${cells}</div></div>`;
+    }
+    function drawCal() {
+      const m1 = new Date(cal.view.getFullYear(), cal.view.getMonth(), 1);
+      const m2 = new Date(cal.view.getFullYear(), cal.view.getMonth() + 1, 1);
+      calEl.innerHTML = `
+        <div class="rnp-cal-nav">
+          <button type="button" class="rnp-cal-arrow" data-cal-nav="-1" title="Предыдущий месяц">‹</button>
+          <button type="button" class="rnp-cal-arrow" data-cal-nav="1" title="Следующий месяц">›</button>
+        </div>
+        <div class="rnp-cal-months">${monthHtml(m1)}${monthHtml(m2)}</div>
+        <div class="rnp-cal-presets">
+          <button type="button" class="rnp-cal-preset" data-cal-preset="month">Тек. месяц</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="prev">Тек. и прошлый месяц</button>
+          <button type="button" class="rnp-cal-preset" data-cal-preset="quarter">Тек. квартал</button>
+        </div>`;
+    }
+    fieldEl.addEventListener('click', (e) => { e.stopPropagation(); cal.open ? closeCal() : openCal(); });
+    calEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nav = e.target.closest('[data-cal-nav]');
+      if (nav) {
+        cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth() + Number(nav.getAttribute('data-cal-nav')), 1);
+        drawCal(); return;
+      }
+      const pre = e.target.closest('[data-cal-preset]');
+      if (pre) { const r = presetRange(pre.getAttribute('data-cal-preset')); cal.from = r.from; cal.to = r.to; applyPeriod(); return; }
+      const day = e.target.closest('[data-cal-day]');
+      if (!day) return;
+      const iso = day.getAttribute('data-cal-day');
+      if (!cal.from || cal.to) { cal.from = iso; cal.to = ''; drawCal(); }
+      else { if (iso < cal.from) { cal.to = cal.from; cal.from = iso; } else cal.to = iso; applyPeriod(); }
+    });
+    document.addEventListener('click', (e) => { if (cal.open && periodWrap && !periodWrap.contains(e.target)) closeCal(); });
+  }
+
+  // ----- Вкладка Wildberries -----
+  async function adsWb(root) {
+    root.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
+    try {
+      adsState.data = await API.adsWbTree({
+        date_from: adsState.from, date_to: adsState.to, manager: adsState.manager,
+        placement: adsState.placement, scope: adsState.scope === 'all' ? 'all' : '',
+      });
+      adsState.error = '';
+      adsState.scrollEnd = true;
+    } catch (e) {
+      adsState.data = null;
+      adsState.error = e.message;
+    }
+    if (!root.isConnected) return;
+    if (adsState.error) {
+      root.innerHTML = `<div class="card rnp-card mp-wb"><div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div><div class="empty" style="padding:40px;color:#b00;">${U.esc(adsState.error)}</div></div>`;
+      adsSubtabs(root.querySelector('#ads-subtabs'));
+      return;
+    }
+    const d = adsState.data;
+    adsDefaultView();
+    const opt = (v, label, cur) => `<option value="${U.esc(v)}"${cur === v ? ' selected' : ''}>${U.esc(label)}</option>`;
+    const mgrOpts = opt('', 'Все менеджеры', adsState.manager) + (d.managers || []).map(m => opt(m, m, adsState.manager)).join('');
+    const stOpts = opt('', 'Все статусы', adsState.status) + STATUS_PRESETS.map(s => opt(s, s, adsState.status)).join('');
+    const plOpts = opt('', 'Все места показа', adsState.placement) + (d.placements || []).map(p => opt(p, p, adsState.placement)).join('');
+    const scOpts = opt('ads', 'Товары с рекламой', adsState.scope) + opt('all', 'Все товары', adsState.scope);
+    const upd = d.updated_at ? ` · статистика WB на ${new Date(d.updated_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '';
+    adsState.from = adsState.from || d.date_from;
+    adsState.to = adsState.to || d.date_to;
+    root.innerHTML = `
+      <div class="card rnp-card mp-wb ads-card">
+        <div class="rnp-toolbar">
+          <div class="subtabs" id="ads-subtabs"></div>
+          <div class="rnp-filters-host">
+            <input class="input-sm" id="ads-search" placeholder="Поиск по артикулу…" value="${U.esc(adsState.search)}">
+            <select class="input-sm" id="ads-mgr">${mgrOpts}</select>
+            <select class="input-sm" id="ads-status">${stOpts}</select>
+            <select class="input-sm" id="ads-placement">${plOpts}</select>
+            <select class="input-sm" id="ads-scope">${scOpts}</select>
+            <button class="btn-sm" id="ads-expand">Развернуть всё</button>
+            <button class="btn-sm" id="ads-collapse">Свернуть всё</button>
+            <div class="rnp-period" id="ads-period">
+              <button class="rnp-period-field" id="ads-period-field" type="button" title="Выбрать период (показываются дни в выбранном диапазоне)">
+                <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+                <span class="rnp-period-text">${U.esc(adsPeriodLabel())}</span>
+              </button>
+              <div class="rnp-cal" id="ads-cal" hidden></div>
+            </div>
+          </div>
+        </div>
+        <div class="rnp-head-sticky">
+          <div class="rnp-card-title">Реклама по дням Wildberries <span class="ads-sub">· в строке товара — переходы в карточку (РНП), у кампании — клики${U.esc(upd)}</span></div>
+          <div class="rnp-legend-row">
+            <span class="rnp-legend-fill rnp-fixleft"></span>
+            <span class="rnp-status-leg rnp-fixleft">Статус</span>
+            <span class="rnp-legend-mspacer rnp-fixleft"></span>
+            <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-legend"></div></div>
+          </div>
+        </div>
+        <div class="tbl-wrap rnp-matrix-wrap"><div id="ads-matrix"></div></div>
+        <div class="rnp-hscroll-bar" data-rnp-scroll><div class="rnp-hscroll-phantom"></div></div>
+      </div>`;
+    adsSubtabs(root.querySelector('#ads-subtabs'));
+    const reload = () => { if (API.cacheClear) API.cacheClear('/api/ads/wb/tree'); App.renderView(); };
+    const searchEl = root.querySelector('#ads-search');
+    let t = null;
+    searchEl.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => { adsState.search = searchEl.value; adsRenderMatrix(); }, 250);
+    });
+    root.querySelector('#ads-status').addEventListener('change', (e) => { adsState.status = e.target.value; adsRenderMatrix(); });
+    root.querySelector('#ads-mgr').addEventListener('change', (e) => { adsState.manager = e.target.value; reload(); });
+    root.querySelector('#ads-placement').addEventListener('change', (e) => { adsState.placement = e.target.value; reload(); });
+    root.querySelector('#ads-scope').addEventListener('change', (e) => { adsState.scope = e.target.value; reload(); });
+    root.querySelector('#ads-expand').addEventListener('click', () => {
+      adsWalk(d.tree, n => {
+        if (n.kind === 'root' || n.kind === 'group') adsState.expanded[n.key] = true;
+        else if (n.kind === 'product') adsState.open[n.key] = true;
+      });
+      adsRenderMatrix();
+    });
+    root.querySelector('#ads-collapse').addEventListener('click', () => {
+      adsState.expanded = { [d.tree.key]: true }; adsState.open = {}; adsState.metricsOpen = {};
+      adsRenderMatrix();
+    });
+    bindAdsPeriod(root.querySelector('.rnp-filters-host'), () => { adsState.monthsOpen = null; reload(); });
+    alignRnpToolbarPeriod(root, 'ads-subtabs', 'ads-period');
+    adsRenderMatrix();
+  }
+
+  // ----- Вкладка «Загрузка данных» -----
+  function adsUpload(root) {
+    root.innerHTML = `
+      <div class="card rnp-card mp-cross">
+        <div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div>
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <h3>Wildberries — статистика рекламы</h3>
+          <div class="upload-zone" id="uz-adswb">
+            <div style="font-size:28px;">⬆️</div>
+            <div>Перетащите Excel сюда или <a href="#" id="pick-adswb">выберите файл</a></div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">«Дашборд - рекламная статистика», .xlsx · кампании, поисковые кластеры, справочник товаров</div>
+            <input type="file" id="file-adswb" accept=".xlsx,.xls" class="hidden">
+          </div>
+          <div class="muted fact-date-hint">Даты берутся из файла. Дни из файла перезаписываются целиком: WB дописывает заказы и отмены за прошлые дни, поэтому каждая новая выгрузка уточняет уже загруженные дни. Реклама в РНП по-прежнему берётся из отчёта 1С.</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 10px;">Журнал загрузок</h3>
+        <div id="uphist-adswb"><div class="loader"><span class="spinner"></span></div></div>
+      </div>`;
+    adsSubtabs(root.querySelector('#ads-subtabs'));
+    applyUploadRights(root, { 'uz-adswb': 'ads.upload.wb' }, 'ads.uploads.log');
+    const zone = root.querySelector('#uz-adswb');
+    const input = root.querySelector('#file-adswb');
+    root.querySelector('#pick-adswb').addEventListener('click', (e) => { e.preventDefault(); input.click(); });
+    input.addEventListener('change', () => { if (input.files[0]) doUploadAdsWb(input.files[0], zone, root); });
+    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
+    ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
+    zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) doUploadAdsWb(f, zone, root); });
+    if (App.can('ads.uploads.log')) loadOneUploadHistory('uphist-adswb', 'ads_wb');
+  }
+
+  async function doUploadAdsWb(file, zone, root) {
+    const card = zone.closest('.card');
+    card.querySelectorAll('.up-warn, .note.err').forEach(el => el.remove());
+    const orig = zone.innerHTML;
+    let note = '';
+    zone.innerHTML = '<div class="loader"><span class="spinner"></span><div style="margin-top:8px">Загрузка ' + U.esc(file.name) + '…</div></div>';
+    try {
+      const res = await API.uploadWbAdsStats(file);
+      App.toast('✓ Реклама WB · ' + (res.period_text || '') + ' · кампании: ' + U.fmtNum(res.campaign_rows) + ', кластеры: ' + U.fmtNum(res.cluster_rows), 'ok');
+      if ((res.no_article || []).length) {
+        note = '<div class="up-warn">⚠ Без артикула продавца (артикулы WB): ' + U.esc(res.no_article.join(', ')) + '. Такие строки не попадут в отчёт по товарам.</div>';
+      }
+      if (API.cacheClear) API.cacheClear('/api/ads/wb/tree');
+    } catch (e) {
+      App.toast('Ошибка загрузки: ' + e.message, 'err');
+      note = '<div class="note err" style="margin-top:10px;padding:9px 12px;font-size:12.5px;line-height:1.4">✖ Файл не загружен. ' + U.esc(e.message) + '</div>';
+    } finally {
+      zone.innerHTML = orig;
+      // Разметка зоны пересоздана — заново привязываем выбор файла.
+      const input = zone.querySelector('#file-adswb');
+      zone.querySelector('#pick-adswb').addEventListener('click', (ev) => { ev.preventDefault(); input.click(); });
+      input.addEventListener('change', () => { if (input.files[0]) doUploadAdsWb(input.files[0], zone, root); });
+      if (note) zone.insertAdjacentHTML('afterend', note);
+      if (App.can('ads.uploads.log')) await loadOneUploadHistory('uphist-adswb', 'ads_wb');
+    }
   }
 
   Object.assign(api, { rnp_sales: rnpSales, rnp, ads, dynamics, compare, categories, skus, catalog, upload, users, abc, warehouses, prices });

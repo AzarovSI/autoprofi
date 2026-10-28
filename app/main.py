@@ -19,7 +19,7 @@ from .routers import (
     rnp_router, catalog_router, upload_router, users_router,
     abc_router, sales_router, rnp_sales_router, rnp_comments_router, rnp_promos_router,
     warehouses_router, ozon_warehouses_router,
-    prices_router, roles_router,
+    prices_router, roles_router, ads_router,
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +45,13 @@ def migrate_ads_rights():
     # После migrate_access_roles: права раздела «Реклама» выдаются по таблицам ролей.
     from .permissions import migrate_ads
     migrate_ads()
+
+
+@app.on_event("startup")
+def migrate_wb_ads_stats():
+    # После migrate_ads_rights: таблицы статистики рекламы WB и права загрузки «Маркетингу».
+    from .routers.ads_router import migrate
+    migrate()
 
 
 @app.on_event("startup")
@@ -115,6 +122,7 @@ app.include_router(warehouses_router.router)
 app.include_router(ozon_warehouses_router.router)
 app.include_router(prices_router.router)
 app.include_router(roles_router.router)
+app.include_router(ads_router.router)
 
 # Статика
 class StampedStaticFiles(StaticFiles):

@@ -12,9 +12,10 @@ from fastapi.testclient import TestClient
 
 from test_wb_prices import prepare_local_db
 from test_access_roles import reset_roles
+from test_ads_wb import reset_ads
 from app import abc_rules, auth, db, permissions, price_model
 from app.main import app
-from app.routers import prices_router, rnp_comments_router, users_router
+from app.routers import ads_router, prices_router, rnp_comments_router, users_router
 
 WB, OZ, YA = "Wildberries", "Ozon", "Yandex"
 ADMIN = "@admin"  # только роль «Администратор»
@@ -68,6 +69,9 @@ CASES = [
     ("GET", "/api/upload/history?kind=ozon_stock", {}, ["stock.uploads.log"], []),
     ("GET", "/api/upload/history?kind=all", {},
      ["rnp.uploads.log", "unit.uploads.log", "stock.uploads.log"], []),
+    ("GET", "/api/upload/history?kind=ads_wb", {}, ["ads.uploads.log"], []),
+    up("/api/upload/wb_ads_stats", "ads.upload.wb"),
+    ("GET", "/api/ads/wb/tree", {}, ["ads.open", tab("ads", WB)], [WB]),
     # Юнит-экономика
     *[("GET", f"/api/rnp/tree?marketplace={p}", {}, ["unit.open", tab("unit", mp)], [mp])
       for p, mp in (("wb", WB), ("ozon", OZ), ("yandex", YA))],
@@ -191,7 +195,10 @@ class AccessChecksTest(unittest.TestCase):
     def setUpClass(cls):
         prepare_local_db()
         reset_roles()
+        reset_ads()
         permissions.migrate()
+        permissions.migrate_ads()
+        ads_router.migrate()
         price_model.migrate()
         abc_rules.migrate()
         cls.roles = db.query_all(
@@ -211,6 +218,7 @@ class AccessChecksTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         db.execute("DELETE FROM app_users WHERE id >= 100")
+        reset_ads()
         reset_roles()
 
     def call(self, uid, method, path, kwargs=None):
