@@ -11302,10 +11302,11 @@ const Views = (() => {
   // OZON — в разработке.
   // ------------------------------------------------------------------
   const adsState = {
-    mp: 'wb', from: '', to: '', manager: '', placement: '', scope: 'ads', status: '', search: '',
+    mp: 'wb', from: '', to: '', manager: '', placement: '', status: '', search: '',
     // collapsed — группы, свёрнутые вручную: остальные раскрыты, поэтому дерево открывается до товаров
     // (как РНП) и после первой загрузки, смены периода и фильтров. open — разворот товара и кампании.
-    data: null, error: '', collapsed: {}, open: {}, metricsOpen: {}, monthsOpen: null, filterSig: '',
+    // rowOpen — раскрытые строки показателей (CR — CR карточки, ДРР общий — план и отклонение), по умолчанию свёрнуты.
+    data: null, error: '', collapsed: {}, open: {}, metricsOpen: {}, rowOpen: {}, monthsOpen: null, filterSig: '',
     scrollEnd: false,  // после загрузки данных — прокрутить колонки к последним дням
   };
 
@@ -11349,40 +11350,48 @@ const Views = (() => {
 
   // ----- Показатели -----
   const adsDiv = (a, b) => (a == null || b == null || !b) ? null : a / b;
-  // Строки разворота товара, группы и «Итогов»: [подпись, значение(ячейка), вид, цвет] или раздел.
-  const ADS_NODE_ROWS = [
-    { sec: 'Трафик и заказы' },
-    ['Переходы с рекламы (клики)', c => c.clicks, 'qty', '#000000'],
-    ['Доля рекламы в переходах', c => adsDiv(c.clicks_v, c.visits_a), 'pct', '#1155CC'],
-    ['Заказы, шт (все, из РНП)', c => c.orders_qty, 'qty', '#000000'],
-    ['Заказы с рекламы, шт', c => c.ad_orders, 'qty', '#000000'],
-    ['Доля рекламы в заказах', c => adsDiv(c.ad_orders_q, c.orders_qty_a), 'pct', '#1155CC'],
-    ['Связанные заказы через чужие РК, шт', c => c.linked, 'qty', '#7F6000'],
-    { sec: 'Реклама — все кампании' },
-    ['Расходы на рекламу, руб', c => c.spend, 'rub', '#674EA7'],
-    ['Показы', c => c.views, 'qty', '#000000'],
-    ['CTR', c => adsDiv(c.clicks, c.views), 'pct', '#1155CC'],
-    ['CPC, руб', c => adsDiv(c.spend, c.clicks), 'num', '#000000'],
-    ['Корзины', c => c.atbs, 'qty', '#000000'],
-    ['CR клик → заказ', c => adsDiv(c.ad_orders, c.clicks), 'pct', '#000000'],
-    ['Сумма заказов с рекламы, руб', c => c.ad_sum, 'rub', '#000000'],
-    ['Отмены, шт', c => c.cancels, 'qty', '#990000'],
-    ['ДРР рекламный', c => adsDiv(c.spend, c.ad_sum), 'pct', '#674EA7'],
-    ['ДРР общий (к заказам РНП)', c => adsDiv(c.spend_r, c.orders_rub_a), 'pct', '#674EA7'],
-  ];
-  const ADS_CAMPAIGN_ROWS = [
-    ['Расходы, руб', c => c.spend, 'rub', '#674EA7'],
-    ['Показы', c => c.views, 'qty', '#000000'],
-    ['CTR', c => adsDiv(c.clicks, c.views), 'pct', '#1155CC'],
-    ['CPC, руб', c => adsDiv(c.spend, c.clicks), 'num', '#000000'],
-    ['Корзины', c => c.atbs, 'qty', '#000000'],
-    ['Заказы, шт', c => c.ad_orders, 'qty', '#000000'],
-    ['CR клик → заказ', c => adsDiv(c.ad_orders, c.clicks), 'pct', '#000000'],
-    ['Сумма заказов, руб', c => c.ad_sum, 'rub', '#000000'],
-    ['Отмены, шт', c => c.cancels, 'qty', '#990000'],
-    ['ДРР', c => adsDiv(c.spend, c.ad_sum), 'pct', '#674EA7'],
-    ['Связанные заказы других товаров, шт', c => c.linked, 'qty', '#7F6000'],
-  ];
+  const ADS_C = { tot: '#000000', ad: '#674EA7', cr: '#1155CC', grey: '#8a8f99', cancel: '#990000', linked: '#7F6000' };
+  // Строки разворота (решение владельца 29.10.2026): рекламная воронка товара (сумма кампаний),
+  // группы и «Итогов»; у кампании — те же строки, но доля «кампании» и ДРР рекламный без плана.
+  // id — строка с раскрытием (CR — CR карточки, ДРР общий — план и отклонение); sep — линия над строкой.
+  function adsRows(node) {
+    const camp = node.kind === 'campaign';
+    const prod = node.kind === 'product';
+    const rows = [
+      { label: 'CTR', fn: c => adsDiv(c.clicks, c.views), kind: 'pct', color: ADS_C.cr },
+      { label: 'Клики', fn: c => c.clicks, kind: 'qty' },
+      { id: 'crc', label: 'CR в корзину', fn: c => adsDiv(c.carts, c.clicks), kind: 'pct', color: ADS_C.cr,
+        sub: [{ label: 'CR в корзину карточки', fn: c => adsDiv(c.f_carts, c.f_visits), kind: 'pct', color: ADS_C.grey }] },
+      { label: 'Корзины', fn: c => c.carts, kind: 'qty' },
+      { id: 'cro', label: 'CR в заказ', fn: c => adsDiv(c.orders, c.carts), kind: 'pct', color: ADS_C.cr,
+        sub: [{ label: 'CR в заказ карточки', fn: c => adsDiv(c.f_orders, c.f_carts), kind: 'pct', color: ADS_C.grey }] },
+      { label: 'Заказы, шт', fn: c => c.orders, kind: 'qty' },
+      // Ключевая метрика (владелец 29.10.2026) — жирным чёрным.
+      { label: camp ? 'Доля кампании в заказах' : 'Доля рекламы в заказах', fn: c => adsDiv(c.orders_f, c.f_orders_a), kind: 'pct', bold: true },
+      { label: 'Отмены, шт', fn: c => c.cancels, kind: 'qty', color: ADS_C.cancel },
+      { label: 'Расходы, руб', fn: c => c.spend, kind: 'rub', color: ADS_C.ad, sep: true },
+      { label: 'Стоимость 1000 показов CPM, руб', fn: c => { const v = adsDiv(c.spend, c.views); return v == null ? null : v * 1000; }, kind: 'num' },
+      { label: 'Стоимость перехода CPC, руб', fn: c => adsDiv(c.spend, c.clicks), kind: 'num' },
+      { label: 'Стоимость заказа CPO, руб', fn: c => adsDiv(c.spend, c.orders), kind: 'num' },
+    ];
+    if (camp) {
+      rows.push({ label: 'ДРР рекламный', fn: c => adsDiv(c.spend, c.ad_sum), kind: 'pct', color: ADS_C.ad });
+    } else {
+      // ДРР общий — расходы к заказам карточки; у товара — подсветка против планового («Ценовая модель»).
+      const drr = { id: 'drr', label: 'ДРР общий', fn: c => adsDiv(c.spend_f, c.f_rub_a), kind: 'pct', color: ADS_C.ad };
+      if (prod && node.plan) {
+        drr.plan = true;
+        drr.sub = [
+          { label: 'ДРР плановый', fn: (c, k) => node.plan[k], kind: 'pct', color: ADS_C.grey },
+          { label: 'Отклонение от плана, п.п.', kind: 'pp', color: ADS_C.grey, dev: true,
+            fn: (c, k) => { const v = adsDiv(c.spend_f, c.f_rub_a), p = node.plan[k]; return v == null || p == null ? null : v - p; } },
+        ];
+      }
+      rows.push(drr);
+    }
+    rows.push({ label: 'Связанные заказы других товаров, шт', fn: c => c.linked, kind: 'qty', color: ADS_C.linked, linked: true });
+    return rows;
+  }
 
   // Ячейка узла как объект {поле: значение}; нет данных — все поля null.
   function adsCell(node, key) {
@@ -11395,8 +11404,9 @@ const Views = (() => {
   function adsColumns(months) {
     const cols = [];
     (months || []).forEach(m => {
-      if (adsState.monthsOpen[m.key]) (m.days || []).forEach(d => cols.push({ type: 'day', key: d.key }));
-      cols.push({ type: 'total', key: m.key });
+      if (adsState.monthsOpen[m.key]) (m.days || []).forEach(d => cols.push({ type: 'day', key: d.key, from: d.key, to: d.key }));
+      const days = m.days || [];
+      cols.push({ type: 'total', key: m.key, from: days.length ? days[0].key : '', to: days.length ? days[days.length - 1].key : '' });
     });
     return cols;
   }
@@ -11409,27 +11419,54 @@ const Views = (() => {
     }).join('');
   }
 
-  function adsCells(vals, cols, kind, heat) {
+  function adsFmt(v, kind) {
+    if (kind !== 'pp') return rnpsFmt(v, kind);
+    if (v == null || isNaN(v)) return '—';
+    return (v > 0 ? '+' : '') + U.fmtNum(v * 100, 1);
+  }
+
+  // Ячейки строки. heat — цветная шкала по дням; tint(v, i) — цвет значения; attrs(i) — атрибуты ячейки.
+  function adsCells(vals, cols, kind, opts = {}) {
     let mn = Infinity, mx = -Infinity;
-    if (heat) cols.forEach((c, i) => {
+    if (opts.heat) cols.forEach((c, i) => {
       const v = vals[i];
       if (c.type === 'day' && v != null) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
     });
     return cols.map((c, i) => {
-      const bg = heat && c.type === 'day' ? rnpsHeatColor(vals[i], mn, mx) : '';
-      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}"${bg ? ` style="background-color:${bg}"` : ''}>${rnpsFmt(vals[i], kind)}</span>`;
+      const st = [];
+      const bg = opts.heat && c.type === 'day' ? rnpsHeatColor(vals[i], mn, mx) : '';
+      if (bg) st.push('background-color:' + bg);
+      const tint = opts.tint ? opts.tint(vals[i], i) : '';
+      if (tint) st.push(tint);
+      const attrs = opts.attrs && vals[i] ? opts.attrs(i) : '';
+      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}"${st.length ? ` style="${st.join(';')}"` : ''}${attrs}>${adsFmt(vals[i], kind)}</span>`;
     }).join('');
   }
 
-  function adsMetricRows(node, cols, rows) {
+  // Красный — выше планового ДРР, зелёный — в плане.
+  const adsPlanTint = (v, p) => (v == null || p == null) ? '' : (v > p ? 'color:#c62828;font-weight:700' : 'color:#2e7d32;font-weight:700');
+
+  function adsMetricRow(node, cols, cells, r, child) {
+    const k = node.key + '|' + (r.id || '');
+    const open = r.sub && !!adsState.rowOpen[k];
+    const vals = cells.map((c, i) => r.fn(c, cols[i].key));
+    const opts = {};
+    if (r.plan) opts.tint = (v, i) => adsPlanTint(v, node.plan[cols[i].key]);
+    if (r.dev) opts.tint = v => v == null ? '' : (v > 0 ? 'color:#c62828' : 'color:#2e7d32');
+    // Окно со списком товаров — у товара (все его кампании) и у кампании; у групп список слишком велик.
+    if (r.linked && (node.kind === 'product' || node.kind === 'campaign')) {
+      const ids = node.kind === 'campaign' ? [node.campaign_id] : (node.children || []).map(ch => ch.campaign_id).filter(Boolean);
+      if (ids.length) opts.attrs = i => ` data-adlink="${ids.join(',')}" data-from="${cols[i].from}" data-to="${cols[i].to}"`;
+    }
+    const arrow = r.sub ? `<button class="rnp-exp-btn ads-row-btn" data-rkey="${U.esc(k)}" title="Показать/скрыть">${open ? '▾' : '▸'}</button>` : '';
+    const st = `color:${r.color || ADS_C.tot}${r.bold ? ';font-weight:700' : ''}`;
+    const row = `<div class="rnps-m-row${r.sep ? ' ads-sep' : ''}${child ? ' ads-child' : ''}"><span class="rnps-m-name rnp-fixleft${r.sub ? ' is-clickable' : ''}" title="${U.esc(r.label)}" style="${st}"${r.sub ? ` data-rkey="${U.esc(k)}"` : ''}>${arrow}${U.esc(r.label)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals${r.linked ? ' ads-linked' : ''}" style="${st}">${adsCells(vals, cols, r.kind, opts)}</span></span></div>`;
+    return row + (open ? r.sub.map(s => adsMetricRow(node, cols, cells, s, true)).join('') : '');
+  }
+
+  function adsMetricRows(node, cols) {
     const cells = cols.map(c => adsCell(node, c.key));
-    return rows.map(r => {
-      if (r.sec) {
-        return `<div class="rnps-m-row ads-sec-row"><span class="rnps-m-name rnp-fixleft ads-sec">${U.esc(r.sec)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals"></span></span></div>`;
-      }
-      const [label, fn, kind, color] = r;
-      return `<div class="rnps-m-row"><span class="rnps-m-name rnp-fixleft" title="${U.esc(label)}" style="color:${color}">${U.esc(label)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals" style="color:${color}">${adsCells(cells.map(fn), cols, kind, false)}</span></span></div>`;
-    }).join('');
+    return adsRows(node).map(r => adsMetricRow(node, cols, cells, r, false)).join('');
   }
 
   const ADS_MBTN_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"></line><line x1="8" y1="13" x2="8" y2="4"></line><line x1="13" y1="13" x2="13" y2="9"></line></svg>';
@@ -11440,34 +11477,84 @@ const Views = (() => {
     const open = isGroup ? !adsState.collapsed[node.key] : !!adsState.open[node.key];
     const kids = node.children || [];
     const k = U.esc(node.key);
-    const head = cols.map(c => adsCell(node, c.key)[isCamp ? 'clicks' : 'visits']);
+    const head = cols.map(c => adsCell(node, c.key).views);
     let name, status = '', mbtn = '', body = '';
     if (isGroup) {
       name = `<button class="rnp-exp-btn" data-xkey="${k}" title="Раскрыть/свернуть">${open ? '▾' : '▸'}</button><span class="rnp-nm">${U.esc(node.name)}</span>`;
       const mOpen = !!adsState.metricsOpen[node.key];
       mbtn = `<button class="rnp-mbtn ${mOpen ? 'on' : ''}" data-mkey="${k}" title="Показать/скрыть показатели">${ADS_MBTN_SVG}</button>`;
-      if (mOpen) body += `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_NODE_ROWS)}</div>`;
+      if (mOpen) body += `<div class="rnp-node-body">${adsMetricRows(node, cols)}</div>`;
       if (open && kids.length) body += `<div class="rnp-children">${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
     } else if (isCamp) {
-      const st = node.campaign_status || '';
-      const stCls = st === 'Активна' ? 'ads-st-on' : 'ads-st-off';
       const tip = `Кампания №${node.campaign_id} · ${node.name} · ${(node.payment_type || '').toLowerCase()}`;
-      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-camp" title="${U.esc(tip)}"><b>РК: ${U.esc(node.placement || '—')}</b>${st ? `<span class="ads-st ${stCls}" title="Статус на момент выгрузки">${U.esc(st)}</span>` : ''}<span class="ads-camp-name">${U.esc(node.name)}</span></span>`;
-      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_CAMPAIGN_ROWS)}</div>`;
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-camp" title="${U.esc(tip)}"><b>РК: ${U.esc(node.placement || '—')}</b><span class="ads-camp-name">${U.esc(node.name)}</span></span>`;
+      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols)}</div>`;
     } else {
-      const n = node.campaigns || 0;
-      const badge = n ? `<span class="ads-badge">${n} РК</span>` : '<span class="ads-badge ads-badge-none">нет РК</span>';
-      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели и кампании">${open ? '▾' : '▸'}</button><span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(node.url || '')}" title="Открыть карточку товара">${U.esc(node.name)}</span>${badge}`;
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели и кампании">${open ? '▾' : '▸'}</button><span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(node.url || '')}" title="Открыть карточку товара">${U.esc(node.name)}</span>`;
       status = statusSelectHtml(node.name, node.status, false);
-      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols, ADS_NODE_ROWS)}${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
+      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols)}${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
     }
     return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}">
       <div class="rnp-node-head">
         <div class="rnp-node-name rnp-fixleft is-clickable" style="padding-left:${3 + 14 * depth}px">${name}</div>
         <div class="rnp-node-status rnp-fixleft">${status}</div>
         <span class="rnp-node-mbtn rnp-fixleft">${mbtn}</span>
-        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', !isGroup)}</div></div>
+        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', { heat: !isGroup })}</div></div>
       </div>${body}</div>`;
+  }
+
+  // Окно связанных заказов при наведении на ячейку: какие товары заказали через рекламу (карточка как
+  // в «Ценовой модели», .pm-tip). Список — GET /api/ads/wb/linked по кампаниям ячейки и её дням.
+  let adsTipCur = null;
+  function adsTipHide() { const t = document.getElementById('ads-tip'); if (t) t.hidden = true; }
+  function adsTipShow(el, html) {
+    let t = document.getElementById('ads-tip');
+    if (!t) { t = document.createElement('div'); t.id = 'ads-tip'; t.className = 'pm-tip ads-tip'; document.body.appendChild(t); }
+    t.innerHTML = html;
+    t.hidden = false;
+    const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
+    if (y + h > window.innerHeight - 8) y = r.top - h - 6;
+    x = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+    t.style.left = Math.round(x) + 'px';
+    t.style.top = Math.round(Math.max(8, y)) + 'px';
+  }
+  function adsTipHtml(el, items) {
+    const from = el.dataset.from, to = el.dataset.to;
+    const period = from === to ? fmtRu(from) : `${fmtRu(from)} — ${fmtRu(to)}`;
+    const total = items.reduce((s, x) => s + (x.orders || 0), 0);
+    const shown = items.slice(0, 12);
+    const rows = shown.map(x => `<div class="pm-tip-row"><span class="k" title="${U.esc(x.item_name || '')}">${U.esc(x.seller_article || '—')}</span><span class="v"><b class="n">${U.fmtNum(x.orders, 0)} шт</b> <span class="n pm-tip-dev">${U.fmtNum(x.orders_sum || 0, 0)} ₽</span></span></div>`).join('');
+    const more = items.length > shown.length ? `<div class="pm-tip-line pm-tip-dev">и ещё ${items.length - shown.length} тов.</div>` : '';
+    return `<div class="pm-tip-h"><span>Связанные заказы · ${U.esc(period)}</span><span class="pm-tip-badge ok">${U.fmtNum(total, 0)} шт</span></div>`
+      + `<div class="pm-tip-b">${rows || '<div class="pm-tip-line">Нет заказов</div>'}${more}</div>`
+      + '<div class="pm-tip-f">Заказы других товаров через рекламу (без затрат)</div>';
+  }
+  function adsTipBind(host) {
+    let timer = null;
+    host.addEventListener('mouseover', (e) => {
+      const el = e.target.closest('[data-adlink]');
+      if (el === adsTipCur) return;
+      adsTipCur = el;
+      clearTimeout(timer);
+      adsTipHide();
+      if (!el) return;
+      timer = setTimeout(async () => {
+        if (adsTipCur !== el) return;
+        adsTipShow(el, '<div class="pm-tip-h"><span>Связанные заказы</span></div><div class="pm-tip-b"><div class="pm-tip-line">Загрузка…</div></div>');
+        try {
+          const res = await API.adsWbLinked(el.dataset.adlink.split(','), el.dataset.from, el.dataset.to);
+          if (adsTipCur === el) adsTipShow(el, adsTipHtml(el, res.items || []));
+        } catch (err) {
+          if (adsTipCur === el) adsTipShow(el, `<div class="pm-tip-h"><span>Связанные заказы</span></div><div class="pm-tip-b"><div class="pm-tip-line">${U.esc(err.message)}</div></div>`);
+        }
+      }, 200);
+    });
+    host.addEventListener('mouseleave', () => { adsTipCur = null; clearTimeout(timer); adsTipHide(); });
+    if (!window.__adsTipScrollBound) {
+      window.__adsTipScrollBound = true;
+      window.addEventListener('scroll', adsTipHide, { passive: true, capture: true });
+    }
   }
 
   // Поиск и статус — на клиенте: оставляем товары, подходящие под оба фильтра, и их группы.
@@ -11543,13 +11630,19 @@ const Views = (() => {
     });
     const toggle = (btn) => {
       const x = btn.getAttribute('data-xkey'), o = btn.getAttribute('data-okey'), m = btn.getAttribute('data-mkey');
-      if (x != null) adsState.collapsed[x] = !adsState.collapsed[x];
+      const rk = btn.getAttribute('data-rkey');
+      if (rk != null) adsState.rowOpen[rk] = !adsState.rowOpen[rk];
+      else if (x != null) adsState.collapsed[x] = !adsState.collapsed[x];
       else if (o != null) adsState.open[o] = !adsState.open[o];
       else if (m != null) adsState.metricsOpen[m] = !adsState.metricsOpen[m];
       adsRenderMatrix();
     };
     host.querySelectorAll('.rnp-exp-btn, .rnp-mbtn').forEach(el => {
       el.addEventListener('click', (e) => { e.stopPropagation(); toggle(el); });
+    });
+    // Клик по названию раскрываемой строки (CR, ДРР общий) = клик по её стрелке.
+    host.querySelectorAll('.rnps-m-name[data-rkey]').forEach(el => {
+      el.addEventListener('click', (e) => { if (!e.target.closest('.rnp-exp-btn')) toggle(el); });
     });
     // Клик по имени узла = клик по стрелке; по артикулу — карточка товара на WB.
     host.querySelectorAll('.rnp-node-name').forEach(el => {
@@ -11673,7 +11766,7 @@ const Views = (() => {
     try {
       adsState.data = await API.adsWbTree({
         date_from: adsState.from, date_to: adsState.to, manager: adsState.manager,
-        placement: adsState.placement, scope: adsState.scope === 'all' ? 'all' : '',
+        placement: adsState.placement,
       });
       adsState.error = '';
       adsState.scrollEnd = true;
@@ -11693,8 +11786,6 @@ const Views = (() => {
     const mgrOpts = opt('', 'Все менеджеры', adsState.manager) + (d.managers || []).map(m => opt(m, m, adsState.manager)).join('');
     const stOpts = opt('', 'Все статусы', adsState.status) + STATUS_PRESETS.map(s => opt(s, s, adsState.status)).join('');
     const plOpts = opt('', 'Все места показа', adsState.placement) + (d.placements || []).map(p => opt(p, p, adsState.placement)).join('');
-    const scOpts = opt('ads', 'Товары с рекламой', adsState.scope) + opt('all', 'Все товары', adsState.scope);
-    const upd = d.updated_at ? ` · статистика WB на ${new Date(d.updated_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '';
     adsState.from = adsState.from || d.date_from;
     adsState.to = adsState.to || d.date_to;
     root.innerHTML = `
@@ -11706,7 +11797,6 @@ const Views = (() => {
             <select class="input-sm" id="ads-mgr">${mgrOpts}</select>
             <select class="input-sm" id="ads-status">${stOpts}</select>
             <select class="input-sm" id="ads-placement">${plOpts}</select>
-            <select class="input-sm" id="ads-scope">${scOpts}</select>
             <button class="btn-sm" id="ads-expand">Развернуть всё</button>
             <button class="btn-sm" id="ads-collapse">Свернуть всё</button>
             <div class="rnp-period" id="ads-period">
@@ -11719,7 +11809,7 @@ const Views = (() => {
           </div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">Реклама по дням Wildberries <span class="ads-sub">· в строке товара — переходы в карточку (РНП), у кампании — клики${U.esc(upd)}</span></div>
+          <div class="rnp-card-title">Реклама по дням Wildberries</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             <span class="rnp-status-leg rnp-fixleft">Статус</span>
@@ -11741,7 +11831,6 @@ const Views = (() => {
     root.querySelector('#ads-status').addEventListener('change', (e) => { adsState.status = e.target.value; adsRenderMatrix(); });
     root.querySelector('#ads-mgr').addEventListener('change', (e) => { adsState.manager = e.target.value; reload(); });
     root.querySelector('#ads-placement').addEventListener('change', (e) => { adsState.placement = e.target.value; reload(); });
-    root.querySelector('#ads-scope').addEventListener('change', (e) => { adsState.scope = e.target.value; reload(); });
     // Как в РНП: «Развернуть всё» — дерево до товаров (показатели товаров не открываются),
     // «Свернуть всё» — только «Итоги» с группами первого уровня, показатели закрыты.
     root.querySelector('#ads-expand').addEventListener('click', () => {
@@ -11749,12 +11838,13 @@ const Views = (() => {
       adsRenderMatrix();
     });
     root.querySelector('#ads-collapse').addEventListener('click', () => {
-      adsState.collapsed = {}; adsState.open = {}; adsState.metricsOpen = {};
+      adsState.collapsed = {}; adsState.open = {}; adsState.metricsOpen = {}; adsState.rowOpen = {};
       adsWalk(d.tree, n => { if (n.kind === 'group') adsState.collapsed[n.key] = true; });
       adsRenderMatrix();
     });
     bindAdsPeriod(root.querySelector('.rnp-filters-host'), () => { adsState.monthsOpen = null; reload(); });
     alignRnpToolbarPeriod(root, 'ads-subtabs', 'ads-period');
+    adsTipBind(root.querySelector('#ads-matrix'));
     adsRenderMatrix();
   }
 
@@ -11770,10 +11860,14 @@ const Views = (() => {
           <div class="upload-zone" id="uz-adswb">
             <div style="font-size:28px;">⬆️</div>
             <div>Перетащите Excel сюда или <a href="#" id="pick-adswb">выберите файл</a></div>
-            <div class="muted" style="font-size:12px;margin-top:6px;">«Дашборд - рекламная статистика», .xlsx · кампании, поисковые кластеры, справочник товаров</div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">«Дашборд - рекламная статистика», .xlsx · кампании, воронка карточек, поисковые кластеры, справочник товаров</div>
             <input type="file" id="file-adswb" accept=".xlsx,.xls" class="hidden">
           </div>
           <div class="muted fact-date-hint">Даты берутся из файла. Дни из файла перезаписываются целиком: WB дописывает заказы и отмены за прошлые дни, поэтому каждая новая выгрузка уточняет уже загруженные дни. Реклама в РНП по-прежнему берётся из отчёта 1С.</div>
+          <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
+            Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1UM58THnOuTdJfom7ii4qbjLPTJ20vYV7lT918Dee6rU/edit?gid=2144630957#gid=2144630957" target="_blank" rel="noopener noreferrer"
+              title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">Дашборд - рекламная статистика</a>
+          </div>
         </div>
       </div>
       <div class="card">

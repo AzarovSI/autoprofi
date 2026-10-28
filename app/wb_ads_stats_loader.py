@@ -4,13 +4,14 @@
 Файл владельца со статистикой рекламных кампаний WB за последние дни (обычно 5). Листы — по имени:
   • «Статистика кампаний»  → wb_ads_campaign_daily (день × кампания × артикул WB) — обязательный;
   • «Поисковые кластеры»   → wb_ads_cluster_daily  (день × кампания × запрос) — если есть;
+  • «Воронка»              → wb_ads_funnel_daily   (день × артикул WB: карточка в целом) — если есть;
   • «_Справочник товаров»  → wb_ads_items          (артикул WB → артикул продавца) — если есть.
 Колонки ищутся по заголовку. Загружаются все колонки листов.
 
 Режим: дни листа перезаписываются целиком — WB дописывает заказы, корзины и отмены за прошлые дни,
 а в новой выгрузке появляются строки за уже загруженные дни. Справочник — UPSERT по артикулу WB.
-«CTR, %» и «CR, %» в файле — процентные пункты числом (формат General; CTR сверен с
-клики / показы) → в БД доли 0..1. «Статус» — снимок на момент выгрузки.
+«CTR, %», «CR, %», конверсии и процент выкупа «Воронки» в файле — процентные пункты числом (формат
+General; CTR сверен с клики / показы, конверсии — с корзины / переходы и заказы / корзины) → в БД доли 0..1. «Статус» — снимок на момент выгрузки.
 Пустой «Артикул продавца» берётся из справочника этого файла, затем из wb_ads_items, затем
 из wb_daily_sales.nm_id. Дубли ключа на листе отклоняют всю загрузку.
 
@@ -29,12 +30,14 @@ PERIOD_KIND = "wb_ads_stats"
 SHEET_CAMPAIGNS = "Статистика кампаний"
 SHEET_CLUSTERS = "Поисковые кластеры"
 SHEET_ITEMS = "_Справочник товаров"
+SHEET_FUNNEL = "Воронка"
 
 CAMPAIGN_REQUIRED = ["Дата", "ID кампании", "Артикул WB", "Товар в кампании",
                      "Показы", "Клики", "Затраты", "Заказы"]
 CLUSTER_REQUIRED = ["Дата", "ID кампании", "Артикул WB", "Поисковый кластер",
                     "Клики", "Затраты"]
 ITEMS_REQUIRED = ["Артикул WB", "Артикул продавца"]
+FUNNEL_REQUIRED = ["Дата", "Артикул WB", "Переходы в карточку", "Корзины", "Заказы, шт", "Заказы, сумма"]
 
 # (колонка БД, заголовок, тип): t — текст, n — число, p — проценты в пунктах → доля, ts — дата-время.
 CAMPAIGN_COLS = [
@@ -57,6 +60,16 @@ CLUSTER_COLS = [
     ("cpc", "CPC", "n"), ("cpm", "CPM", "n"), ("spend", "Затраты", "n"),
     ("atbs", "Корзины", "n"), ("orders", "Заказы", "n"), ("ordered_qty", "Заказано, шт", "n"),
     ("avg_position", "Средняя позиция", "n"), ("source_updated_at", "Обновлено", "ts"),
+]
+FUNNEL_COLS = [
+    ("item_name", "Название товара", "t"), ("brand", "Бренд", "t"), ("subject", "Предмет", "t"),
+    ("visits", "Переходы в карточку", "n"), ("carts", "Корзины", "n"), ("deferred", "Отложенные", "n"),
+    ("orders", "Заказы, шт", "n"), ("orders_sum", "Заказы, сумма", "n"),
+    ("buyouts", "Выкупы, шт", "n"), ("buyouts_sum", "Выкупы, сумма", "n"),
+    ("cancels", "Отмены и возвраты, шт", "n"), ("cancels_sum", "Отмены и возвраты, сумма", "n"),
+    ("buyout_pct", "Процент выкупа", "p"), ("cr_cart_pct", "Конверсия в корзину, %", "p"),
+    ("cr_order_pct", "Конверсия в заказ, %", "p"), ("avg_price", "Средняя цена", "n"),
+    ("currency", "Валюта", "t"), ("source_updated_at", "Обновлено", "ts"),
 ]
 PAGE = 500
 
@@ -100,33 +113,36 @@ def _sheet(wb, name):
 
 def _read_book(path):
     wb = CalamineWorkbook.from_path(path)
-    return {name: _sheet(wb, name) for name in (SHEET_CAMPAIGNS, SHEET_CLUSTERS, SHEET_ITEMS)}
+    return {name: _sheet(wb, name) for name in (SHEET_CAMPAIGNS, SHEET_CLUSTERS, SHEET_FUNNEL, SHEET_ITEMS)}
 
 
 def _missing(idx, required):
     return [n for n in required if n not in idx]
 
 
-def _parse(data, key_cols, cols):
-    """Строки листа → ({ключ: {колонка: значение}}, пропущено, дубли). Ключ — (date, campaign_id, nm_id[, cluster])."""
+def _parse(data, key_cols, cols, ids=("ID кампании", "Артикул WB")):
+    """Строки листа → ({ключ: {колонка: значение}}, пропущено, дубли).
+    Ключ — (date, *ids[, текстовые key_cols]): (date, campaign_id, nm_id[, cluster]) или (date, nm_id) у «Воронки»."""
     idx = _build_colidx(data[0])
     rows, skipped, dups = {}, 0, 0
     for r in data[1:]:
         def cell(name):
             i = idx.get(name)
             return r[i] if (i is not None and i < len(r)) else None
-        d, cid, nm = _to_date(cell("Дата")), _to_id(cell("ID кампании")), _to_id(cell("Артикул WB"))
+        d = _to_date(cell("Дата"))
+        nums = tuple(_to_id(cell(h)) for h in ids)
         extra = tuple(_text(cell(h)) for h in key_cols)
-        if d is None or cid is None or nm is None or None in extra:
+        if d is None or None in nums or None in extra:
             if any(v not in (None, "") for v in r):
                 skipped += 1
             continue
-        key = (d, cid, nm) + extra
+        key = (d,) + nums + extra
         if key in rows:
             dups += 1
             continue
         row = {c: _value(cell(h), kind) for c, h, kind in cols if h in idx}
         row["seller_article"] = canon_article(cell("Артикул продавца")) or None
+        row["nm_id"] = nums[-1]
         rows[key] = row
     return rows, skipped, dups
 
@@ -172,6 +188,7 @@ def load_wb_ads_stats(conn, path):
         return _fail(conn, path, f"ОШИБКА ФОРМАТА: нет листа «{SHEET_CAMPAIGNS}» или он пустой.")
     for data, name, required in ((camp_data, SHEET_CAMPAIGNS, CAMPAIGN_REQUIRED),
                                  (book[SHEET_CLUSTERS], SHEET_CLUSTERS, CLUSTER_REQUIRED),
+                                 (book[SHEET_FUNNEL], SHEET_FUNNEL, FUNNEL_REQUIRED),
                                  (book[SHEET_ITEMS], SHEET_ITEMS, ITEMS_REQUIRED)):
         if data:
             miss = _missing(_build_colidx(data[0]), required)
@@ -181,9 +198,11 @@ def load_wb_ads_stats(conn, path):
     camps, camp_skipped, camp_dups = _parse(camp_data, (), CAMPAIGN_COLS)
     clusters, cl_skipped, cl_dups = (_parse(book[SHEET_CLUSTERS], ("Поисковый кластер",), CLUSTER_COLS)
                                      if book[SHEET_CLUSTERS] else ({}, 0, 0))
-    if camp_dups or cl_dups:
-        return _fail(conn, path, f"Дубли строк (дата + кампания + артикул WB{' + кластер' if cl_dups else ''}): "
-                                 f"кампании — {camp_dups}, кластеры — {cl_dups}. Загрузка отклонена.")
+    funnel, fn_skipped, fn_dups = (_parse(book[SHEET_FUNNEL], (), FUNNEL_COLS, ids=("Артикул WB",))
+                                   if book[SHEET_FUNNEL] else ({}, 0, 0))
+    if camp_dups or cl_dups or fn_dups:
+        return _fail(conn, path, f"Дубли строк (дата + [кампания +] артикул WB [+ кластер]): кампании — {camp_dups}, "
+                                 f"кластеры — {cl_dups}, воронка — {fn_dups}. Загрузка отклонена.")
     if not camps:
         return _fail(conn, path, "На листе «Статистика кампаний» нет ни одной строки с датой, кампанией и артикулом WB.")
 
@@ -199,7 +218,8 @@ def load_wb_ads_stats(conn, path):
 
     camp_dates = sorted({k[0] for k in camps})
     cl_dates = sorted({k[0] for k in clusters})
-    all_dates = sorted(set(camp_dates) | set(cl_dates))
+    fn_dates = sorted({k[0] for k in funnel})
+    all_dates = sorted(set(camp_dates) | set(cl_dates) | set(fn_dates))
     d0, d1 = all_dates[0], all_dates[-1]
     period_text = d0.strftime("%d.%m.%Y") if d0 == d1 else f"{d0.strftime('%d.%m.%Y')} - {d1.strftime('%d.%m.%Y')}"
 
@@ -214,7 +234,8 @@ def load_wb_ads_stats(conn, path):
     try:
         with conn.cursor() as cur:
             # Артикул продавца для строк без него: справочник файла → wb_ads_items → воронка РНП.
-            need = {k[2] for k, v in list(camps.items()) + list(clusters.items()) if not v["seller_article"]}
+            sheets = list(camps.values()) + list(clusters.values()) + list(funnel.values())
+            need = {v["nm_id"] for v in sheets if not v["seller_article"]}
             known = {nm: art for nm, (art, _) in items.items()}
             rest = sorted(need - set(known))
             if rest:
@@ -226,11 +247,11 @@ def load_wb_ads_stats(conn, path):
                             "WHERE nm_id = ANY(%s) AND seller_article IS NOT NULL ORDER BY nm_id, date DESC", (rest,))
                 known.update({nm: canon_article(a) for nm, a in cur.fetchall()})
             no_article = set()
-            for k, v in list(camps.items()) + list(clusters.items()):
+            for v in sheets:
                 if not v["seller_article"]:
-                    v["seller_article"] = known.get(k[2])
+                    v["seller_article"] = known.get(v["nm_id"])
                     if not v["seller_article"]:
-                        no_article.add(k[2])
+                        no_article.add(v["nm_id"])
 
             item_rows = list(items.items())
             for i in range(0, len(item_rows), PAGE):
@@ -255,15 +276,21 @@ def load_wb_ads_stats(conn, path):
                         ["date", "campaign_id", "nm_id", "cluster", "seller_article", "upload_id"] + kcols,
                         [[d, cid, nm, cl, v["seller_article"], upload_id] + [v.get(c) for c in kcols]
                          for (d, cid, nm, cl), v in clusters.items()])
+            if funnel:
+                cur.execute("DELETE FROM wb_ads_funnel_daily WHERE date = ANY(%s)", (fn_dates,))
+                fcols = [c for c, _, _ in FUNNEL_COLS]
+                _insert(cur, "wb_ads_funnel_daily", ["date", "nm_id", "seller_article", "upload_id"] + fcols,
+                        [[d, nm, v["seller_article"], upload_id] + [v.get(c) for c in fcols]
+                         for (d, nm), v in funnel.items()])
 
             msg = (f"Даты {period_text}; кампании: {len(camps)} строк за {len(camp_dates)} дн.; "
-                   f"кластеры: {len(clusters)} строк; справочник: {len(items)} товаров")
-            if camp_skipped or cl_skipped:
-                msg += f"; пропущено строк без даты/кампании/артикула: {camp_skipped + cl_skipped}"
+                   f"кластеры: {len(clusters)} строк; воронка: {len(funnel)} строк; справочник: {len(items)} товаров")
+            if camp_skipped or cl_skipped or fn_skipped:
+                msg += f"; пропущено строк без даты/кампании/артикула: {camp_skipped + cl_skipped + fn_skipped}"
             if no_article:
                 msg += f"; без артикула продавца (артикулы WB): {len(no_article)}"
             cur.execute("UPDATE report_uploads SET rows_loaded=%s, status='OK', message=%s WHERE id=%s",
-                        (len(camps) + len(clusters), msg[:500], upload_id))
+                        (len(camps) + len(clusters) + len(funnel), msg[:500], upload_id))
         conn.commit()
     except Exception as exc:
         try:
@@ -287,10 +314,11 @@ def load_wb_ads_stats(conn, path):
         "marketplace": MP_NAME,
         "campaign_rows": len(camps),
         "cluster_rows": len(clusters),
+        "funnel_rows": len(funnel),
         "items": len(items),
         "dates": [d.isoformat() for d in camp_dates],
         "period_text": period_text,
-        "skipped": camp_skipped + cl_skipped,
+        "skipped": camp_skipped + cl_skipped + fn_skipped,
         "no_article": sorted(no_article),
         "upload_id": upload_id,
     }

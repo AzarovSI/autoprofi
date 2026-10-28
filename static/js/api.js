@@ -295,6 +295,13 @@ const API = (() => {
     },
     // Дерево отчёта «Реклама → Wildberries».
     adsWbTree: (p) => cget('/api/ads/wb/tree' + qs(p)),
+    // Связанные заказы кампаний за период (окно при наведении): campaign_id повторяется.
+    adsWbLinked: (ids, from, to) => {
+      const p = new URLSearchParams();
+      ids.forEach(id => p.append('campaign_id', id));
+      p.append('date_from', from); p.append('date_to', to);
+      return cget('/api/ads/wb/linked?' + p.toString());
+    },
     // Загрузка отчёта мониторинга цен конкурентов Ozon (PriceVA, .xlsx).
     // Даты в файле нет — передаём отдельно (дата мониторинга).
     uploadOzonPriceva: (file, reportDate) => {

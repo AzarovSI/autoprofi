@@ -103,6 +103,7 @@
 |---|---|---|---:|
 | `wb_ads_campaign_daily` | Статистика рекламы WB (лист «Статистика кампаний» файла «Дашборд - рекламная статистика»): день × кампания × артикул WB, все колонки файла; `in_campaign` — рекламируемый товар, false — «связанный заказ» другого товара; `ctr_pct`/`cr_pct` — доли; `campaign_status` — снимок на момент выгрузки | PK `(date, campaign_id, nm_id)`; индекс `(seller_article, date)` | с 28.10.2026 |
 | `wb_ads_cluster_daily` | Поисковые кластеры WB: день × кампания × запрос; у кампаний «за клики» показов, CTR, CPM нет (NULL) | PK `(date, campaign_id, nm_id, cluster)` | с 28.10.2026 |
+| `wb_ads_funnel_daily` | Лист «Воронка» файла A1: карточка WB в целом по дням — переходы, корзины, отложенные, заказы, выкупы, отмены и возвраты (шт, ₽), процент выкупа, конверсии (доли), средняя цена, бренд, предмет | PK `(date, nm_id)`; индекс `(seller_article, date)` | с 29.10.2026 |
 | `wb_ads_items` | Справочник файла: артикул WB → артикул продавца (последняя загрузка) | PK `nm_id` | с 28.10.2026 |
 
 ### Журналы
@@ -163,6 +164,7 @@
 | `migrations/2026_10_27_ads_section.sql` | Права №116–119 раздела «Реклама» роли «Маркетинг» | `permissions.migrate_ads()` на старте (после миграции ролей). Только INSERT в `app_role_permissions` — применилась при выкладке 27.10.2026 под `autoprofi_app` |
 | `migrations/2026_10_28_wb_ads_stats.sql` | `wb_ads_campaign_daily`, `wb_ads_cluster_daily`, `wb_ads_items`; права №120–121 роли «Маркетинг» | `ads_router.migrate()` на старте (после `…_ads_section`). В рабочей БД применена 28.10.2026 11:23 МСК под `gen_user` до выкладки (запустил Claude по «выкладывай» владельца, одной транзакцией с записью в `app_schema_migrations`); права `autoprofi_app` (чтение/запись) и `autoprofi_ro` (чтение) на новые таблицы проверены |
 | `migrations/2026_10_28_users_disabled.sql` | `app_users.disabled_at` — отключение пользователей вместо удаления | `users_router.migrate()` на старте (первой: `auth.load_user` читает колонку). ALTER — в рабочей БД применена 28.10.2026 12:35 МСК под `gen_user` до выкладки (запустил владелец, одной транзакцией с записью в `app_schema_migrations`); строки не менялись (9 пользователей, все активны); права `autoprofi_app` (чтение/запись) и `autoprofi_ro` (чтение) на колонку проверены |
+| `migrations/2026_10_29_wb_ads_funnel.sql` | `wb_ads_funnel_daily` (лист «Воронка» файла рекламы) | `ads_router.migrate()` на старте (список `MIGRATIONS`, после `…_wb_ads_stats`). Создаёт таблицу — в рабочей БД применять под `gen_user` до выкладки. **На 29.10 в рабочую БД не применена** |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
 | `migrate_incidents.py` | `wb_wh_incidents` + перенос старых статусов `incident` из `wb_warehouses` | Уже выполнена, повторно не запускать; не учтена |
 

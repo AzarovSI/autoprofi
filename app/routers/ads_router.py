@@ -1,25 +1,30 @@
 # -*- coding: utf-8 -*-
 """Раздел «Реклама» (с 27.10.2026): отчёт по рекламе Wildberries.
 
-Источники: wb_ads_campaign_daily (файл «Дашборд - рекламная статистика», app/wb_ads_stats_loader.py),
-wb_daily_sales (переходы и заказы РНП WB), catalog_items (L1–L3), catalog_marketplace (статус,
-менеджер, ссылка WB).
+Источник — файл «Дашборд - рекламная статистика» (app/wb_ads_stats_loader.py): wb_ads_campaign_daily
+(кампании по дням) и wb_ads_funnel_daily (лист «Воронка» — карточка в целом); плюс catalog_items (L1–L3),
+catalog_marketplace (статус, менеджер, ссылка WB) и price_model_hist (плановый ДРР WB).
 
+Отчёт — только о рекламе (решение владельца 29.10.2026): в дереве товары со своими кампаниями за период.
 Дерево: Итоги → L1 → L2 → L3 → товар → кампании товара. Товар без L1–L3 — в группе «Не распределены».
-Ячейка узла — массив сумм в порядке FIELDS (доли и ДРР считает фронт). Доли рекламы считаются только
-по дням, за которые статистика рекламы загружена (есть хоть одна строка за дату), и где у товара есть
-знаменатель из РНП: visits_a / orders_qty_a / orders_rub_a — РНП за такие дни; clicks_v — клики в дни
-с переходами, ad_orders_q — рекламные заказы в дни с заказами РНП, spend_r — расходы в дни с суммой
-заказов РНП. Иначе дни до первой загрузки рекламы занижали бы долю в итоге месяца.
-NULL ≠ 0: нет строк рекламы или РНП — null; 0 из файла — 0.
+Ячейка узла — массив сумм в порядке FIELDS (доли, CR и ДРР считает фронт):
+  • реклама: показы, клики, корзины, заказы, сумма заказов, расходы, отмены; linked — заказы других товаров
+    через кампании («Нет, связанный заказ»); у товара — сумма по его кампаниям;
+  • карточка (лист «Воронка»): f_visits, f_carts, f_orders — для CR карточки; у кампании — те же значения
+    её товара;
+  • доля в заказах и ДРР общий — только за дни, где загружены и реклама, и воронка карточки:
+    f_orders_a / f_rub_a — карточка за такие дни, orders_f / spend_f — реклама в дни с воронкой.
+Плановый ДРР — у товара, `plan`: {день или месяц: доля}; у месяца — план на последний день периода в месяце.
+NULL ≠ 0: нет строк — null; 0 из файла — 0.
 
 Эндпоинты:
-  GET /api/ads/wb/tree?date_from=&date_to=&manager=&placement=&scope=ads|all
+  GET /api/ads/wb/tree?date_from=&date_to=&manager=&placement=
+  GET /api/ads/wb/linked?campaign_id=…&campaign_id=…&date_from=&date_to=   — связанные заказы списком
 """
 import datetime
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -28,27 +33,27 @@ from ..util import canon_article
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
-MIGRATION = "2026_10_28_wb_ads_stats"
+MIGRATIONS = ["2026_10_28_wb_ads_stats", "2026_10_29_wb_ads_funnel"]
 UNDISTRIBUTED = "Не распределены"
-FIELDS = ("visits", "orders_qty", "orders_rub", "views", "clicks", "spend", "atbs", "ad_orders",
-          "ad_qty", "ad_sum", "cancels", "linked", "clicks_v", "ad_orders_q", "spend_r",
-          "visits_a", "orders_qty_a", "orders_rub_a")
-RNP_FIELDS = ("visits", "orders_qty", "orders_rub")
-AD_FIELDS = ("views", "clicks", "spend", "atbs", "ad_orders", "ad_qty", "ad_sum", "cancels")
+FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "cancels", "linked",
+          "f_visits", "f_carts", "f_orders", "f_orders_a", "f_rub_a", "orders_f", "spend_f")
+AD_FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "cancels")
+FUNNEL_FIELDS = ("f_visits", "f_carts", "f_orders", "f_orders_a", "f_rub_a")
 PLACEMENT_ORDER = {"Поиск": 0, "Поиск + рекомендации": 1, "Рекомендации": 2}
 MONTHS_RU = ("Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август",
              "Сентябрь", "Октябрь", "Ноябрь", "Декабрь")
 
 
 def migrate():
-    """Таблицы статистики рекламы WB и права №120–121: один раз, после permissions.migrate()."""
+    """Миграции раздела по порядку: каждая один раз, после permissions.migrate()."""
     with db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(28102026, 0)")
-        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
-            return
-        path = Path(__file__).resolve().parents[2] / "migrations" / (MIGRATION + ".sql")
-        tx.conn.execute(path.read_text(encoding="utf-8"))
-        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
+        for name in MIGRATIONS:
+            if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (name,)):
+                continue
+            path = Path(__file__).resolve().parents[2] / "migrations" / (name + ".sql")
+            tx.conn.execute(path.read_text(encoding="utf-8"))
+            tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (name,))
 
 
 def _date(value, name):
@@ -123,25 +128,32 @@ def _period(date_from, date_to):
     return d0, d1
 
 
+def _plan_on(hist, d):
+    """Плановый ДРР, действующий на дату: последняя запись истории с датой ≤ d."""
+    v = None
+    for pd, pv in hist:
+        if pd <= d:
+            v = pv
+    return v
+
+
 @router.get("/wb/tree")
 def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             manager: Optional[str] = None, placement: Optional[str] = None,
-            scope: str = Query("ads", pattern="^(ads|all)$"),
             user=Depends(auth.require_tabs("ads", "Wildberries"))):
     d0, d1 = _period(_date(date_from, "date_from"), _date(date_to, "date_to"))
 
     ad_rows = db.query_all(
-        """SELECT date, campaign_id, seller_article, in_campaign, placement,
-                  sum(views) views, sum(clicks) clicks, sum(spend) spend, sum(atbs) atbs,
-                  sum(orders) ad_orders, sum(ordered_qty) ad_qty, sum(orders_sum) ad_sum,
-                  sum(cancels_qty) cancels
+        """SELECT date, campaign_id, seller_article, in_campaign,
+                  sum(views) views, sum(clicks) clicks, sum(atbs) carts, sum(orders) orders,
+                  sum(orders_sum) ad_sum, sum(spend) spend, sum(cancels_qty) cancels
            FROM wb_ads_campaign_daily
            WHERE date BETWEEN %s AND %s AND (%s::text IS NULL OR placement = %s)
-           GROUP BY 1, 2, 3, 4, 5""",
+           GROUP BY 1, 2, 3, 4""",
         (d0, d1, placement or None, placement or None))
-    rnp_rows = db.query_all(
-        "SELECT date, seller_article, card_visits AS visits, orders_qty, orders_rub "
-        "FROM wb_daily_sales WHERE date BETWEEN %s AND %s", (d0, d1))
+    funnel_rows = db.query_all(
+        "SELECT date, seller_article, sum(visits) visits, sum(carts) carts, sum(orders) orders, "
+        "sum(orders_sum) orders_sum FROM wb_ads_funnel_daily WHERE date BETWEEN %s AND %s GROUP BY 1, 2", (d0, d1))
     ad_dates = {r["date"] for r in db.query_all(
         "SELECT DISTINCT date FROM wb_ads_campaign_daily WHERE date BETWEEN %s AND %s", (d0, d1))}
     placements = [r["placement"] for r in db.query_all(
@@ -150,10 +162,9 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
     placements.sort(key=lambda p: (PLACEMENT_ORDER.get(p, 9), p))
 
     camp_ids = sorted({r["campaign_id"] for r in ad_rows if r["in_campaign"]})
-    # Название, место и статус — по последней выгрузке кампании (статус в файле — снимок «сейчас»).
+    # Название и место — по последней выгрузке кампании.
     campaigns = {r["campaign_id"]: r for r in db.query_all(
-        """SELECT DISTINCT ON (campaign_id) campaign_id, campaign_name, placement, campaign_status,
-                  payment_type, source_updated_at
+        """SELECT DISTINCT ON (campaign_id) campaign_id, campaign_name, placement, payment_type
            FROM wb_ads_campaign_daily WHERE campaign_id = ANY(%s) AND in_campaign
            ORDER BY campaign_id, source_updated_at DESC NULLS LAST, date DESC""", (camp_ids,))} if camp_ids else {}
     cat = {canon_article(r["seller_article"]): r for r in db.query_all(
@@ -161,31 +172,42 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
                   cm.status, cm.manager, cm.product_url
            FROM catalog_items ci
            LEFT JOIN catalog_marketplace cm ON cm.seller_article = ci.seller_article AND cm.marketplace = 'Wildberries'""")}
-    updated = db.query_one("SELECT max(source_updated_at) AS t FROM wb_ads_campaign_daily")
+    plans = defaultdict(list)
+    for r in db.query_all("SELECT seller_article, date, value FROM price_model_hist "
+                          "WHERE marketplace = 'Wildberries' AND param = 'drr_pct' AND date <= %s ORDER BY date", (d1,)):
+        plans[canon_article(r["seller_article"])].append((r["date"], _num(r["value"])))
 
-    # Свод по товару и дню.
-    rnp = defaultdict(dict)
-    for r in rnp_rows:
-        rnp[canon_article(r["seller_article"])][r["date"]] = r
+    funnel = defaultdict(dict)                         # товар → день → воронка карточки
+    for r in funnel_rows:
+        funnel[canon_article(r["seller_article"])][r["date"]] = r
     own = defaultdict(lambda: defaultdict(dict))      # товар → кампания → день → строка
-    linked_in = defaultdict(lambda: defaultdict(float))
     linked_out = defaultdict(lambda: defaultdict(float))
     for r in ad_rows:
-        art = canon_article(r["seller_article"])
         if r["in_campaign"]:
-            own[art][r["campaign_id"]][r["date"]] = r
+            own[canon_article(r["seller_article"])][r["campaign_id"]][r["date"]] = r
         else:
-            linked_in[art][r["date"]] += float(r["ad_orders"] or 0)
-            linked_out[r["campaign_id"]][r["date"]] += float(r["ad_orders"] or 0)
+            linked_out[r["campaign_id"]][r["date"]] += float(r["orders"] or 0)
 
-    arts = set(own)
-    if scope == "all":
-        arts |= {a for a, days in rnp.items()
-                 if any((d.get("visits") or 0) > 0 or (d.get("orders_qty") or 0) > 0 for d in days.values())}
-        arts |= set(linked_in)
-    arts.discard("")
+    arts = set(own) - {""}
     if manager:
         arts = {a for a in arts if ((cat.get(a) or {}).get("manager") or "") == manager}
+
+    def add_funnel(cell, fd, d):
+        """Воронка карточки за день в ячейку товара или кампании."""
+        cell.add("f_visits", fd.get("visits"))
+        cell.add("f_carts", fd.get("carts"))
+        cell.add("f_orders", fd.get("orders"))
+        if d in ad_dates:
+            cell.add("f_orders_a", fd.get("orders"))
+            cell.add("f_rub_a", fd.get("orders_sum"))
+
+    def add_ads(cell, r, fd):
+        for f in AD_FIELDS:
+            cell.add(f, r[f])
+        if fd.get("orders") is not None:
+            cell.add("orders_f", r["orders"])
+        if fd.get("orders_sum") is not None:
+            cell.add("spend_f", r["spend"])
 
     root = Node("__root__", "Итоги", 0, "root")
     days = set()
@@ -202,46 +224,33 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             node = node.child(key, UNDISTRIBUTED, "group")
         pkey = f"{key}|{art}"
         prod = node.child(pkey, art, "product", status=c.get("status"), manager=c.get("manager"),
-                          url=c.get("product_url"), campaigns=len(own.get(art, {})))
-        # РНП: переходы, заказы — и знаменатели долей рекламы.
-        rnp_days = rnp.get(art, {})
-        ad_by_day = defaultdict(lambda: defaultdict(float))
-        for cid, by_day in own.get(art, {}).items():
+                          url=c.get("product_url"))
+        fdays = funnel.get(art, {})
+        for cid, by_day in own[art].items():
             info = campaigns.get(cid) or {}
             camp = prod.child(f"{pkey}|c{cid}", info.get("campaign_name") or str(cid), "campaign",
-                              campaign_id=cid, placement=info.get("placement"),
-                              campaign_status=info.get("campaign_status"), payment_type=info.get("payment_type"))
+                              campaign_id=cid, placement=info.get("placement"), payment_type=info.get("payment_type"))
             for d, r in by_day.items():
                 days.add(d)
-                cell = camp.cells[d.isoformat()]
-                for f in AD_FIELDS:
-                    cell.add(f, r[f])
-                    ad_by_day[d][f] += float(r[f] or 0)
+                fd = fdays.get(d) or {}
+                add_ads(camp.cells[d.isoformat()], r, fd)
+                add_ads(prod.cells[d.isoformat()], r, fd)
             for d, n in linked_out.get(cid, {}).items():
+                days.add(d)
                 camp.cells[d.isoformat()].add("linked", n)
-        for d, r in rnp_days.items():
+                prod.cells[d.isoformat()].add("linked", n)
+        for d, fd in fdays.items():
+            if d not in ad_dates:
+                continue                               # день без загруженной рекламы — не колонка отчёта
             days.add(d)
-            cell = prod.cells[d.isoformat()]
-            for f in RNP_FIELDS:
-                cell.add(f, r[f])
-                if d in ad_dates:
-                    cell.add(f + "_a", r[f])
-        for d, s in ad_by_day.items():
-            cell = prod.cells[d.isoformat()]
-            for f in AD_FIELDS:
-                cell.add(f, s[f])
-            r = rnp_days.get(d) or {}
-            if r.get("visits") is not None:
-                cell.add("clicks_v", s["clicks"])
-            if r.get("orders_qty") is not None:
-                cell.add("ad_orders_q", s["ad_orders"])
-            if r.get("orders_rub") is not None:
-                cell.add("spend_r", s["spend"])
-        for d, n in linked_in.get(art, {}).items():
-            days.add(d)
-            prod.cells[d.isoformat()].add("linked", n)
+            add_funnel(prod.cells[d.isoformat()], fd, d)
+            for camp in prod.children.values():
+                add_funnel(camp.cells[d.isoformat()], fd, d)
+        hist = plans.get(art)
+        if hist:
+            prod.extra["plan"] = {}
 
-    # Месяцы — суммы дней; группы и «Итоги» — суммы товаров.
+    # Месяцы — суммы дней; группы и «Итоги» — суммы товаров (кампании не складываются: они уже в товаре).
     def roll(node):
         for k, cell in list(node.cells.items()):
             if len(k) == 10:
@@ -263,10 +272,36 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             months.append({"key": mk, "label": f"{MONTHS_RU[d.month - 1]} {d.year}", "days": []})
         months[-1]["days"].append({"key": d.isoformat(), "label": d.strftime("%d")})
 
+    # Плановый ДРР товара: по дням — действующий на день, по месяцу — на последний день месяца в отчёте.
+    def fill_plans(node):
+        if node.kind == "product" and "plan" in node.extra:
+            hist = plans[node.name]
+            for m in months:
+                for dd in m["days"]:
+                    node.extra["plan"][dd["key"]] = _plan_on(hist, datetime.date.fromisoformat(dd["key"]))
+                node.extra["plan"][m["key"]] = _plan_on(hist, datetime.date.fromisoformat(m["days"][-1]["key"]))
+        for ch in node.children.values():
+            fill_plans(ch)
+    fill_plans(root)
+
     return {
         "date_from": d0.isoformat(), "date_to": d1.isoformat(),
         "fields": list(FIELDS), "months": months, "placements": placements,
-        "managers": sorted({(cat.get(a) or {}).get("manager") for a in set(own) | set(rnp)} - {None, ""}),
-        "updated_at": updated["t"].isoformat() if updated and updated["t"] else None,
+        "managers": sorted({(cat.get(a) or {}).get("manager") for a in own} - {None, ""}),
         "tree": root.out(),
     }
+
+
+@router.get("/wb/linked")
+def wb_linked(campaign_id: List[int] = Query(...), date_from: str = Query(...), date_to: str = Query(...),
+              user=Depends(auth.require_tabs("ads", "Wildberries"))):
+    """Связанные заказы кампаний за период: какие товары заказали через их рекламу (без затрат)."""
+    d0, d1 = _date(date_from, "date_from"), _date(date_to, "date_to")
+    rows = db.query_all(
+        """SELECT seller_article, max(item_name) AS item_name, sum(orders) AS orders, sum(orders_sum) AS orders_sum
+           FROM wb_ads_campaign_daily
+           WHERE NOT in_campaign AND campaign_id = ANY(%s) AND date BETWEEN %s AND %s
+           GROUP BY seller_article HAVING sum(orders) > 0
+           ORDER BY sum(orders) DESC, seller_article""", (campaign_id[:50], d0, d1))
+    return {"items": [{"seller_article": r["seller_article"], "item_name": r["item_name"],
+                       "orders": _num(r["orders"]), "orders_sum": _num(r["orders_sum"])} for r in rows]}
