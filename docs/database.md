@@ -30,7 +30,7 @@
 
 | Таблица | Назначение | Ключ / грануляция | Строк |
 |---|---|---|---:|
-| `app_users` | Учётные записи: e-mail, bcrypt-хеш, имя, `role_id` (роль из `app_roles`, с 12.10.2026), старая `role` `admin`/`user` (ведётся для отката), `last_seen_at` | `id`; вход по e-mail | 8 (12.10, TimeWeb) |
+| `app_users` | Учётные записи: e-mail, bcrypt-хеш, имя, `role_id` (роль из `app_roles`, с 12.10.2026), старая `role` `admin`/`user` (ведётся для отката), `last_seen_at`, `disabled_at` (отключён — вход закрыт; NULL — активен, с 28.10.2026). Пользователей не удаляют: `rnp_comments.author_id` — `ON DELETE CASCADE` | `id`; вход по e-mail | 8 (12.10, TimeWeb) |
 | `app_roles` | Роли доступа: название, `is_admin`, площадки `marketplaces` (миграция `2026_10_12_access_roles`, рабочая БД — 12.10.2026) | `id`, UNIQUE `name`; одна роль с `is_admin` | 8 (12.10) |
 | `app_role_permissions` | Разрешённые функции ролей (коды — `app/permissions.py`). Там же `app_users.role_id` | PK `(role_id, permission)` | 374 (12.10) |
 
@@ -162,6 +162,7 @@
 | `migrations/2026_10_23_rnp_comments_category.sql` | `rnp_comments.category_key`, `seller_article` может быть NULL, CHECK «товар или категория» | `rnp_comments_router.migrate()` на старте (список `MIGRATIONS`, после `…_marketplace`). ALTER — в рабочей БД применена 23.10.2026 20:56 МСК под `gen_user` до выкладки (запустил владелец); строки не менялись (8 комментариев); права `autoprofi_app` на колонку проверены |
 | `migrations/2026_10_27_ads_section.sql` | Права №116–119 раздела «Реклама» роли «Маркетинг» | `permissions.migrate_ads()` на старте (после миграции ролей). Только INSERT в `app_role_permissions` — применилась при выкладке 27.10.2026 под `autoprofi_app` |
 | `migrations/2026_10_28_wb_ads_stats.sql` | `wb_ads_campaign_daily`, `wb_ads_cluster_daily`, `wb_ads_items`; права №120–121 роли «Маркетинг» | `ads_router.migrate()` на старте (после `…_ads_section`). В рабочей БД применена 28.10.2026 11:23 МСК под `gen_user` до выкладки (запустил Claude по «выкладывай» владельца, одной транзакцией с записью в `app_schema_migrations`); права `autoprofi_app` (чтение/запись) и `autoprofi_ro` (чтение) на новые таблицы проверены |
+| `migrations/2026_10_28_users_disabled.sql` | `app_users.disabled_at` — отключение пользователей вместо удаления | `users_router.migrate()` на старте (первой: `auth.load_user` читает колонку). ALTER — в рабочей БД применена 28.10.2026 12:35 МСК под `gen_user` до выкладки (запустил владелец, одной транзакцией с записью в `app_schema_migrations`); строки не менялись (9 пользователей, все активны); права `autoprofi_app` (чтение/запись) и `autoprofi_ro` (чтение) на колонку проверены |
 | `app/migrations/001_sales_plan.sql` | `sales_plan` (без `is_manual`/`prev_qty`), `report_uploads.fact_through_date` | Идемпотентна, применена вручную, не учтена |
 | `migrate_incidents.py` | `wb_wh_incidents` + перенос старых статусов `incident` из `wb_warehouses` | Уже выполнена, повторно не запускать; не учтена |
 
