@@ -444,6 +444,23 @@ const API = (() => {
     rnpPromoCancel: (id) => request('/api/rnp-promos/' + id + '/cancel', { method: 'POST' }),
     rnpPromosJournal: (p) => request('/api/rnp-promos/journal' + qs(p)),
     rnpPromoEvents: (id) => request('/api/rnp-promos/' + id + '/events'),
+    // Пустой Excel-шаблон «одна акция» (ответ fetch — для скачивания файла).
+    rnpPromoTemplate: async () => {
+      const resp = await fetch(API_BASE + '/api/rnp-promos/template', {
+        headers: { Authorization: 'Bearer ' + getToken() },
+      });
+      if (!resp.ok) {
+        let msg = 'Ошибка ' + resp.status;
+        try { const j = await resp.json(); if (j.detail) msg = j.detail; } catch (e) {}
+        throw new Error(msg);
+      }
+      return resp;
+    },
+    rnpPromoImport: (file) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return request('/api/rnp-promos/import', { method: 'POST', body: fd });
+    },
     // Склады — стоимостная оценка по складам/дням (тепловая карта + KPI).
     whByWh: (p) => cget('/api/warehouses/by_wh' + qs(p)),
     // Справочник складов (owner-only).

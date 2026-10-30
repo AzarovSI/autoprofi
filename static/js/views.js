@@ -6054,10 +6054,15 @@ const Views = (() => {
       ${tab === 'promo' ? rnpsPromoPaneHtml(sa, date) : rnpsCmtPaneHtml(sa, date)}`;
   }
 
-  // Может ли текущий пользователь менять акцию (UI-уровень; сервер проверяет сам): своя — «свою», чужая — «чужую».
+  // Право на акции площадки (№122–124): без него акции площадки только видны.
+  const RNPS_PROMO_MP = { wb: 'wb', ozon: 'ozon', yandex: 'ya', Wildberries: 'wb', Ozon: 'ozon', Yandex: 'ya' };
+  function rnpsCanPromoMp(mp) { return !!RNPS_PROMO_MP[mp] && App.can('rnp.promos.mp.' + RNPS_PROMO_MP[mp]); }
+
+  // Может ли текущий пользователь менять акцию (UI-уровень; сервер проверяет сам): своя — «свою», чужая — «чужую»,
+  // и право на площадку акции.
   function rnpsCanModifyPromo(p) {
     const u = API.getUser && API.getUser();
-    if (!u) return false;
+    if (!u || !rnpsCanPromoMp(p.marketplace)) return false;
     const own = u.id != null && p.created_by != null && String(u.id) === String(p.created_by);
     return App.can(own ? 'rnp.promos.edit_own' : 'rnp.promos.edit_any');
   }
@@ -6068,7 +6073,7 @@ const Views = (() => {
     const field = (label, cls, value, extra) =>
       `<label class="rnps-promo-field">${label}<input class="${cls}" value="${U.esc(value || '')}"${extra || ''}></label>`;
     if (!p) {
-      if (!App.can('rnp.promos.add')) return '<div class="rnps-promo-pane"><div class="rnps-cmt-empty">В этот день товар не в акции.</div></div>';
+      if (!App.can('rnp.promos.add') || !rnpsCanPromoMp(rnpSalesState.mp)) return '<div class="rnps-promo-pane"><div class="rnps-cmt-empty">В этот день товар не в акции.</div></div>';
       return `<div class="rnps-promo-pane">
         ${field('Название акции', 'rnps-pf-name', '', ' maxlength="200" placeholder="Например, «Распродажа 11.11»"')}
         ${field('Вход в акцию', 'rnps-pf-from', date, ' type="date"')}
@@ -6725,7 +6730,7 @@ const Views = (() => {
   // ===== ЖУРНАЛ АКЦИЙ (вкладка РНП, право rnp.promos.journal) =====
   // Все акции всех площадок, включая отменённые; клик по строке — история изменений.
   // Площадка и период — на сервер, статус и поиск — на клиенте.
-  const promoJState = { mp: '', status: '', q: '', from: '', to: '', data: null, open: {}, events: {} };
+  const promoJState = { mp: '', status: '', q: '', from: '', to: '', data: null, open: {}, events: {}, imp: null };
   const PJ_MP = { Wildberries: ['WB', 'wb'], Ozon: ['OZON', 'ozon'], Yandex: ['Yandex', 'ya'] };
   const PJ_STATUS = { active: 'Идёт', planned: 'Запланирована', finished: 'Завершена', closed: 'Завершена раньше', cancelled: 'Отменена' };
   const PJ_FIELDS = { name: 'название', date_from: 'вход', date_to_plan: 'плановый выход', date_to_fact: 'последний день' };
@@ -6736,7 +6741,8 @@ const Views = (() => {
   }
   function pjEventText(e) {
     const c = e.changes || {};
-    if (e.action === 'create') return `Открыта: «${c.name}», ${fmtRu(c.date_from)} — ${fmtRu(c.date_to_plan)}`;
+    if (e.action === 'create') return `Открыта: «${c.name}», ${fmtRu(c.date_from)} — ${fmtRu(c.date_to_plan)}`
+      + (c.file ? ` · из файла «${c.file}»` : '');
     if (e.action === 'close') return `Завершена раньше: последний день ${fmtRu((c.date_to_fact || [])[1])}`;
     if (e.action === 'cancel') return 'Запись отменена';
     return 'Изменена: ' + Object.keys(c).map(k => `${PJ_FIELDS[k] || k} ${pjVal(c[k][0])} → ${pjVal(c[k][1])}`).join('; ');
@@ -6778,7 +6784,7 @@ const Views = (() => {
         <td class="num">${p.date_to_fact ? fmtRu(p.date_to_fact) : '—'}</td>
         <td class="num">${p.days}</td>
         <td class="l"><span class="pj-st pj-st-${p.status}">${PJ_STATUS[p.status] || p.status}</span></td>
-        <td class="l pj-who">${U.esc(rnpsFmtDT(p.created_at))} · ${U.esc(p.created_by_name || '—')}</td>
+        <td class="l pj-who">${U.esc(rnpsFmtDT(p.created_at))} · ${U.esc(p.created_by_name || '—')}${p.source_file ? ` <span class="pj-src" title="${U.esc(p.source_file)}">из файла</span>` : ''}</td>
         <td class="l pj-who">${U.esc(fin)}</td>
       </tr>`;
       if (open) {
@@ -6814,6 +6820,86 @@ const Views = (() => {
     pjRender(root);
   }
 
+  // Итог загрузки акции из Excel: добавленные, уже бывшие в этой акции и незаписанные строки с причиной.
+  const PJ_IMP_REASON = { not_found: ['нет в базе', 'pj-imp-err'], overlap: ['уже в акции', 'pj-st-closed'], duplicate: ['повтор', ''] };
+  function pjImpList(arts) {
+    const MAX = 40;
+    return U.esc(arts.slice(0, MAX).join(', ')) + (arts.length > MAX ? ` и ещё ${arts.length - MAX}` : '');
+  }
+  function pjImpHtml(r) {
+    if (!r) return '';
+    const close = '<button class="pj-imp-x" type="button" title="Скрыть">×</button>';
+    if (r.error) return `<div class="pj-imp">${close}<div class="note err pj-imp-note">✕ ${U.esc(r.error)}</div></div>`;
+    const [mpLabel, mpCls] = PJ_MP[r.marketplace] || [r.marketplace, ''];
+    let h = `<div class="pj-imp">${close}
+      <div class="pj-imp-head"><b>Файл загружен</b> «${U.esc(r.file || '')}»</div>
+      <div class="pj-imp-promo"><span class="pj-mp pj-mp-${mpCls}">${U.esc(mpLabel)}</span><span>«${U.esc(r.name)}»</span>
+        <span class="pj-imp-dim">вход ${fmtRu(r.date_from)} · плановый выход ${fmtRu(r.date_to_plan)} · ${r.days} дн.</span></div>`;
+    if (r.added.length) h += `<div class="note ok pj-imp-note">✓ Добавлено в акцию: <b>${r.added.length}</b> — ${pjImpList(r.added)}</div>`;
+    if (r.exists.length) h += `<div class="note pj-imp-note pj-imp-same">Уже были в этой акции, не задвоены: <b>${r.exists.length}</b> — ${pjImpList(r.exists.map(e => e.article))}</div>`;
+    if (r.errors.length) {
+      h += `<div class="note err pj-imp-note">✕ <b>Не записано: ${r.errors.length}</b> — исправьте в файле и загрузите его ещё раз (уже добавленные товары не задвоятся)</div>
+        <table class="tbl pj-tbl pj-imp-tbl"><thead><tr><th class="l">Строка</th><th class="l">Артикул</th><th class="l">Почему не записан</th></tr></thead><tbody>`
+        + r.errors.map(e => {
+          const [label, cls] = PJ_IMP_REASON[e.reason] || [e.reason, ''];
+          return `<tr><td class="l pj-imp-dim">${e.row}</td><td class="l">${U.esc(e.article)}</td>
+            <td class="l"><span class="pj-st ${cls}">${label}</span> ${U.esc(e.detail)}</td></tr>`;
+        }).join('') + '</tbody></table>';
+    }
+    if (!r.added.length && !r.exists.length && !r.errors.length) h += '<div class="note pj-imp-note">В файле нет артикулов.</div>';
+    return h + '</div>';
+  }
+  function pjImpPaint(root) {
+    const host = root.querySelector('#pj-imp-result');
+    if (!host) return;
+    host.innerHTML = pjImpHtml(promoJState.imp);
+    const x = host.querySelector('.pj-imp-x');
+    if (x) x.addEventListener('click', () => { promoJState.imp = null; pjImpPaint(root); });
+  }
+
+  function pjBindImport(root) {
+    const tplBtn = root.querySelector('#pj-tpl'), impBtn = root.querySelector('#pj-imp'), impFile = root.querySelector('#pj-imp-file');
+    if (tplBtn) tplBtn.addEventListener('click', async () => {
+      const prev = tplBtn.innerHTML;
+      tplBtn.disabled = true; tplBtn.innerHTML = '<span class="btn-spin"></span>Выгружаю…';
+      try {
+        const resp = await API.rnpPromoTemplate();
+        const cd = resp.headers.get('Content-Disposition') || '';
+        let fname = 'promo_template.xlsx';
+        const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+        if (m) { try { fname = decodeURIComponent(m[1]); } catch (e) { fname = m[1]; } }
+        const dlUrl = URL.createObjectURL(await resp.blob());
+        const a = document.createElement('a');
+        a.href = dlUrl; a.download = fname;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(dlUrl); a.remove(); }, 1500);
+        App.toast('Шаблон выгружен', 'ok');
+      } catch (e) { App.toast('Ошибка выгрузки: ' + e.message, 'err'); }
+      finally { tplBtn.disabled = false; tplBtn.innerHTML = prev; }
+    });
+    if (!impBtn || !impFile) return;
+    impBtn.addEventListener('click', () => impFile.click());
+    impFile.addEventListener('change', async () => {
+      const f = impFile.files && impFile.files[0];
+      if (!f) return;
+      const prev = impBtn.innerHTML;
+      impBtn.disabled = true; impBtn.innerHTML = '<span class="btn-spin"></span>Загружаю…';
+      try {
+        promoJState.imp = await API.rnpPromoImport(f);
+        const r = promoJState.imp;
+        App.toast(`Добавлено в акцию: ${r.added.length}` + (r.errors.length ? `, не записано: ${r.errors.length}` : ''),
+          r.errors.length ? 'err' : 'ok');
+      } catch (e) {
+        promoJState.imp = { error: e.message || 'Файл не загружен' };
+        App.toast('Файл не загружен', 'err');
+      } finally {
+        impBtn.disabled = false; impBtn.innerHTML = prev; impFile.value = '';
+      }
+      pjImpPaint(root);
+      if (promoJState.imp && !promoJState.imp.error) await pjLoad(root);
+    });
+  }
+
   async function rnpsPromoJournal(root) {
     const opt = (v, label, cur) => `<option value="${v}"${cur === v ? ' selected' : ''}>${label}</option>`;
     root.innerHTML = `
@@ -6828,11 +6914,19 @@ const Views = (() => {
           <input class="input-sm" id="pj-q" placeholder="Товар или акция…" value="${U.esc(promoJState.q)}">
           <label class="pj-date">с <input type="date" id="pj-from" value="${promoJState.from}"></label>
           <label class="pj-date">по <input type="date" id="pj-to" value="${promoJState.to}"></label>
+          ${App.can('rnp.promos.import') ? `<span class="pj-imp-btns">
+            <button class="btn-sm" id="pj-tpl" type="button" title="Пустой Excel-шаблон: площадка, название, вход, плановый выход и столбец артикулов">⬇️ Шаблон акции</button>
+            <button class="btn-sm" id="pj-imp" type="button" title="Загрузить заполненный шаблон: правильные артикулы добавятся в акцию, ошибочные покажем списком">⬆️ Загрузить из Excel</button>
+            <input type="file" id="pj-imp-file" accept=".xlsx" hidden>
+          </span>` : ''}
         </div>
+        <div id="pj-imp-result"></div>
         <div class="pj-summary" id="pj-summary"></div>
         <div class="tbl-wrap"><div id="pj-body"></div></div>
       </div>`;
     rnpsSubtabs(root.querySelector('#rnps-subtabs'));
+    pjBindImport(root);
+    pjImpPaint(root);
     const el = (id) => root.querySelector('#' + id);
     el('pj-mp').addEventListener('change', () => { promoJState.mp = el('pj-mp').value; pjLoad(root); });
     el('pj-from').addEventListener('change', () => { promoJState.from = el('pj-from').value; pjLoad(root); });

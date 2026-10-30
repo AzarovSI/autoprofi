@@ -1621,6 +1621,23 @@ table.tbl.pj-tbl tr.pj-row.open { background:var(--bg-hover); }
 table.tbl.pj-tbl tr.pj-hist td { background:var(--bg-elev2); white-space:normal; text-align:left; padding:8px 14px 10px 36px; }
 .pj-ev { font-size:12px; line-height:1.6; color:var(--text); }
 .pj-ev span { color:var(--text-mute); margin-right:6px; }
+/* Загрузка акции из Excel (30.10.2026): кнопки справа в фильтрах, итог загрузки над журналом */
+.pj-imp-btns { margin-left:auto; display:inline-flex; gap:8px; }
+.pj-imp { position:relative; border:1px solid var(--border); border-radius:10px; background:var(--bg-elev2); padding:12px 14px 14px; margin:4px 0 14px; }
+.pj-imp-x { position:absolute; top:6px; right:8px; border:0; background:none; font-size:18px; line-height:1; color:var(--text-mute); cursor:pointer; }
+.pj-imp-x:hover { color:var(--text); }
+.pj-imp-head { font-size:13px; margin-bottom:6px; padding-right:24px; }
+.pj-imp-promo { display:flex; flex-wrap:wrap; gap:10px; align-items:baseline; font-size:14px; font-weight:600; margin-bottom:6px; }
+.pj-imp-dim { color:var(--text-dim); font-weight:400; font-size:12.5px; }
+.pj-imp-note { padding:8px 12px; font-size:13px; margin:6px 0; }
+.pj-imp-note.ok { color:#1d7a4c; }
+.pj-imp-note.pj-imp-same { background:var(--bg-elev); border:1px solid var(--border); color:var(--text-dim); }
+.pj-imp:has(> .pj-imp-x + .note) .pj-imp-note { margin-right:22px; }
+table.tbl.pj-imp-tbl { margin-top:8px; background:var(--bg-elev); border:1px solid var(--border); border-radius:8px; }
+table.tbl.pj-imp-tbl td { padding:6px 11px; white-space:normal; }
+table.tbl.pj-imp-tbl .pj-st { margin-right:8px; }
+.pj-imp-err { background:var(--bad-bg); color:#b02a1e; }
+.pj-src { display:inline-block; margin-left:4px; padding:0 6px; border-radius:8px; background:var(--bg-elev2); color:var(--text-dim); font-size:11px; }
 
 /* Кнопка закрытия ✕ (popup юнит-экономики товара в РНП заказы) */
 .rnp-th-x {
