@@ -862,6 +862,15 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
 .rnp-art-link:hover { text-decoration:underline; text-underline-offset:2px; }
 /* имя артикула — нежирное (перебиваем наследуемую жирность от .lvl-0 .rnp-nm) */
 .rnp-node.lvl-4 .rnp-art-main { font-weight:400; }
+/* «Скопировать артикул» (30.10.2026): бледный значок у правого края колонки имени, ровным столбиком */
+.rnp-copybtn { position:relative; margin-left:auto; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+  width:20px; height:20px; padding:0; color:var(--text-mute); opacity:.6; background:transparent; border:1px solid transparent;
+  border-radius:5px; cursor:pointer; transition:all .12s; }
+.rnp-copybtn svg { display:block; }
+.rnp-copybtn:hover { opacity:1; color:var(--accent); background:var(--accent-bg); border-color:var(--accent); }
+.rnp-copybtn.done, .rnp-copybtn.done:hover { opacity:1; color:var(--good); background:transparent; border-color:transparent; }
+.rnp-copytip { position:absolute; left:26px; top:50%; transform:translateY(-50%); z-index:60; white-space:nowrap; pointer-events:none;
+  background:var(--text); color:#fff; font:600 11.5px/1 var(--sans); padding:5px 8px; border-radius:6px; }
 .rnp-art { font-size:11px; color:var(--text-mute); font-weight:600; background:var(--bg-elev2); padding:1px 5px; border-radius:4px; white-space:nowrap; }
 .exp-spacer { display:inline-block; width:18px; }
 /* красная кликабельная стрелка раскрытия уровней */

@@ -5585,9 +5585,11 @@ const Views = (() => {
       // либо, если ссылка не задана, подсказка. Треугольник рядом раскрывает метрики.
       const purl = node.leaf_info.product_url || '';
       const artTitle = purl ? 'Открыть карточку товара' : 'Добавьте ссылку на товар в справочнике';
-      nameHtml = App.can('rnp.product_link')
+      nameHtml = (App.can('rnp.product_link')
         ? `<span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(purl)}" title="${U.esc(artTitle)}">${U.esc(node.leaf_info.seller_article)}</span>`
-        : `<span class="rnp-nm rnp-art-main">${U.esc(node.leaf_info.seller_article)}</span>`;
+        : `<span class="rnp-nm rnp-art-main">${U.esc(node.leaf_info.seller_article)}</span>`)
+        // Копировать артикул (30.10.2026): значок ровным столбиком у правого края колонки имени.
+        + `<button class="rnp-copybtn" type="button" data-copy-sa="${U.esc(node.leaf_info.seller_article)}" title="Скопировать артикул">${RNPS_COPY_SVG}</button>`;
     } else {
       nameHtml = `<span class="rnp-nm">${U.esc(node.name)}</span>`;
     }
@@ -5882,6 +5884,18 @@ const Views = (() => {
         }
       });
     });
+    // Значок «Скопировать артикул»: в буфер обмена, на полторы секунды — галочка «Скопировано».
+    host.querySelectorAll('.rnp-copybtn').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sa = el.getAttribute('data-copy-sa') || '';
+        if (!sa || !(await rnpsCopyText(sa))) { App.toast('Не удалось скопировать артикул', 'err'); return; }
+        clearTimeout(el._copyT);
+        el.classList.add('done');
+        el.innerHTML = RNPS_COPIED_SVG + `<span class="rnp-copytip">Скопировано: ${U.esc(sa)}</span>`;
+        el._copyT = setTimeout(() => { el.classList.remove('done'); el.innerHTML = RNPS_COPY_SVG; }, 1500);
+      });
+    });
     // Иконка-график: показ таблицы метрик у групп.
     host.querySelectorAll('.rnp-mbtn').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -6057,6 +6071,24 @@ const Views = (() => {
   // Право на акции площадки (№122–124): без него акции площадки только видны.
   const RNPS_PROMO_MP = { wb: 'wb', ozon: 'ozon', yandex: 'ya', Wildberries: 'wb', Ozon: 'ozon', Yandex: 'ya' };
   function rnpsCanPromoMp(mp) { return !!RNPS_PROMO_MP[mp] && App.can('rnp.promos.mp.' + RNPS_PROMO_MP[mp]); }
+
+  // Значок «Скопировать артикул» в строке товара РНП и галочка после копирования.
+  const RNPS_COPY_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>';
+  const RNPS_COPIED_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+  // В буфер обмена; без Clipboard API (старый браузер, нет разрешения) — через скрытое поле.
+  async function rnpsCopyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+    } catch (e) { /* ниже — запасной способ */ }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0;';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    return ok;
+  }
 
   // Может ли текущий пользователь менять акцию (UI-уровень; сервер проверяет сам): своя — «свою», чужая — «чужую»,
   // и право на площадку акции.
