@@ -31,24 +31,50 @@ def row(day=DAY, art="SKU-1", **values):
                 manager="Менеджер", **values)
 
 
-def tree(mp="ozon", sales=None, stocks=None, plan=300):
+def tree(mp="ozon", sales=None, stocks=None, plan=300, future=False, date_to="2026-09-24"):
     def query(sql, params=None):
         if "daily_sales ods" in sql:
             return [dict(r) for r in (sales or [])]
         if "FROM stock_daily sd" in sql:
             return [dict(r) for r in (stocks or [])]
         if "FROM sales_plan" in sql:
-            return [dict(seller_article="SKU-1", year=2026, month=9, q=plan)]
+            return [dict(seller_article="SKU-1", year=2026, month=9, q=plan),
+                    dict(seller_article="SKU-1", year=2026, month=10, q=450)]
         return []
     with patch.object(db, "query_all", side_effect=query), \
          patch.object(db, "query_one", return_value=None), \
          patch.object(rnp, "_today", return_value=DAY), \
          patch.object(rnp.daily_pi, "load", return_value={}), \
          patch.object(rnp.rnp_router, "negative_margin_articles", return_value=set()):
-        return rnp._build_rnp_sales_tree(mp, "2026-09-01", "2026-09-24", None, None)
+        return rnp._build_rnp_sales_tree(mp, "2026-09-01", date_to, None, None, future)
 
 
 class TreeTests(unittest.TestCase):
+    def test_future_dates_add_empty_days_and_next_month_plan_only(self):
+        """Галочка «Будущие даты» (01.11.2026): сегодня..конец месяца и весь следующий месяц —
+        пустые дни; расчёты те же, что без галочки; у следующего месяца только план."""
+        sales = [row(PREV, orders_qty=10)]
+        plain = tree(sales=sales, date_to="2026-09-30")
+        fut = tree(sales=sales, date_to="2026-09-30", future=True)
+        self.assertEqual([m["key"] for m in plain["months"]], ["2026-09"])
+        self.assertEqual([m["key"] for m in fut["months"]], ["2026-09", "2026-10"])
+        sep, octo = fut["months"]
+        self.assertEqual([d["key"] for d in sep["days"]][0], PREV.isoformat())
+        self.assertEqual([d["key"] for d in sep["days"] if d.get("future")][0], DAY.isoformat())
+        self.assertEqual(sep["days"][-1]["key"], "2026-09-30")
+        self.assertNotIn("future", sep)
+        self.assertEqual((octo.get("future"), len(octo["days"])), (True, 31))
+        self.assertEqual(fut["today"], DAY.isoformat())
+        p_plain, p_fut = next(leaves(plain["tree"])), next(leaves(fut["tree"]))
+        self.assertEqual(p_fut["forecast"]["2026-09"], p_plain["forecast"]["2026-09"])
+        self.assertEqual(p_fut["cells"], p_plain["cells"])
+        self.assertEqual((p_fut["plan"]["2026-10"], p_fut["forecast"]["2026-10"]), (450, None))
+        self.assertEqual(fut["tree"]["plan"]["2026-10"], 450)
+        self.assertNotIn("2026-10", p_fut["cells"])  # нет данных — «—», а не 0
+        # Период без сегодняшнего дня — галочка ничего не добавляет.
+        past = tree(sales=sales, date_to="2026-09-23", future=True)
+        self.assertEqual([d["key"] for d in past["months"][0]["days"]], [PREV.isoformat()])
+
     def test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock(self):
         result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
                              row(delivery_time_hours=42, spp_pct=.31)])

@@ -274,6 +274,7 @@ def rnp_sales_tree(
     manager: str = Query(None),
     user=Depends(auth.require_tab("rnp", restrict_mp=False)),
     request: Request = None,
+    future: bool = Query(False, description="галочка «Будущие даты»: дни до конца месяца и следующий месяц"),
 ):
     """Дерево дневных продаж Ozon по месяцам (с кэшем ответа).
 
@@ -296,6 +297,7 @@ def rnp_sales_tree(
         pi_revision,
         date_from or "", date_to or "",
         status or "", manager or "",
+        "future" if future else "",
     ])
     # Для WB — своё пространство имён кэша (данные в отдельной таблице,
     # инвалидация через CACHE_NS_WB).
@@ -314,7 +316,7 @@ def rnp_sales_tree(
         cached = cache.get(ns, ck)
         if cached is not None:
             return fastjson.gzipped_response(cached, request)
-        result = _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager)
+        result = _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, future)
         cached = fastjson.gzip_bytes(fastjson.dumps(result))
         cache.set(ns, ck, cached, ttl=CACHE_TTL)
     return fastjson.gzipped_response(cached, request)
@@ -332,7 +334,7 @@ def _build_lock(key):
         return _build_locks.setdefault(key, threading.Lock())
 
 
-def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
+def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, future=False):
     """Чистая сборка дерева (без кэша и без Depends). Логика без изменений."""
     mp = MP_MAP.get((marketplace or "").lower(), "Ozon")
     today = _today()
@@ -704,6 +706,31 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
             "days": [{"key": d.isoformat(), "label": f"{d.day:02d}"} for d in days_sorted],
         })
 
+    # «Будущие даты» (галочка РНП, решение владельца 01.11.2026): если период включает сегодня,
+    # дописываем пустые дни с сегодняшнего до конца месяца и весь следующий месяц (даже за концом
+    # периода) — чтобы оставлять комментарии и открывать акции заранее. Итоги, прогноз, Pi и
+    # оборачиваемость по-прежнему только по дням с данными; у месяцев без данных — только план.
+    extra_months = {}  # mk -> (год, месяц): месяц без данных, добавленный галочкой
+    if future and (not d_from or d_from <= today) and (not d_to or d_to >= today):
+        nxt = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
+        by_key = {m["key"]: m for m in month_list}
+        for start in (today, nxt):
+            mk = f"{start.year}-{start.month:02d}"
+            m = by_key.get(mk)
+            if not m:
+                m = {"key": mk, "year": start.year, "month": start.month,
+                     "label": f"{RU_MONTHS[start.month]} {start.year}", "days": [], "future": True}
+                month_list.append(m)
+                by_key[mk] = m
+                extra_months[mk] = (start.year, start.month)
+            have = {d["key"] for d in m["days"]}
+            for day in range(start.day, calendar.monthrange(start.year, start.month)[1] + 1):
+                dk = datetime.date(start.year, start.month, day).isoformat()
+                if dk not in have:
+                    m["days"].append({"key": dk, "label": f"{day:02d}", "future": True})
+            m["days"].sort(key=lambda d: d["key"])
+        month_list.sort(key=lambda m: m["key"])
+
     def month_snapshot(node, mk):
         """Snapshot месяца для узла: сумма последних значений по товарам узла."""
         out = {c: None for c in SNAP_COLS}
@@ -874,6 +901,10 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
             forecast[mk] = node_forecast(node, mk, pv)
             if mk == last_mk:
                 turnover[mk] = node_turnover(node, mk, snap)
+        for mk, (y, m) in extra_months.items():   # «Будущие даты»: план есть, факта и прогноза нет
+            qs = [q for q in (plan_by_art.get(a, {}).get((y, m)) for a in node["arts"]) if q]
+            plan[mk] = sum(qs) if qs else None
+            forecast[mk] = None
         if node["level"] == 4 and not is_ya:
             article = node["leaf_info"]["seller_article"]
             # Price-only dates still appear in an existing RNP day column.
@@ -941,6 +972,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager):
                          **({"as_of": turn_anchor.isoformat() if turn_anchor else None}
                             if not is_ya else {})},
         "tree": tree,
+        "today": today.isoformat(),
         "undistributed": {"count": len(undist_list), "articles": undist_list,
                           "orders_rub": round(sum(u["orders_rub"] for u in undist_list), 2),
                           "total_orders_rub": round(total_orders_rub, 2)},

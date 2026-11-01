@@ -1470,6 +1470,16 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 .rnps-leg-plan { color:var(--plan-blue, #0000ff); }
 .rnps-leg-forecast { color:#38761D; }
 .rnps-month-toggle { flex:0 0 auto; }
+/* «Будущие даты» (01.11.2026): пустые серые дни для комментариев и акций заранее, сегодня — красным,
+   дни после недели вперёд — одна колонка-хвост со штриховкой, раскрывается кликом */
+.rnps-leg.rnps-leg-future { opacity:.75; }
+.rnps-leg.rnps-leg-today { color:var(--accent); font-weight:700; opacity:1; }
+.rnps-col.rnps-future, .rnps-col.rnps-tail { align-self:stretch; min-height:22px; }
+.rnps-col.rnps-future { background-color:rgba(150,165,175,.08); border-left:1px solid #fff; }
+.rnps-leg.rnps-leg-tail, .rnps-col.rnps-tail { width:74px; justify-content:center; }
+.rnps-leg.rnps-leg-tail { color:var(--text-dim); font-weight:600; gap:2px; }
+.rnps-col.rnps-tail { background:repeating-linear-gradient(90deg, rgba(150,165,175,.16) 0 2px, transparent 2px 6px); }
+.rnp-filters-host > .rnps-future-check { flex:0 0 auto; white-space:nowrap; cursor:pointer; }
 
 /* таблица показателей узла */
 .rnps-m-row { display:flex; align-items:center; min-height:22px; }

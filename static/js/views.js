@@ -5286,6 +5286,11 @@ const Views = (() => {
   // [дни…] Итог месяца | План | Прогноз. Метрики: группа/Итоги — 8, товар — 21
   // (+ вложенная подгруппа «Цены»). Светофор — только на «Заказы, шт».
   // ============================================================
+  // «Будущие даты»: состояние галочки на компьютере сотрудника (APStore; без хранилища — до перезагрузки).
+  const RNPS_FUTURE_KEY = 'rnp_future_dates';
+  function rnpsFutureSaved() { return !!(window.APStore && window.APStore.get(RNPS_FUTURE_KEY) === '1'); }
+  function rnpsFutureSave(on) { if (window.APStore) window.APStore.set(RNPS_FUTURE_KEY, on ? '1' : '0'); }
+
   const rnpSalesState = {
     mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, piOpen: {}, uiSnap: {},
     // Активная вложенная вкладка внутри подтаба «Загрузка данных»: 'ozon' | 'wb' | 'common'.
@@ -5298,6 +5303,8 @@ const Views = (() => {
     _reqSeq: 0,
     searchArt: '', mgrFilter: '', statusFilter: '', from: '', to: '',
     filterExpandSig: '',
+    // Галочка «Будущие даты» (01.11.2026): запоминается на компьютере сотрудника, одна для всех площадок.
+    futureOn: rnpsFutureSaved(), tailOpen: {},
     // Комментарии к дневным ячейкам текущего МП: Map по ключу `sa|date` → массив комментов (новые сверху).
     comments: new Map(),
     // Акции товаров текущего МП: Map артикул → акции по дате входа; promoToday — «сегодня» сервера (МСК).
@@ -5349,13 +5356,39 @@ const Views = (() => {
     }
   }
 
+  // Последний день «окна» будущих дат: сегодня + 7 (ISO).
+  const RNPS_FUTURE_WINDOW = 7;
+  function rnpsFutureLimit(today) {
+    const d = new Date(today + 'T00:00:00');
+    d.setDate(d.getDate() + RNPS_FUTURE_WINDOW);
+    return isoDate(d);
+  }
+
+  // Колонки-дни месяца. С галочкой «Будущие даты» в текущем месяце видны сегодня и 7 дней вперёд,
+  // остальные будущие дни — одна колонка-хвост 'tail' (раскрывается кликом); следующий месяц — все дни.
+  function rnpsDayCols(m) {
+    const today = (rnpSalesState.data || {}).today || '';
+    const limit = today && today.slice(0, 7) === m.key && !rnpSalesState.tailOpen[m.key] ? rnpsFutureLimit(today) : '';
+    const out = [];
+    let tail = null;
+    (m.days || []).forEach(d => {
+      if (limit && d.future && d.key > limit) {
+        if (!tail) { tail = { type: 'tail', key: 'tail-' + m.key, mk: m.key, from: d.label }; out.push(tail); }
+        tail.to = d.label;
+        return;
+      }
+      out.push({ type: 'day', key: d.key, mk: m.key, label: d.label, future: !!d.future, today: d.key === today });
+    });
+    return out;
+  }
+
   // Плоский список колонок по месяцам с учётом развёрнутости.
-  // Тип: 'day' (день) | 'total' (итог месяца) | 'plan' | 'forecast'.
+  // Тип: 'day' (день) | 'tail' (свёрнутые будущие дни) | 'total' (итог месяца) | 'plan' | 'forecast'.
   function rnpsColumns(months) {
     const cols = [];
     (months || []).forEach(m => {
       if (rnpSalesState.monthsOpen[m.key]) {
-        (m.days || []).forEach(d => cols.push({ type: 'day', key: d.key, mk: m.key, label: d.label }));
+        rnpsDayCols(m).forEach(c => cols.push(c));
       }
       cols.push({ type: 'total', key: m.key, mk: m.key, label: 'Итог' });
       cols.push({ type: 'plan', key: m.key, mk: m.key, label: 'План' });
@@ -5450,6 +5483,7 @@ const Views = (() => {
   // Одна ячейка верхней метрики (Заказы, шт / План / Прогноз).
   // range — {mn, mx} по колонкам-ДНЯМ ИМЕННО этого узла.
   function rnpsTopCell(node, col, range, isItem) {
+    if (col.type === 'tail') return '<span class="rnps-col rnps-tail"></span>';
     const v = rnpsTopValue(node, col);
     let kind = 'qty';
     if (col.type === 'forecast') kind = 'pct';
@@ -5461,8 +5495,10 @@ const Views = (() => {
       const bg = rnpsHeatColor(v, range.mn, range.mx);
       if (bg) style = ` style="background-color:${bg}"`;
     }
-    const text = rnpsFmt(v, kind);
-    let cls = col.type === 'total' ? ' rnps-total'
+    // Будущий день без данных — пустая серая ячейка (не «—»): в ней оставляют комментарии и акции.
+    const text = col.future && (v === null || v === undefined) ? '' : rnpsFmt(v, kind);
+    let cls = col.future ? ' rnps-future' : '';
+    cls += col.type === 'total' ? ' rnps-total'
       : (col.type === 'plan' ? ' rnps-plan'
         : (col.type === 'forecast' ? ' rnps-forecast' : ''));
     // Прогноз выполнения плана (шт) — цвет цифр по светофору (на всех уровнях дерева).
@@ -5519,8 +5555,10 @@ const Views = (() => {
       const cls = col.type === 'plan' ? 'rnps-plan' : 'rnps-forecast';
       return `<span class="rnps-col rnps-empty ${cls}">·</span>`;
     }
+    if (col.type === 'tail') return '<span class="rnps-col rnps-tail"></span>';
     const totalCls = col.type === 'total' ? ' rnps-total' : '';
     const v = ((node.cells || {})[col.key] || {})[mk];
+    if (col.future && (v === null || v === undefined)) return `<span class="rnps-col rnps-future"></span>`;
     return `<span class="rnps-col${totalCls}">${rnpsFmt(v, kind)}</span>`;
   }
 
@@ -5656,8 +5694,21 @@ const Views = (() => {
     (months || []).forEach(m => {
       const open = !!rnpSalesState.monthsOpen[m.key];
       if (open) {
-        (m.days || []).forEach(d => {
-          html += `<span class="rnps-leg rnps-leg-day">${U.esc(d.label)}</span>`;
+        const today = (rnpSalesState.data || {}).today || '';
+        const limit = today && today.slice(0, 7) === m.key && rnpSalesState.tailOpen[m.key] ? rnpsFutureLimit(today) : '';
+        let folded = false;
+        rnpsDayCols(m).forEach(c => {
+          if (c.type === 'tail') {
+            html += `<span class="rnps-leg rnps-leg-day rnps-leg-tail"><button class="rnp-exp-btn rnps-tail-toggle" data-mkey="${U.esc(m.key)}" title="Показать остальные дни месяца">▸</button>${U.esc(c.from)}–${U.esc(c.to)}</span>`;
+            return;
+          }
+          // Хвост раскрыт — у первого дня после недели вперёд кнопка «свернуть обратно».
+          let fold = '';
+          if (limit && c.future && c.key > limit && !folded) {
+            folded = true;
+            fold = `<button class="rnp-exp-btn rnps-tail-toggle" data-mkey="${U.esc(m.key)}" title="Свернуть дни после недели вперёд">◂</button>`;
+          }
+          html += `<span class="rnps-leg rnps-leg-day${c.future ? ' rnps-leg-future' : ''}${c.today ? ' rnps-leg-today' : ''}"${c.today ? ' title="Сегодня"' : ''}>${fold}${U.esc(c.label)}</span>`;
         });
       }
       const tri = open ? '▾' : '▸';
@@ -5841,6 +5892,15 @@ const Views = (() => {
           e.stopPropagation();
           const mk = el.getAttribute('data-mkey');
           rnpSalesState.monthsOpen[mk] = !rnpSalesState.monthsOpen[mk];
+          rerender();
+        });
+      });
+      // «Будущие даты»: раскрыть / свернуть дни после недели вперёд.
+      legHost.querySelectorAll('.rnps-tail-toggle').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const mk = el.getAttribute('data-mkey');
+          rnpSalesState.tailOpen[mk] = !rnpSalesState.tailOpen[mk];
           rerender();
         });
       });
@@ -6430,7 +6490,7 @@ const Views = (() => {
   function rnpsExport() {
     const data = rnpSalesState.data;
     if (!data || !data.tree) { App.toast('Нет данных для экспорта', 'err'); return; }
-    const months = data.months || [];
+    const months = (data.months || []).filter(m => !m.future);
     let head = '<tr><th>Уровень</th><th>Название</th>';
     months.forEach(m => { head += `<th>${U.esc(m.label)} — Заказы</th><th>План</th><th>Прогноз</th>`; });
     head += '</tr>';
@@ -6477,6 +6537,7 @@ const Views = (() => {
       if (rnpSalesState.to) p.date_to = rnpSalesState.to;
       // Менеджер — на сервер: группы и «Итоги» только из его товаров.
       if (rnpSalesState.mgrFilter) p.manager = rnpSalesState.mgrFilter;
+      if (rnpSalesState.futureOn) p.future = 1;
       // Server checks persisted Pi revision, including another manager's imports.
       // Do not let the tab's indefinite promise cache bypass that check.
       if (myMp !== 'yandex' && API.cacheClear) API.cacheClear('/api/rnp_sales/tree');
@@ -7341,6 +7402,7 @@ const Views = (() => {
             <select class="input-sm" id="rnps-status">${stOpts}</select>
             <button class="btn-sm" id="rnps-expand">Развернуть всё</button>
             <button class="btn-sm" id="rnps-collapse">Свернуть всё</button>
+            <label class="sp-fc-check rnps-future-check" title="Показать дни до конца месяца и следующий месяц с планом: можно оставлять комментарии и открывать акции заранее. Видна неделя вперёд, остальные дни месяца свёрнуты в одну колонку"><input type="checkbox" id="rnps-future"${rnpSalesState.futureOn ? ' checked' : ''}> Будущие даты</label>
             <div class="rnp-period" id="rnps-period">
               <button class="rnp-period-field" id="rnps-period-field" type="button" title="Выбрать период (показываются дни в выбранном диапазоне)">
                 <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
@@ -7406,6 +7468,12 @@ const Views = (() => {
     // Единый компонент выбора периода (справа): даты уходят на бэкенд → reload.
     bindRnpsPeriod(root.querySelector('.rnp-filters-host'), reload);
     alignRnpToolbarPeriod(root, 'rnps-subtabs', 'rnps-period');
+    const futEl = root.querySelector('#rnps-future');
+    if (futEl) futEl.addEventListener('change', () => {
+      rnpSalesState.futureOn = futEl.checked;
+      rnpsFutureSave(futEl.checked);
+      reload();
+    });
     const expEl = root.querySelector('#rnps-expand');
     if (expEl) expEl.addEventListener('click', () => { if (rnpSalesState.data && rnpSalesState.data.tree) rnpsExpandAll(rnpSalesState.data.tree); rnpsRenderMatrix(); });
     const colEl = root.querySelector('#rnps-collapse');
