@@ -1609,6 +1609,8 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 .rnps-promo-prog { height:4px; margin:8px 0 5px; border-radius:2px; background:var(--bg-elev2); overflow:hidden; }
 .rnps-promo-prog i { display:block; height:100%; border-radius:2px; background:#4A5561; }
 .rnps-promo-note { font-size:11px; line-height:1.45; color:var(--text-mute); margin-bottom:10px; }
+/* «Реклама WB» — акции РНП только для просмотра (02.11.2026) */
+.rnps-promo-note.rnps-promo-ro { margin:2px 0 0; color:var(--text-dim); }
 .rnps-promo-btns { display:flex; align-items:center; gap:8px; margin-top:4px; }
 .rnps-promo-link { margin-left:auto; border:none; background:transparent; padding:0; cursor:pointer;
   font-size:11.5px; color:var(--text-mute); font-family:inherit; }

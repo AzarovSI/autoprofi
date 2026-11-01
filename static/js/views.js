@@ -5321,13 +5321,47 @@ const Views = (() => {
     return rnpsIsCat(sa) ? { category_key: String(sa).slice(RNPS_CAT.length) } : { seller_article: sa };
   }
   // Массив комментариев для ячейки (может быть пустым).
-  function rnpsCmtFor(sa, date) { return rnpSalesState.comments.get(rnpsCmtKey(sa, date)) || []; }
+  // src — откуда окно ячейки берёт данные: rnpSalesState (РНП) или adsState («Реклама WB», 02.11.2026).
+  function rnpsCmtFor(sa, date, src) { return (src || rnpSalesState).comments.get(rnpsCmtKey(sa, date)) || []; }
 
   // Акции товара (docs/business_rules.md, «Акции в РНП»): последний день — фактический выход, иначе плановый.
   function rnpsPromoEnd(p) { return p.date_to_fact || p.date_to_plan; }
   // Акция товара, в которую входит день date (у товара одна акция одновременно).
-  function rnpsPromoAt(sa, date) {
-    return (rnpSalesState.promos.get(String(sa)) || []).find(p => p.date_from <= date && date <= rnpsPromoEnd(p)) || null;
+  function rnpsPromoAt(sa, date, src) {
+    return ((src || rnpSalesState).promos.get(String(sa)) || []).find(p => p.date_from <= date && date <= rnpsPromoEnd(p)) || null;
+  }
+  // Ответ API → Map ячейка → комментарии (категория третьего уровня — 'cat:' + «L1|L2|L3») и Map артикул → акции.
+  function rnpsCommentsToMap(list) {
+    const map = new Map();
+    (list || []).forEach(c => {
+      const k = rnpsCmtKey(c.category_key ? RNPS_CAT + c.category_key : c.seller_article, c.date);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(c);
+    });
+    return map;
+  }
+  // Дневная ячейка товара (акции — только у товара) или категории третьего уровня (только комментарии):
+  // классы, data-атрибуты для окна ячейки, уголок комментариев, штриховка акции. null — ячейка не активна.
+  // Общая для РНП и «Реклама WB» (src — источник данных, по умолчанию РНП).
+  function rnpsNoteCell(sa, date, isCat, title, src) {
+    const canCmt = App.can('rnp.comments.view'), canPromo = !isCat && App.can('rnp.promos.view');
+    if (!canCmt && !canPromo) return null;
+    let cls = ' rnps-cell-cmt', mark = '';
+    let attrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(date)}"${isCat ? ` data-title="${U.esc(title || '')}"` : ''}`;
+    const n = canCmt ? rnpsCmtFor(sa, date, src).length : 0;
+    if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark" title="Комментарии: ${n}"></span>`; }
+    const promo = canPromo ? rnpsPromoAt(sa, date, src) : null;
+    if (promo) { cls += ' rnps-promo'; attrs += ` title="${U.esc(rnpsPromoTitle(promo))}"`; }
+    return { cls, attrs, mark };
+  }
+  function rnpsPromosToMap(list) {
+    const map = new Map();
+    (list || []).forEach(p => {
+      const k = String(p.seller_article);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(p);
+    });
+    return map;
   }
   // Короткая дата «дд.мм».
   function rnpsDM(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) : ''; }
@@ -5517,33 +5551,14 @@ const Views = (() => {
     // Дни акции — штриховка поверх светофора, по клику — вкладка «Акция» того же окна.
     let cmtAttrs = '';
     let cmtMark = '';
-    const canCmt = App.can('rnp.comments.view'), canPromo = App.can('rnp.promos.view');
-    if (col.type === 'day' && isItem && node.leaf_info && (canCmt || canPromo)) {
-      const sa = node.leaf_info.seller_article || '';
-      const date = col.key;
-      cls += ' rnps-cell-cmt';
-      cmtAttrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(date)}"`;
-      const list = canCmt ? rnpsCmtFor(sa, date) : [];
-      if (list.length) {
-        cls += ' has-cmt';
-        cmtMark = `<span class="rnps-cmt-mark" title="Комментарии: ${list.length}"></span>`;
-      }
-      const promo = canPromo ? rnpsPromoAt(sa, date) : null;
-      if (promo) {
-        cls += ' rnps-promo';
-        cmtAttrs += ` title="${U.esc(rnpsPromoTitle(promo))}"`;
-      }
-    } else if (col.type === 'day' && node.level === 3 && canCmt) {
+    let note = null;
+    if (col.type === 'day' && isItem && node.leaf_info) {
+      note = rnpsNoteCell(node.leaf_info.seller_article || '', col.key, false);
+    } else if (col.type === 'day' && node.level === 3) {
       // Категория третьего уровня (над товарами): только комментарии, без акций.
-      const sa = RNPS_CAT + node.key;
-      cls += ' rnps-cell-cmt';
-      cmtAttrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(col.key)}" data-title="${U.esc(node.name)}"`;
-      const list = rnpsCmtFor(sa, col.key);
-      if (list.length) {
-        cls += ' has-cmt';
-        cmtMark = `<span class="rnps-cmt-mark" title="Комментарии: ${list.length}"></span>`;
-      }
+      note = rnpsNoteCell(RNPS_CAT + node.key, col.key, true, node.name);
     }
+    if (note) { cls += note.cls; cmtAttrs = note.attrs; cmtMark = note.mark; }
     // Оборачиваемость (дни запаса) — бейдж-пилюля в ЛЕВОЙ части ячейки итога,
     // сумма штук — справа; между ними разрыв (space-between). Только
     // артикул + итог последнего месяца.
@@ -6060,7 +6075,9 @@ const Views = (() => {
   // tab — вкладка окна: 'cmt' (комментарии) | 'promo' (акция); promoMode — 'view' | 'edit' | 'close';
   // title — заголовок окна у категории третьего уровня (у товара — артикул).
   const rnpsCmtPop = { el: null, sa: null, date: null, anchor: null, editingId: null, onDoc: null, onScroll: null,
-    tab: 'cmt', promoMode: 'view', title: null };
+    tab: 'cmt', promoMode: 'view', title: null, src: null };
+  // Источник данных открытого окна: РНП или «Реклама WB» (там акции только для просмотра — promoReadOnly).
+  function rnpsCmtSrc() { return rnpsCmtPop.src || rnpSalesState; }
 
   // Формат даты-времени создания/правки: «дд.мм.гггг, чч:мм» (локальное время).
   function rnpsFmtDT(iso) {
@@ -6083,7 +6100,7 @@ const Views = (() => {
 
   // Вкладка «Комментарии»: список + форма добавления.
   function rnpsCmtPaneHtml(sa, date) {
-    const list = rnpsCmtFor(sa, date);
+    const list = rnpsCmtFor(sa, date, rnpsCmtSrc());
     let items = '';
     if (!list.length) {
       items = `<div class="rnps-cmt-empty">Комментариев пока нет.</div>`;
@@ -6130,10 +6147,10 @@ const Views = (() => {
     const tab = canCmt && canPromo ? rnpsCmtPop.tab : (canPromo ? 'promo' : 'cmt');
     let tabs = '';
     if (canCmt && canPromo) {
-      const n = rnpsCmtFor(sa, date).length;
+      const n = rnpsCmtFor(sa, date, rnpsCmtSrc()).length;
       tabs = `<div class="rnps-pop-tabs">
         <button class="rnps-pop-tab${tab === 'cmt' ? ' on' : ''}" data-ptab="cmt">Комментарии${n ? ' · ' + n : ''}</button>
-        <button class="rnps-pop-tab${tab === 'promo' ? ' on' : ''}${rnpsPromoAt(sa, date) ? ' has-promo' : ''}" data-ptab="promo">Акция</button>
+        <button class="rnps-pop-tab${tab === 'promo' ? ' on' : ''}${rnpsPromoAt(sa, date, rnpsCmtSrc()) ? ' has-promo' : ''}" data-ptab="promo">Акция</button>
       </div>`;
     }
     return `
@@ -6171,18 +6188,19 @@ const Views = (() => {
   // и право на площадку акции.
   function rnpsCanModifyPromo(p) {
     const u = API.getUser && API.getUser();
-    if (!u || !rnpsCanPromoMp(p.marketplace)) return false;
+    if (!u || rnpsCmtSrc().promoReadOnly || !rnpsCanPromoMp(p.marketplace)) return false;
     const own = u.id != null && p.created_by != null && String(u.id) === String(p.created_by);
     return App.can(own ? 'rnp.promos.edit_own' : 'rnp.promos.edit_any');
   }
 
   // Вкладка «Акция»: карточка акции дня, её правка / досрочное завершение или форма новой акции.
   function rnpsPromoPaneHtml(sa, date) {
-    const p = rnpsPromoAt(sa, date);
+    const p = rnpsPromoAt(sa, date, rnpsCmtSrc());
     const field = (label, cls, value, extra) =>
       `<label class="rnps-promo-field">${label}<input class="${cls}" value="${U.esc(value || '')}"${extra || ''}></label>`;
     if (!p) {
-      if (!App.can('rnp.promos.add') || !rnpsCanPromoMp(rnpSalesState.mp)) return '<div class="rnps-promo-pane"><div class="rnps-cmt-empty">В этот день товар не в акции.</div></div>';
+      const ro = rnpsCmtSrc().promoReadOnly ? '<div class="rnps-promo-note rnps-promo-ro">Открыть акцию — в РНП</div>' : '';
+      if (ro || !App.can('rnp.promos.add') || !rnpsCanPromoMp(rnpsCmtSrc().mp)) return `<div class="rnps-promo-pane"><div class="rnps-cmt-empty">В этот день товар не в акции.</div>${ro}</div>`;
       return `<div class="rnps-promo-pane">
         ${field('Название акции', 'rnps-pf-name', '', ' maxlength="200" placeholder="Например, «Распродажа 11.11»"')}
         ${field('Вход в акцию', 'rnps-pf-from', date, ' type="date"')}
@@ -6208,7 +6226,7 @@ const Views = (() => {
         <div class="rnps-promo-btns"><button class="btn-sm rnps-pf-close">Завершить</button><button class="btn-sm rnps-pf-back">Отмена</button></div>
       </div>`;
     }
-    const today = rnpSalesState.promoToday;
+    const today = rnpsCmtSrc().promoToday;
     const total = rnpsDaysIncl(p.date_from, p.date_to_plan);
     let pct = 100, state;
     if (p.status === 'active') {
@@ -6239,6 +6257,7 @@ const Views = (() => {
         <button class="btn-sm rnps-pf-toedit">Изменить</button>
         <button class="rnps-promo-link rnps-pf-cancel" title="Ошибочная запись: из РНП пропадёт, в журнале останется с пометкой">Отменить запись</button>
       </div>` : ''}
+      ${rnpsCmtSrc().promoReadOnly ? '<div class="rnps-promo-note rnps-promo-ro">Открыть или изменить акцию — в РНП</div>' : ''}
     </div>`;
   }
 
@@ -6252,7 +6271,7 @@ const Views = (() => {
   // Обработчики вкладки «Акция».
   function rnpsBindPromoPane(pop, sa, date) {
     const q = (sel) => pop.querySelector(sel);
-    const p = rnpsPromoAt(sa, date);
+    const p = rnpsPromoAt(sa, date, rnpsCmtSrc());
     const run = async (btn, action, okMsg) => {
       btn.disabled = true;
       try {
@@ -6279,7 +6298,7 @@ const Views = (() => {
     const create = q('.rnps-pf-create');
     if (create) create.addEventListener('click', () => {
       const f = form();
-      if (valid(f)) run(create, () => API.rnpPromoCreate({ marketplace: rnpSalesState.mp, seller_article: sa, ...f }), 'Акция открыта');
+      if (valid(f)) run(create, () => API.rnpPromoCreate({ marketplace: rnpsCmtSrc().mp, seller_article: sa, ...f }), 'Акция открыта');
     });
     if (!p) return;
     const save = q('.rnps-pf-save');
@@ -6329,7 +6348,7 @@ const Views = (() => {
     if (rnpsCmtPop.onEsc) { document.removeEventListener('keydown', rnpsCmtPop.onEsc); rnpsCmtPop.onEsc = null; }
     if (rnpsCmtPop.el && rnpsCmtPop.el.parentNode) rnpsCmtPop.el.parentNode.removeChild(rnpsCmtPop.el);
     rnpsCmtPop.el = null; rnpsCmtPop.sa = null; rnpsCmtPop.date = null; rnpsCmtPop.anchor = null; rnpsCmtPop.editingId = null;
-    rnpsCmtPop.tab = 'cmt'; rnpsCmtPop.promoMode = 'view'; rnpsCmtPop.title = null;
+    rnpsCmtPop.tab = 'cmt'; rnpsCmtPop.promoMode = 'view'; rnpsCmtPop.title = null; rnpsCmtPop.src = null;
   }
 
   // Перерисовать только внутренности popover (после CRUD) без потери позиции.
@@ -6342,15 +6361,17 @@ const Views = (() => {
 
   // Обновить маркер-уголок на конкретной ячейке без перерисовки всей матрицы.
   function rnpsUpdateCellMark(sa, date) {
-    const host = document.getElementById('rnps-matrix');
+    const host = document.getElementById(rnpsCmtSrc().matrixId || 'rnps-matrix');
     if (!host) return;
     const cell = host.querySelector(`.rnps-cell-cmt[data-sa="${(window.CSS && CSS.escape) ? CSS.escape(sa) : sa}"][data-date="${date}"]`);
     if (!cell) return;
-    const has = rnpsCmtFor(sa, date).length > 0;
+    const n = rnpsCmtFor(sa, date, rnpsCmtSrc()).length, has = n > 0;
     const mark = cell.querySelector('.rnps-cmt-mark');
+    if (has && mark) mark.title = 'Комментарии: ' + n;
     if (has && !mark) {
       const m = document.createElement('span');
       m.className = 'rnps-cmt-mark';
+      m.title = 'Комментарии: ' + n;
       cell.insertBefore(m, cell.firstChild);
       cell.classList.add('has-cmt');
     } else if (!has && mark) {
@@ -6386,11 +6407,11 @@ const Views = (() => {
         if (!body) { newTa.focus(); return; }
         addBtn.disabled = true;
         try {
-          const c = await API.rnpCommentCreate(rnpSalesState.mp, rnpsCmtRef(sa), date, body);
+          const c = await API.rnpCommentCreate(rnpsCmtSrc().mp, rnpsCmtRef(sa), date, body);
           const k = rnpsCmtKey(sa, date);
-          const arr = rnpSalesState.comments.get(k) || [];
+          const arr = rnpsCmtSrc().comments.get(k) || [];
           arr.unshift(c); // новые сверху
-          rnpSalesState.comments.set(k, arr);
+          rnpsCmtSrc().comments.set(k, arr);
           rnpsUpdateCellMark(sa, date);
           rnpsRefreshCmtPop();
           App.toast('Комментарий добавлен', 'ok');
@@ -6423,10 +6444,10 @@ const Views = (() => {
         try {
           const upd = await API.rnpCommentUpdate(cid, body);
           const k = rnpsCmtKey(sa, date);
-          const arr = rnpSalesState.comments.get(k) || [];
+          const arr = rnpsCmtSrc().comments.get(k) || [];
           const idx = arr.findIndex(x => x.id === cid);
           if (idx >= 0) arr[idx] = upd;
-          rnpSalesState.comments.set(k, arr);
+          rnpsCmtSrc().comments.set(k, arr);
           rnpsCmtPop.editingId = null;
           rnpsRefreshCmtPop();
           App.toast('Комментарий обновлён', 'ok');
@@ -6445,9 +6466,9 @@ const Views = (() => {
         try {
           await API.rnpCommentDelete(cid);
           const k = rnpsCmtKey(sa, date);
-          let arr = rnpSalesState.comments.get(k) || [];
+          let arr = rnpsCmtSrc().comments.get(k) || [];
           arr = arr.filter(x => x.id !== cid);
-          if (arr.length) rnpSalesState.comments.set(k, arr); else rnpSalesState.comments.delete(k);
+          if (arr.length) rnpsCmtSrc().comments.set(k, arr); else rnpsCmtSrc().comments.delete(k);
           rnpsUpdateCellMark(sa, date);
           rnpsRefreshCmtPop();
           App.toast('Комментарий удалён', 'ok');
@@ -6459,19 +6480,20 @@ const Views = (() => {
     });
   }
 
-  // Открыть popover комментариев для ячейки (sa, date).
-  function rnpsOpenCmtPopover(anchor, sa, date) {
+  // Открыть popover комментариев для ячейки (sa, date). src — источник данных (по умолчанию РНП).
+  function rnpsOpenCmtPopover(anchor, sa, date, src) {
     // Повторный клик по той же ячейке — закрыть.
-    if (rnpsCmtPop.el && rnpsCmtPop.sa === sa && rnpsCmtPop.date === date) { rnpsCloseCmtPopover(); return; }
+    if (rnpsCmtPop.el && rnpsCmtPop.sa === sa && rnpsCmtPop.date === date && rnpsCmtPop.src === (src || null)) { rnpsCloseCmtPopover(); return; }
     rnpsCloseCmtPopover();
     const pop = document.createElement('div');
     pop.className = 'rnps-cmt-pop';
+    rnpsCmtPop.src = src || null;
     rnpsCmtPop.el = pop; rnpsCmtPop.sa = sa; rnpsCmtPop.date = date; rnpsCmtPop.anchor = anchor; rnpsCmtPop.editingId = null;
     // Заголовок окна: название категории третьего уровня или артикул.
     rnpsCmtPop.title = anchor.getAttribute('data-title') || null;
     // В день акции без комментариев окно открывается на вкладке «Акция».
     rnpsCmtPop.promoMode = 'view';
-    rnpsCmtPop.tab = (App.can('rnp.promos.view') && rnpsPromoAt(sa, date) && !rnpsCmtFor(sa, date).length) ? 'promo' : 'cmt';
+    rnpsCmtPop.tab = (App.can('rnp.promos.view') && rnpsPromoAt(sa, date, rnpsCmtSrc()) && !rnpsCmtFor(sa, date, rnpsCmtSrc()).length) ? 'promo' : 'cmt';
     pop.innerHTML = rnpsCmtPopHtml(sa, date);
     document.body.appendChild(pop);
     rnpsBindCmtPop();
@@ -6595,15 +6617,8 @@ const Views = (() => {
     try {
       const res = await API.rnpCommentsList(mp, dfrom, dto);
       if (isStale()) return;
-      const list = (res && res.comments) || [];
-      const map = new Map();
-      list.forEach(c => {
-        const k = rnpsCmtKey(c.category_key ? RNPS_CAT + c.category_key : c.seller_article, c.date);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k).push(c);
-      });
       // Сервер уже отдаёт created_at DESC внутри ячейки; сохраняем порядок.
-      rnpSalesState.comments = map;
+      rnpSalesState.comments = rnpsCommentsToMap(res && res.comments);
     } catch (err) {
       // Комментарии — некритичны: матрица отрисуется и без них.
       if (isStale()) return;
@@ -6638,13 +6653,7 @@ const Views = (() => {
     try {
       const res = await API.rnpPromosList(mp, dfrom, dto);
       if (isStale()) return;
-      const map = new Map();
-      ((res && res.promos) || []).forEach(p => {
-        const k = String(p.seller_article);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k).push(p);
-      });
-      rnpSalesState.promos = map;
+      rnpSalesState.promos = rnpsPromosToMap(res && res.promos);
       rnpSalesState.promoToday = (res && res.today) || '';
     } catch (err) {
       // Акции — некритичны: матрица отрисуется и без них.
@@ -11520,6 +11529,10 @@ const Views = (() => {
     data: null, error: '', collapsed: {}, open: {}, metricsOpen: {}, rowOpen: {}, monthsOpen: null, filterSig: '',
     scrollEnd: false,  // после загрузки данных — прокрутить колонки к последним дням
   };
+  // Зеркало РНП Wildberries (02.11.2026): те же комментарии (общие, правятся и здесь) и акции (только
+  // просмотр). Поля — как у rnpSalesState: окно ячейки работает с ними через rnpsCmtPop.src.
+  const adsNotes = { mp: 'wb', comments: new Map(), promos: new Map(), promoToday: '', promoReadOnly: true,
+    matrixId: 'ads-matrix', seq: 0 };
 
   // Вкладки, доступные роли (функция вкладки и площадка роли).
   function adsTabs() {
@@ -11650,7 +11663,8 @@ const Views = (() => {
       const tint = opts.tint ? opts.tint(vals[i], i) : '';
       if (tint) st.push(tint);
       const attrs = opts.attrs && vals[i] ? opts.attrs(i) : '';
-      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}"${st.length ? ` style="${st.join(';')}"` : ''}${attrs}>${adsFmt(vals[i], kind)}</span>`;
+      const note = opts.note && c.type === 'day' ? opts.note(c.key) : null;   // комментарии и акции РНП
+      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}${note ? note.cls : ''}"${st.length ? ` style="${st.join(';')}"` : ''}${attrs}${note ? note.attrs : ''}>${note ? note.mark : ''}${adsFmt(vals[i], kind)}</span>`;
     }).join('');
   }
 
@@ -11682,6 +11696,14 @@ const Views = (() => {
 
   const ADS_MBTN_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"></line><line x1="8" y1="13" x2="8" y2="4"></line><line x1="13" y1="13" x2="13" y2="9"></line></svg>';
 
+  // Ячейка дня строки товара или группы третьего уровня — та же, что в РНП WB: уголок комментариев,
+  // штриховка дней акции, клик — окно «Комментарии | Акция» (rnpsOpenCmtPopover с src = adsState).
+  function adsNoteFn(node) {
+    if (node.kind === 'product') return (date) => rnpsNoteCell(node.name, date, false, '', adsNotes);
+    if (node.kind === 'group' && node.level === 3) return (date) => rnpsNoteCell(RNPS_CAT + node.key, date, true, node.name, adsNotes);
+    return null;
+  }
+
   function adsNodeHtml(node, cols, depth) {
     const isGroup = node.kind === 'root' || node.kind === 'group';
     const isCamp = node.kind === 'campaign';
@@ -11705,12 +11727,19 @@ const Views = (() => {
       status = statusSelectHtml(node.name, node.status, false);
       if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols)}${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
     }
+    // Ракета — товар в акции сегодня (как в РНП); пустое место у всех строк — для выравнивания колонок.
+    let promoIco = '';
+    if (App.can('rnp.promos.view')) {
+      const pNow = node.kind === 'product' && adsNotes.promoToday ? rnpsPromoAt(node.name, adsNotes.promoToday, adsNotes) : null;
+      promoIco = pNow ? `<span class="rnps-promo-ico" title="${U.esc(rnpsPromoTitle(pNow))}">${RNPS_ROCKET_SVG}</span>` : '<span class="rnps-promo-ico"></span>';
+    }
+    const note = adsNoteFn(node);
     return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}">
       <div class="rnp-node-head">
         <div class="rnp-node-name rnp-fixleft is-clickable" style="padding-left:${3 + 14 * depth}px">${name}</div>
         <div class="rnp-node-status rnp-fixleft">${status}</div>
-        <span class="rnp-node-mbtn rnp-fixleft">${mbtn}</span>
-        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', { heat: !isGroup })}</div></div>
+        <span class="rnp-node-mbtn rnp-fixleft">${promoIco}${mbtn}</span>
+        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', { heat: !isGroup, note })}</div></div>
       </div>${body}</div>`;
   }
 
@@ -11830,6 +11859,14 @@ const Views = (() => {
   }
 
   function adsBindToggles(host) {
+    // Клик по дню товара или группы третьего уровня → то же окно «Комментарии | Акция», что в РНП WB.
+    host.querySelectorAll('.rnps-node-vals .rnps-cell-cmt').forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sa = cell.getAttribute('data-sa'), date = cell.getAttribute('data-date');
+        if (sa && date) rnpsOpenCmtPopover(cell, sa, date, adsNotes);
+      });
+    });
     const legHost = document.querySelector('.rnp-card .rnps-legend');
     if (legHost) legHost.querySelectorAll('.rnps-month-toggle').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -11972,6 +12009,28 @@ const Views = (() => {
     document.addEventListener('click', (e) => { if (cal.open && periodWrap && !periodWrap.contains(e.target)) closeCal(); });
   }
 
+  // Комментарии и акции РНП Wildberries за дни отчёта — каждый раз свежие (без кэша), чтобы
+  // оставленное в РНП сразу было видно здесь и наоборот. Некритично: без них отчёт строится как раньше.
+  async function adsLoadRnpNotes() {
+    const seq = ++adsNotes.seq;
+    const fresh = () => seq === adsNotes.seq;   // поздний ответ прежнего запроса не пишем
+    adsNotes.comments = new Map(); adsNotes.promos = new Map(); adsNotes.promoToday = '';
+    let dfrom = '', dto = '';
+    ((adsState.data && adsState.data.months) || []).forEach(m => (m.days || []).forEach(x => {
+      if (!dfrom || x.key < dfrom) dfrom = x.key;
+      if (!dto || x.key > dto) dto = x.key;
+    }));
+    if (!dfrom) return;
+    const jobs = [];
+    const warn = (what) => (err) => console.warn('Реклама WB: не загрузились ' + what + ' РНП', err);
+    if (App.can('rnp.comments.view')) jobs.push(API.rnpCommentsList('wb', dfrom, dto)
+      .then(r => { if (fresh()) adsNotes.comments = rnpsCommentsToMap(r && r.comments); }).catch(warn('комментарии')));
+    if (App.can('rnp.promos.view')) jobs.push(API.rnpPromosList('wb', dfrom, dto)
+      .then(r => { if (fresh()) { adsNotes.promos = rnpsPromosToMap(r && r.promos); adsNotes.promoToday = (r && r.today) || ''; } })
+      .catch(warn('акции')));
+    await Promise.all(jobs);
+  }
+
   // ----- Вкладка Wildberries -----
   async function adsWb(root) {
     root.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
@@ -11980,6 +12039,7 @@ const Views = (() => {
         date_from: adsState.from, date_to: adsState.to, manager: adsState.manager,
         placement: adsState.placement,
       });
+      await adsLoadRnpNotes();
       adsState.error = '';
       adsState.scrollEnd = true;
     } catch (e) {
@@ -12002,7 +12062,7 @@ const Views = (() => {
     // иначе после новой загрузки запрос шёл бы со старым концом и свежих дней не было бы до перезагрузки
     // страницы. adsState.from/to — только период, выбранный вручную (как в РНП).
     root.innerHTML = `
-      <div class="card rnp-card mp-wb ads-card">
+      <div class="card rnp-card mp-wb ads-card${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}">
         <div class="rnp-toolbar">
           <div class="subtabs" id="ads-subtabs"></div>
           <div class="rnp-filters-host">
