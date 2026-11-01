@@ -145,7 +145,7 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(row.time, dt.time(12))
 
     def test_missing_time(self):
-        self.assertEqual(parse_rows([raw_row(time="")]).rows[0].time, dt.time.min)
+        self.assertIsNone(parse_rows([raw_row(time="")]).rows[0].time)
 
     def test_bad_values_fail_instead_of_silent_skip(self):
         for kwargs in ({"date": "no"}, {"up": -1}, {"up": 0}, {"up": "NaN"},

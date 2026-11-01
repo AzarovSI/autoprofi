@@ -142,12 +142,14 @@ def pricelist(
                    co.start_date  AS cost_date,
                    -- WB: всё из mp_price_daily (загружаемая, СПП, для покупателя).
                    wbp.date              AS wb_last_date,
+                   wbp.price_time        AS wb_last_time,
                    wbp.upload_price      AS wb_upload_price,
                    wbp.spp_pct           AS wb_spp_pct,
                    wbp.spp_is_estimated  AS wb_spp_is_estimated,
                    wbp.buyer_price       AS wb_buyer_price,
                    -- Ozon: то же самое из mp_price_daily.
                    ozp.date              AS oz_last_date,
+                   ozp.price_time        AS oz_last_time,
                    ozp.upload_price      AS oz_upload_price,
                    ozp.spp_pct           AS oz_spp_pct,
                    ozp.spp_is_estimated  AS oz_spp_is_estimated,
@@ -197,7 +199,7 @@ def pricelist(
               -- Загружаемая цена, СПП (с флагом is_estimated) и вычисленная
               -- buyer_price — всё из mp_price_daily, одним чтением.
               LEFT JOIN LATERAL (
-                  SELECT m.date, m.upload_price, m.spp_pct,
+                  SELECT m.date, m.price_time, m.upload_price, m.spp_pct,
                          m.spp_is_estimated, m.buyer_price
                     FROM mp_price_daily m
                    WHERE m.seller_article = u.seller_article
@@ -207,7 +209,7 @@ def pricelist(
               ) wbp ON TRUE
               -- Ozon: аналогично.
               LEFT JOIN LATERAL (
-                  SELECT m.date, m.upload_price, m.spp_pct,
+                  SELECT m.date, m.price_time, m.upload_price, m.spp_pct,
                          m.spp_is_estimated, m.buyer_price
                     FROM mp_price_daily m
                    WHERE m.seller_article = u.seller_article
@@ -250,11 +252,13 @@ def pricelist(
                    co.cost_calc   AS cost,
                    co.start_date  AS cost_date,
                    wbp.date              AS wb_last_date,
+                   wbp.price_time        AS wb_last_time,
                    wbp.upload_price      AS wb_upload_price,
                    wbp.spp_pct           AS wb_spp_pct,
                    wbp.spp_is_estimated  AS wb_spp_is_estimated,
                    wbp.buyer_price       AS wb_buyer_price,
                    ozp.date              AS oz_last_date,
+                   ozp.price_time        AS oz_last_time,
                    ozp.upload_price      AS oz_upload_price,
                    ozp.spp_pct           AS oz_spp_pct,
                    ozp.spp_is_estimated  AS oz_spp_is_estimated,
@@ -271,7 +275,7 @@ def pricelist(
               ) co ON TRUE
               -- Fallback без периода: последний известный срез цен из mp_price_daily.
               LEFT JOIN LATERAL (
-                  SELECT m.date, m.upload_price, m.spp_pct,
+                  SELECT m.date, m.price_time, m.upload_price, m.spp_pct,
                          m.spp_is_estimated, m.buyer_price
                     FROM mp_price_daily m
                    WHERE m.seller_article = u.seller_article
@@ -279,7 +283,7 @@ def pricelist(
                    ORDER BY m.date DESC LIMIT 1
               ) wbp ON TRUE
               LEFT JOIN LATERAL (
-                  SELECT m.date, m.upload_price, m.spp_pct,
+                  SELECT m.date, m.price_time, m.upload_price, m.spp_pct,
                          m.spp_is_estimated, m.buyer_price
                     FROM mp_price_daily m
                    WHERE m.seller_article = u.seller_article
@@ -324,6 +328,7 @@ def pricelist(
             # Всё берём одним чтением из mp_price_daily: последний срез
             # (загружаемая цена, СПП с флагом «оценочная», для покупателя).
             "wb_last_date":        (r["wb_last_date"].isoformat() if r.get("wb_last_date") else None),
+            "wb_last_time":        (r["wb_last_time"].strftime("%H:%M") if r.get("wb_last_time") else None),
             "wb_upload_price":     (float(r["wb_upload_price"]) if r.get("wb_upload_price") is not None else None),
             "wb_spp_pct":          (float(r["wb_spp_pct"])       if r.get("wb_spp_pct")       is not None else None),
             "wb_spp_is_estimated": bool(r.get("wb_spp_is_estimated")) if r.get("wb_spp_is_estimated") is not None else None,
@@ -331,6 +336,7 @@ def pricelist(
             # ── Индекс цен, блок Ozon ───────────────────────────────────
             # Аналогично WB — единый источник mp_price_daily.
             "oz_last_date":        (r["oz_last_date"].isoformat() if r.get("oz_last_date") else None),
+            "oz_last_time":        (r["oz_last_time"].strftime("%H:%M") if r.get("oz_last_time") else None),
             "oz_upload_price":     (float(r["oz_upload_price"]) if r.get("oz_upload_price") is not None else None),
             "oz_spp_pct":          (float(r["oz_spp_pct"])       if r.get("oz_spp_pct")       is not None else None),
             "oz_spp_is_estimated": bool(r.get("oz_spp_is_estimated")) if r.get("oz_spp_is_estimated") is not None else None,

@@ -1,7 +1,8 @@
 """Дневные отчёты цен WB и Ozon с датами и прямыми скидками из файла.
 
-WB выбирает последнее время внутри дня. Ozon не содержит времени:
-конфликтующие значения одной даты/артикула отклоняются.
+WB выбирает последнее время внутри дня. У Ozon разные значения одной даты/артикула отклоняются и при
+указанном времени. Время из отчёта (WB — «Время», Ozon — «Время загрузки», с 01.11.2026) сохраняется как
+время среза цены (mp_price_daily.price_time), пустое — NULL.
 Нулевая/пустая скидка для обоих МП означает отсутствие товара.
 """
 import datetime as dt
@@ -45,7 +46,7 @@ class PriceReportRow:
     upload_price: Decimal
     buyer_price: Decimal | None
     spp_pct: Decimal | None
-    time: dt.time
+    time: dt.time | None   # время среза из отчёта; None — в отчёте пусто
 
 
 @dataclass
@@ -93,8 +94,8 @@ def _wb_date(value):
 
 
 def _wb_time(value):
-    if value is None or value == "":
-        return dt.time.min
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
     if isinstance(value, dt.datetime):
         value = value.time()
     if isinstance(value, dt.time) and value.tzinfo is None:
@@ -185,8 +186,8 @@ def _parse_daily_report(path, label):
             for key, aliases in required.items()
         }
         if all(i is not None for i in columns.values()):
-            columns.update(time=header.get("Время") if is_wb else None,
-                           region=header.get("Регион") if is_wb else None)
+            time_col = header.get("Время") if is_wb else header.get("Время загрузки", header.get("Время"))
+            columns.update(time=time_col, region=header.get("Регион") if is_wb else None)
             candidates.append((sheet_name, data, columns))
     if len(candidates) != 1:
         if not is_wb:
@@ -219,7 +220,15 @@ def _parse_daily_report(path, label):
             upload_price = _wb_price(value("upload_price"), "Загружаемая цена")
             spp = _wb_spp(value("spp"))
             buyer = _wb_price(value("buyer_price"), required["buyer_price"][0]) if spp is not None else None
-            row = PriceReportRow(date, article, upload_price, buyer, spp, _wb_time(value("time")))
+            if is_wb:
+                row_time = _wb_time(value("time"))
+            else:
+                # У Ozon время только для подписи «Данные на»: непонятное значение — без времени, не ошибка.
+                try:
+                    row_time = _wb_time(value("time"))
+                except ValueError:
+                    row_time = None
+            row = PriceReportRow(date, article, upload_price, buyer, spp, row_time)
             key = (date, article)
             region = str(value("region") or "").strip().casefold()
             if region:
@@ -227,10 +236,11 @@ def _parse_daily_report(path, label):
                     raise ValueError(f"несколько регионов для {article} на {date:%d.%m.%Y}; загрузите один регион")
                 regions[key] = region
             old = selected.get(key)
-            if old and old.time == row.time and old != row:
+            if old and ((old.time or dt.time.min) == (row.time or dt.time.min) or not is_wb) and \
+                    (old.upload_price, old.buyer_price, old.spp_pct) != (row.upload_price, row.buyer_price, row.spp_pct):
                 suffix = " и время" if is_wb else ""
                 raise ValueError(f"разные значения для {article} на одну дату{suffix}")
-            if old is None or row.time > old.time:
+            if old is None or (row.time or dt.time.min) > (old.time or dt.time.min):
                 selected[key] = row
             rows_by_date[date] += 1
         except ValueError as exc:

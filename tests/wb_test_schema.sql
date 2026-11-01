@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS mp_price_daily (
   buyer_price numeric(12,2), updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (seller_article, marketplace, date)
 );
+ALTER TABLE mp_price_daily ADD COLUMN IF NOT EXISTS price_time time;
 CREATE TABLE IF NOT EXISTS mp_price_upload_log (
   id bigserial PRIMARY KEY, loaded_at timestamptz NOT NULL DEFAULT now(),
   loaded_by_user_id integer, marketplace text NOT NULL,

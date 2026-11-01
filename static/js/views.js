@@ -10997,7 +10997,7 @@ const Views = (() => {
              // Актуальность данных: последний день с заказами (макс. по всем
              // товарам). Берётся из wb_last_date / oz_last_date, приходящих
              // из prices_router. Форматируется в refreshCnt().
-             '<span class="muted" id="pl-idx-freshness" style="font-size:12px;font-weight:400;" title="Последний загруженный день заказов из РНП по каждой площадке"></span>' +
+             '<span class="muted" id="pl-idx-freshness" style="font-size:12px;font-weight:400;" title="Дата и время среза цен из последнего загруженного отчёта цен WB и Ozon (время — из отчёта, если оно там есть)"></span>' +
              '<span class="muted" id="pl-cnt" style="font-size:12px;font-weight:400;"></span>' +
              '<label class="ix-cat-check" title="Показать колонки «Цена категории» WB и Ozon — только просмотр, вводится в «Ценовой модели»">' +
                '<input type="checkbox" id="idx-show-cat"' + (pricesState.idxShowCat ? ' checked' : '') + '> цена категории' +
@@ -11127,29 +11127,29 @@ const Views = (() => {
         sigChip.querySelector('#pm-sig-num').textContent = U.fmtNum(n);
         sigChip.classList.toggle('has', n > 0);
       }
-      // Актуальность данных (только «Индекс цен»): последний день с заказами
-      // по WB и Ozon. Считаем как максимум wb_last_date / oz_last_date по всем
-      // товарам в текущей выдаче — эти даты приходят с бэкенда (см. LATERAL
-      // last-day-with-orders в prices_router). Даты у WB и Ozon могут
-      // отличаться, поэтому показываем обе.
+      // Актуальность данных (только «Индекс цен»): последний срез цен WB и Ozon — максимум
+      // дата + время среза из отчёта (wb_last_date/wb_last_time, oz_…; время с 01.11.2026,
+      // у старых загрузок его нет — тогда только дата). Даты у WB и Ozon могут отличаться.
       const frEl = root.querySelector('#pl-idx-freshness');
       if (frEl) {
         const items = pricesState.data.items || [];
-        let wbMax = null, ozMax = null;
-        for (let i = 0; i < items.length; i++) {
-          const w = items[i].wb_last_date, o = items[i].oz_last_date;
-          if (w && (!wbMax || w > wbMax)) wbMax = w;
-          if (o && (!ozMax || o > ozMax)) ozMax = o;
-        }
-        const fmt = (iso) => {
-          if (!iso) return '—';
-          const s = String(iso); // ожидаемый формат YYYY-MM-DD
-          if (s.length >= 10 && s[4] === '-' && s[7] === '-') {
-            return s.slice(8, 10) + '.' + s.slice(5, 7) + '.' + s.slice(0, 4);
+        const latest = (pfx) => {
+          let best = '';
+          for (let i = 0; i < items.length; i++) {
+            const d = items[i][pfx + '_last_date'];
+            if (!d) continue;
+            const k = d + ' ' + (items[i][pfx + '_last_time'] || '');
+            if (k > best) best = k;
           }
-          return s;
+          return best;
         };
-        frEl.textContent = 'Данные на: WB — ' + fmt(wbMax) + ' · Ozon — ' + fmt(ozMax);
+        const fmt = (k) => {
+          if (!k) return '—';
+          const [d, t] = k.split(' ');
+          const day = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.slice(8, 10) + '.' + d.slice(5, 7) + '.' + d.slice(0, 4) : d;
+          return day + (t ? ' ' + t : '');
+        };
+        frEl.textContent = 'Данные на: WB — ' + fmt(latest('wb')) + ' · Ozon — ' + fmt(latest('oz'));
       }
     }
     refreshCnt();

@@ -6,6 +6,7 @@ from pathlib import Path
 from . import db
 
 MIGRATION = "2026_09_21_daily_pi"
+PRICE_TIME_MIGRATION = "2026_11_01_price_time"  # время среза цены из отчёта (mp_price_daily.price_time)
 MSK = dt.timezone(dt.timedelta(hours=3))
 
 
@@ -15,14 +16,16 @@ def migrate():
         tx.execute("SELECT pg_advisory_xact_lock(21092026, 0)")
         tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
             name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())""")
-        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
-            return
-        # Prevent source writes during trigger installation and initial backfill.
-        tx.execute("""LOCK TABLE mp_price_daily, catalog_base_prices_hist,
-                      catalog_items IN SHARE ROW EXCLUSIVE MODE""")
-        path = Path(__file__).resolve().parent.parent / "migrations" / (MIGRATION + ".sql")
-        tx.conn.execute(path.read_text(encoding="utf-8"))
-        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
+        for name in (MIGRATION, PRICE_TIME_MIGRATION):
+            if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (name,)):
+                continue
+            if name == MIGRATION:
+                # Prevent source writes during trigger installation and initial backfill.
+                tx.execute("""LOCK TABLE mp_price_daily, catalog_base_prices_hist,
+                              catalog_items IN SHARE ROW EXCLUSIVE MODE""")
+            path = Path(__file__).resolve().parent.parent / "migrations" / (name + ".sql")
+            tx.conn.execute(path.read_text(encoding="utf-8"))
+            tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s) ON CONFLICT DO NOTHING", (name,))
 
 
 def revision():

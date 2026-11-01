@@ -41,7 +41,7 @@ class OzonParserTests(unittest.TestCase):
         self.assertEqual(row.upload_price, D("7937"))
         self.assertEqual(row.spp_pct, D(".5417"))
         self.assertEqual(row.buyer_price, D("3637.51"))
-        self.assertEqual(row.time, dt.time.min)
+        self.assertIsNone(row.time)  # в отчёте нет колонки времени
 
     def test_zero_or_absent_coinvest_clears_buyer(self):
         for spp in (0, None, "", "0%", "—"):
@@ -61,6 +61,15 @@ class OzonParserTests(unittest.TestCase):
         for change in ({"up": 8000}, {"spp": .5}, {"buyer": 3900}):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, "разные значения"):
                 parse([raw(), raw(**change)])
+
+    def test_upload_time_is_kept(self):
+        """С 01.11.2026 в отчёте Ozon есть «Время загрузки» — время среза цены (пусто у прежних дней)."""
+        report = parse([raw() + [dt.time(23, 15)], raw(date="17.09.2026") + [""]],
+                       header=HEADERS + ["Время загрузки"])
+        self.assertEqual({r.date: r.time for r in report.rows}, {DAY: dt.time(23, 15), dt.date(2026, 9, 17): None})
+        # Непонятное время у Ozon не отменяет загрузку — строка без времени.
+        odd = parse([raw() + ["23:15 МСК"]], header=HEADERS + ["Время загрузки"])
+        self.assertIsNone(odd.rows[0].time)
 
     def test_conflicting_values_do_not_use_optional_time(self):
         with self.assertRaisesRegex(ValueError, "разные значения"):
@@ -135,6 +144,23 @@ class OzonIntegrationTests(unittest.TestCase):
         self.assertIsNone(rows[1]["buyer_price"])
         self.assertEqual(rows[1]["upload_source"], "upload_ozon_coinvest")
         self.assertFalse(rows[1]["spp_is_estimated"])
+
+    def test_price_time_saved_shown_and_not_erased_by_empty(self):
+        """Время среза из «Время загрузки» (01.11.2026): пишется в price_time, отдаётся «Индексу цен»
+        (oz_last_time), а следующий файл, где у этого дня время пустое, его не стирает."""
+        hdr = HEADERS + ["Время загрузки"]
+        self.assertEqual(self.upload(parse([raw() + [dt.time(23, 15)]], header=hdr)).status_code, 200)
+        self.assertEqual(self.snapshot()[0]["price_time"], dt.time(23, 15))
+        res = self.client.get("/api/prices/pricelist", params={"date_from": "2026-09-01", "date_to": "2026-09-18"})
+        row = next(r for r in res.json()["items"] if r["seller_article"] == "SKU-1")
+        self.assertEqual((row["oz_last_date"], row["oz_last_time"]), ("2026-09-18", "23:15"))
+        self.upload(parse([raw() + [""]], header=hdr))
+        self.assertEqual(self.snapshot()[0]["price_time"], dt.time(23, 15))
+        self.upload(parse([raw() + [dt.time(9, 5)]], header=hdr))
+        self.assertEqual(self.snapshot()[0]["price_time"], dt.time(9, 5))
+        # Цена дня изменилась, а времени в файле нет — прежнее время к новой цене не относится.
+        self.upload(parse([raw(up=8100) + [""]], header=hdr))
+        self.assertIsNone(self.snapshot()[0]["price_time"])
 
     def test_rnp_cannot_change_direct_or_no_stock_and_wb_is_untouched(self):
         from test_wb_prices import parse_rows, raw_row

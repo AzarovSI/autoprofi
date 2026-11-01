@@ -295,16 +295,25 @@ def sync_direct_report(tx, marketplace, rows, uploaded_by):
     source = DIRECT_REPORT_SOURCES[marketplace]
     values = [
         (r.article, marketplace, r.date, r.upload_price, source,
-         uploaded_by, r.spp_pct, r.date if r.spp_pct is not None else None, r.buyer_price)
+         uploaded_by, r.spp_pct, r.date if r.spp_pct is not None else None, r.buyer_price,
+         r.time)
         for r in rows
     ]
+    # price_time — время среза из отчёта. Строка дня без времени (в файле Ozon время только у последнего
+    # дня, прежние дни пустые) не стирает уже записанное время, если цены дня не изменились.
     count = tx.execute_values(
         """INSERT INTO mp_price_daily
              (seller_article, marketplace, date, upload_price, upload_source,
-              upload_loaded_by, spp_pct, spp_source_date, buyer_price,
+              upload_loaded_by, spp_pct, spp_source_date, buyer_price, price_time,
               spp_is_estimated, upload_loaded_at, updated_at)
            VALUES %s
            ON CONFLICT (seller_article, marketplace, date) DO UPDATE SET
+             price_time = CASE
+               WHEN EXCLUDED.price_time IS NOT NULL THEN EXCLUDED.price_time
+               WHEN (mp_price_daily.upload_price, mp_price_daily.buyer_price, mp_price_daily.spp_pct)
+                    IS NOT DISTINCT FROM (EXCLUDED.upload_price, EXCLUDED.buyer_price, EXCLUDED.spp_pct)
+                 THEN mp_price_daily.price_time
+             END,
              upload_price = EXCLUDED.upload_price,
              upload_source = EXCLUDED.upload_source,
              upload_loaded_by = EXCLUDED.upload_loaded_by,
@@ -315,7 +324,7 @@ def sync_direct_report(tx, marketplace, rows, uploaded_by):
              buyer_price = EXCLUDED.buyer_price,
              updated_at = now()""",
         values,
-        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,false,now(),now())",
+        template="(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,now(),now())",
         page_size=1000,
     )
     return {"upserted": count}
