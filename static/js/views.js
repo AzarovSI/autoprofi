@@ -11873,7 +11873,8 @@ const Views = (() => {
 
   // ----- Период (как в РНП: два месяца, диапазон двумя кликами, пресеты) -----
   function adsPeriodLabel() {
-    const f = adsState.from, t = adsState.to;
+    const d = adsState.data || {};
+    const f = adsState.from || d.date_from || '', t = adsState.to || d.date_to || '';
     if (f && t) return f === t ? fmtRu(f) : `${fmtRu(f)} — ${fmtRu(t)}`;
     return f || t ? fmtRu(f || t) : 'Текущий месяц';
   }
@@ -11997,8 +11998,9 @@ const Views = (() => {
     const mgrOpts = opt('', 'Все менеджеры', adsState.manager) + (d.managers || []).map(m => opt(m, m, adsState.manager)).join('');
     const stOpts = opt('', 'Все статусы', adsState.status) + STATUS_PRESETS.map(s => opt(s, s, adsState.status)).join('');
     const plOpts = opt('', 'Все места показа', adsState.placement) + (d.placements || []).map(p => opt(p, p, adsState.placement)).join('');
-    adsState.from = adsState.from || d.date_from;
-    adsState.to = adsState.to || d.date_to;
+    // Период по умолчанию (сервер: с 1-го числа по последний день с данными) не запоминаем в adsState —
+    // иначе после новой загрузки запрос шёл бы со старым концом и свежих дней не было бы до перезагрузки
+    // страницы. adsState.from/to — только период, выбранный вручную (как в РНП).
     root.innerHTML = `
       <div class="card rnp-card mp-wb ads-card">
         <div class="rnp-toolbar">
@@ -12109,7 +12111,7 @@ const Views = (() => {
       if ((res.no_article || []).length) {
         note = '<div class="up-warn">⚠ Без артикула продавца (артикулы WB): ' + U.esc(res.no_article.join(', ')) + '. Такие строки не попадут в отчёт по товарам.</div>';
       }
-      if (API.cacheClear) API.cacheClear('/api/ads/wb/tree');
+      if (API.cacheClear) API.cacheClear('/api/ads/wb/');   // дерево и «связанные заказы»
     } catch (e) {
       App.toast('Ошибка загрузки: ' + e.message, 'err');
       note = '<div class="note err" style="margin-top:10px;padding:9px 12px;font-size:12.5px;line-height:1.4">✖ Файл не загружен. ' + U.esc(e.message) + '</div>';
