@@ -160,6 +160,18 @@ class AdsWbTest(unittest.TestCase):
         self.assertIn("Воронка", res["error"])
         self.assertEqual(db.query_one("SELECT count(*) AS n FROM wb_ads_campaign_daily")["n"], 0)
 
+    def test_products_ordered_by_article_like_rnp(self):
+        """Товары в группе — по артикулу, как в РНП, а не по расходу на рекламу (01.11.2026)."""
+        d1 = D(2026, 10, 22)
+        self.assertTrue(self.load(book([
+            camp(d1, 1, "Поиск", 12, "SKU-2", True, 100, 10, 900.0, 2, 2000),
+            camp(d1, 2, "Поиск", 11, "SKU-1", True, 100, 10, 10.0, 1, 1000),
+        ], funnel_rows=[]))["ok"])
+        r = self.tree(date_from="2026-10-01", date_to="2026-10-31")
+        self.assertEqual(r.status_code, 200, r.text)
+        group = r.json()["tree"]["children"][0]["children"][0]["children"][0]
+        self.assertEqual([p["name"] for p in group["children"]], ["SKU-1", "SKU-2"])
+
     def test_tree_ad_funnel_shares_plan_and_linked(self):
         d1, d2 = D(2026, 10, 22), D(2026, 10, 23)
         self.assertTrue(self.load(book([

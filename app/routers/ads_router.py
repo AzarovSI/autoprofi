@@ -29,7 +29,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import auth, db
-from ..util import canon_article
+from ..util import canon_article, cat_sort_key, l1_sort_key
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
@@ -103,10 +103,19 @@ class Node:
     def spend(self):
         return sum(c.v["spend"] or 0 for k, c in self.cells.items() if len(k) == 7)
 
+    def sort_key(self):
+        """Порядок как во всех деревьях (РНП, юнит-экономика, цены; docs/business_rules.md): L1 — ECOM,
+        ТД «АВТОПРОФИ», прочие по алфавиту; L2/L3 — алфавит без учёта регистра; «Не распределены» — в конце;
+        товары — по артикулу (как в РНП). Расход на рекламу порядок не меняет."""
+        if self.kind == "product":
+            return (False, self.name)
+        rank = l1_sort_key(self.name) if self.level == 1 else (0, cat_sort_key(self.name))
+        return (self.name == UNDISTRIBUTED, rank)
+
     def out(self):
         kids = list(self.children.values())
         if self.kind in ("root", "group"):
-            kids.sort(key=lambda n: (n.name == UNDISTRIBUTED, n.name) if n.kind == "group" else (-n.spend(), n.name))
+            kids.sort(key=Node.sort_key)
         elif self.kind == "product":
             kids.sort(key=lambda n: (PLACEMENT_ORDER.get(n.extra.get("placement"), 9), n.name))
         res = {"key": self.key, "name": self.name, "level": self.level, "kind": self.kind,
