@@ -1478,7 +1478,7 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 .rnps-col.rnps-future { background-color:rgba(150,165,175,.08); border-left:1px solid #fff; }
 .rnps-leg.rnps-leg-tail, .rnps-col.rnps-tail { width:74px; justify-content:center; }
 .rnps-leg.rnps-leg-tail { color:var(--text-dim); font-weight:600; gap:2px; }
-.rnps-col.rnps-tail { background:repeating-linear-gradient(90deg, rgba(150,165,175,.16) 0 2px, transparent 2px 6px); }
+.rnps-col.rnps-tail { position:relative; background:repeating-linear-gradient(90deg, rgba(150,165,175,.16) 0 2px, transparent 2px 6px); }
 .rnp-filters-host > .rnps-future-check { flex:0 0 auto; white-space:nowrap; cursor:pointer; }
 
 /* таблица показателей узла */

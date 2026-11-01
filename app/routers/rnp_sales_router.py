@@ -287,6 +287,8 @@ def rnp_sales_tree(
     # алиасу: иначе "wb" и "wildberries" — два разных ключа на одно и то же
     # дерево, и один может отдавать устаревший результат (фронт шлёт "wb").
     mp_norm = MP_MAP.get((marketplace or "").lower(), "Ozon")
+    # Прямой вызов без future (прогрев rnp_warmup, тесты) получает объект Query — он «истинен».
+    future = future is True
     # v2 в ключе — версия ПРАВИЛ ПОСТРОЕНИЯ дерева (порядок групп изменён
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
@@ -798,9 +800,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         avg_daily = orders_sum / days_n
         return stock / avg_daily
 
-    def node_plan(node, mk):
-        info = months[mk]
-        y, m = info["year"], info["month"]
+    def node_plan(node, y, m):
         total = 0.0
         has = False
         for a in node["arts"]:
@@ -896,14 +896,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             am = node["month"].get(mk)
             snap = month_snapshot(node, mk)
             cells[mk] = _cell_from_agg(am if am else Agg(), snap_override=snap)
-            pv = node_plan(node, mk)
+            pv = node_plan(node, months[mk]["year"], months[mk]["month"])
             plan[mk] = pv
             forecast[mk] = node_forecast(node, mk, pv)
             if mk == last_mk:
                 turnover[mk] = node_turnover(node, mk, snap)
         for mk, (y, m) in extra_months.items():   # «Будущие даты»: план есть, факта и прогноза нет
-            qs = [q for q in (plan_by_art.get(a, {}).get((y, m)) for a in node["arts"]) if q]
-            plan[mk] = sum(qs) if qs else None
+            plan[mk] = node_plan(node, y, m)
             forecast[mk] = None
         if node["level"] == 4 and not is_ya:
             article = node["leaf_info"]["seller_article"]

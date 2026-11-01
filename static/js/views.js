@@ -5368,16 +5368,22 @@ const Views = (() => {
   // остальные будущие дни — одна колонка-хвост 'tail' (раскрывается кликом); следующий месяц — все дни.
   function rnpsDayCols(m) {
     const today = (rnpSalesState.data || {}).today || '';
-    const limit = today && today.slice(0, 7) === m.key && !rnpSalesState.tailOpen[m.key] ? rnpsFutureLimit(today) : '';
+    const limit = today && today.slice(0, 7) === m.key ? rnpsFutureLimit(today) : '';
+    const open = !!rnpSalesState.tailOpen[m.key];
     const out = [];
-    let tail = null;
+    let tail = null, foldDone = false;
     (m.days || []).forEach(d => {
-      if (limit && d.future && d.key > limit) {
-        if (!tail) { tail = { type: 'tail', key: 'tail-' + m.key, mk: m.key, from: d.label }; out.push(tail); }
+      const after = !!(limit && d.future && d.key > limit);
+      if (after && !open) {
+        if (!tail) { tail = { type: 'tail', key: 'tail-' + m.key, mk: m.key, from: d.label, days: [] }; out.push(tail); }
         tail.to = d.label;
+        tail.days.push(d.key);
         return;
       }
-      out.push({ type: 'day', key: d.key, mk: m.key, label: d.label, future: !!d.future, today: d.key === today });
+      // foldStart — первый день после окна в раскрытом хвосте: у него в шапке кнопка «◂».
+      const foldStart = after && !foldDone;
+      if (foldStart) foldDone = true;
+      out.push({ type: 'day', key: d.key, mk: m.key, label: d.label, future: !!d.future, today: d.key === today, foldStart });
     });
     return out;
   }
@@ -5483,7 +5489,7 @@ const Views = (() => {
   // Одна ячейка верхней метрики (Заказы, шт / План / Прогноз).
   // range — {mn, mx} по колонкам-ДНЯМ ИМЕННО этого узла.
   function rnpsTopCell(node, col, range, isItem) {
-    if (col.type === 'tail') return '<span class="rnps-col rnps-tail"></span>';
+    if (col.type === 'tail') return rnpsTailCell(node, col, isItem);
     const v = rnpsTopValue(node, col);
     let kind = 'qty';
     if (col.type === 'forecast') kind = 'pct';
@@ -5544,6 +5550,23 @@ const Views = (() => {
     const turnBadge = rnpsTurnBadge(node, col, isItem);
     if (turnBadge) cls += ' rnps-has-turn';
     return `<span class="rnps-col${cls}"${style}${cmtAttrs}>${cmtMark}${turnBadge}${text}</span>`;
+  }
+
+  // Колонка-хвост «Будущих дат»: свёрнутые дни не видны, поэтому на ней — уголок, если в них есть
+  // комментарии, и штриховка, если товар в эти дни в акции (раскрыть — увидеть, какие дни).
+  function rnpsTailCell(node, col, isItem) {
+    const sa = isItem && node.leaf_info ? node.leaf_info.seller_article || ''
+      : (node.level === 3 ? RNPS_CAT + node.key : '');
+    let cls = '', mark = '', title = '';
+    if (sa && App.can('rnp.comments.view')) {
+      const n = col.days.reduce((acc, d) => acc + rnpsCmtFor(sa, d).length, 0);
+      if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark"></span>`; title = `Комментарии в свёрнутых днях: ${n}`; }
+    }
+    if (isItem && sa && App.can('rnp.promos.view') && col.days.some(d => rnpsPromoAt(sa, d))) {
+      cls += ' rnps-promo';
+      title += (title ? '; ' : '') + 'Акция в свёрнутых днях';
+    }
+    return `<span class="rnps-col rnps-tail${cls}"${title ? ` title="${U.esc(title)}"` : ''}>${mark}</span>`;
   }
 
   // Одна ячейка обычной метрики в таблице показателей.
@@ -5694,20 +5717,14 @@ const Views = (() => {
     (months || []).forEach(m => {
       const open = !!rnpSalesState.monthsOpen[m.key];
       if (open) {
-        const today = (rnpSalesState.data || {}).today || '';
-        const limit = today && today.slice(0, 7) === m.key && rnpSalesState.tailOpen[m.key] ? rnpsFutureLimit(today) : '';
-        let folded = false;
         rnpsDayCols(m).forEach(c => {
           if (c.type === 'tail') {
             html += `<span class="rnps-leg rnps-leg-day rnps-leg-tail"><button class="rnp-exp-btn rnps-tail-toggle" data-mkey="${U.esc(m.key)}" title="Показать остальные дни месяца">▸</button>${U.esc(c.from)}–${U.esc(c.to)}</span>`;
             return;
           }
           // Хвост раскрыт — у первого дня после недели вперёд кнопка «свернуть обратно».
-          let fold = '';
-          if (limit && c.future && c.key > limit && !folded) {
-            folded = true;
-            fold = `<button class="rnp-exp-btn rnps-tail-toggle" data-mkey="${U.esc(m.key)}" title="Свернуть дни после недели вперёд">◂</button>`;
-          }
+          const fold = c.foldStart
+            ? `<button class="rnp-exp-btn rnps-tail-toggle" data-mkey="${U.esc(m.key)}" title="Свернуть дни после недели вперёд">◂</button>` : '';
           html += `<span class="rnps-leg rnps-leg-day${c.future ? ' rnps-leg-future' : ''}${c.today ? ' rnps-leg-today' : ''}"${c.today ? ' title="Сегодня"' : ''}>${fold}${U.esc(c.label)}</span>`;
         });
       }
@@ -6652,10 +6669,10 @@ const Views = (() => {
   function rnpsPeriodBaseDate() {
     const months = (rnpSalesState.data && rnpSalesState.data.months) || [];
     for (let i = months.length - 1; i >= 0; i--) {
-      const days = months[i] && months[i].days;
-      if (days && days.length) {
-        const last = days[days.length - 1].key;
-        const d = parseISO(last);
+      // Дни «Будущих дат» — без данных: базой берём последний день с данными.
+      const days = ((months[i] && months[i].days) || []).filter(x => !x.future);
+      if (days.length) {
+        const d = parseISO(days[days.length - 1].key);
         if (d) return d;
       }
     }

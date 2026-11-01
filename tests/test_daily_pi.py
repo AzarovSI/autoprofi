@@ -200,6 +200,8 @@ class DailyPiTests(unittest.TestCase):
             rnp.rnp_sales_tree(*args)
             self.assertEqual(build.call_count, 2)
             self.assertEqual(cache.stats()["entries"], 1)
+            # Прямой вызов без future (как прогрев rnp_warmup) — обычное дерево, не «Будущие даты».
+            self.assertIs(build.call_args.args[5], False)
 
 
 if __name__ == "__main__":

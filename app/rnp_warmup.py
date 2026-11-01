@@ -48,7 +48,7 @@ def warm_once():
     for mp in MARKETPLACES:
         try:
             rs.rnp_sales_tree(marketplace=mp, date_from=d_from, date_to=d_to,
-                              status=None, manager=None, user=None)
+                              status=None, manager=None, user=None, future=False)
         except Exception:
             log.exception("прогрев РНП %s не удался", mp)
 
