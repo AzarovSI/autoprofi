@@ -708,28 +708,34 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             "days": [{"key": d.isoformat(), "label": f"{d.day:02d}"} for d in days_sorted],
         })
 
-    # «Будущие даты» (галочка РНП, решение владельца 01.11.2026): если период включает сегодня,
-    # дописываем пустые дни с сегодняшнего до конца месяца и весь следующий месяц (даже за концом
-    # периода) — чтобы оставлять комментарии и открывать акции заранее. Итоги, прогноз, Pi и
-    # оборачиваемость по-прежнему только по дням с данными; у месяцев без данных — только план.
+    # «Будущие даты» (галочка РНП, решения владельца 01.11.2026): если период включает сегодня,
+    # дописываем пустые дни от дня после последнего дня с данными (данные приходят с задержкой —
+    # например 31.10 на 01.11) до конца следующего месяца (даже за концом периода) — чтобы оставлять
+    # комментарии и открывать акции. Пометка "future" у дня и месяца = «добавлен галочкой, данных нет».
+    # Итоги, прогноз, Pi и оборачиваемость — только по дням с данными; у месяцев без данных — только план.
     extra_months = {}  # mk -> (год, месяц): месяц без данных, добавленный галочкой
     if future and (not d_from or d_from <= today) and (not d_to or d_to >= today):
         nxt = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
+        end = nxt.replace(day=calendar.monthrange(nxt.year, nxt.month)[1])
+        data_days = set().union(*(info["days"] for info in months.values())) if months else set()
+        start = min(today, max(data_days) + datetime.timedelta(days=1)) if data_days else today
+        if d_from and start < d_from:
+            start = d_from
         by_key = {m["key"]: m for m in month_list}
-        for start in (today, nxt):
-            mk = f"{start.year}-{start.month:02d}"
+        day = start
+        while day <= end:
+            mk = f"{day.year}-{day.month:02d}"
             m = by_key.get(mk)
             if not m:
-                m = {"key": mk, "year": start.year, "month": start.month,
-                     "label": f"{RU_MONTHS[start.month]} {start.year}", "days": [], "future": True}
+                m = {"key": mk, "year": day.year, "month": day.month,
+                     "label": f"{RU_MONTHS[day.month]} {day.year}", "days": [], "future": True}
                 month_list.append(m)
                 by_key[mk] = m
-                extra_months[mk] = (start.year, start.month)
-            have = {d["key"] for d in m["days"]}
-            for day in range(start.day, calendar.monthrange(start.year, start.month)[1] + 1):
-                dk = datetime.date(start.year, start.month, day).isoformat()
-                if dk not in have:
-                    m["days"].append({"key": dk, "label": f"{day:02d}", "future": True})
+                extra_months[mk] = (day.year, day.month)
+            if day not in months.get(mk, {}).get("days", ()):
+                m["days"].append({"key": day.isoformat(), "label": f"{day.day:02d}", "future": True})
+            day += datetime.timedelta(days=1)
+        for m in month_list:
             m["days"].sort(key=lambda d: d["key"])
         month_list.sort(key=lambda m: m["key"])
 

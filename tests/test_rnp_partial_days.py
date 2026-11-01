@@ -74,6 +74,11 @@ class TreeTests(unittest.TestCase):
         # Период без сегодняшнего дня — галочка ничего не добавляет.
         past = tree(sales=sales, date_to="2026-09-23", future=True)
         self.assertEqual([d["key"] for d in past["months"][0]["days"]], [PREV.isoformat()])
+        # Данные с задержкой: дни между последним днём с данными и сегодня тоже добавляются.
+        late = tree(sales=[row(DAY - dt.timedelta(days=3), orders_qty=5)], date_to="2026-09-30", future=True)
+        days = [d["key"] for d in late["months"][0]["days"]]
+        self.assertEqual(days[:4], ["2026-09-21", "2026-09-22", "2026-09-23", DAY.isoformat()])
+        self.assertEqual([d.get("future", False) for d in late["months"][0]["days"][:3]], [False, True, True])
 
     def test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock(self):
         result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
