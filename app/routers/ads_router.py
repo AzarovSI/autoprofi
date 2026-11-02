@@ -16,11 +16,14 @@ catalog_marketplace (статус, менеджер, ссылка WB) и price_m
     f_orders_a / f_rub_a — карточка за такие дни, orders_f / spend_f — реклама в дни с воронкой.
 Плановый ДРР — у товара, `plan`: {день или месяц: доля}; у месяца — план на последний день периода в месяце.
 Запас в днях — у товара, `stock_days`, как в РНП (`_stock_days`).
+Поисковые запросы кампании (лист «Поисковые кластеры») — отдельным запросом при раскрытии кампании (`wb_clusters`);
+в дереве у кампании только признак `has_clusters`.
 NULL ≠ 0: нет строк — null; 0 из файла — 0.
 
 Эндпоинты:
   GET /api/ads/wb/tree?date_from=&date_to=&manager=
   GET /api/ads/wb/linked?campaign_id=…&campaign_id=…&date_from=&date_to=   — связанные заказы списком
+  GET /api/ads/wb/clusters?campaign_id=&date_from=&date_to=                 — поисковые запросы кампании
 """
 import calendar
 import datetime
@@ -40,6 +43,7 @@ MIGRATIONS = ["2026_10_28_wb_ads_stats", "2026_10_29_wb_ads_funnel"]
 UNDISTRIBUTED = "Не распределены"
 FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "cancels", "linked",
           "f_visits", "f_carts", "f_orders", "f_orders_a", "f_rub_a", "orders_f", "spend_f")
+CLUSTER_FIELDS = ("views", "clicks", "carts", "orders", "spend")
 AD_FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "cancels")
 FUNNEL_FIELDS = ("f_visits", "f_carts", "f_orders", "f_orders_a", "f_rub_a")
 PLACEMENT_ORDER = {"Поиск": 0, "Поиск + рекомендации": 1, "Рекомендации": 2}
@@ -142,6 +146,15 @@ def _period(date_from, date_to):
     return d0, d1
 
 
+def _month_avg(by_day):
+    """Дописать в {день: значение} среднее по дням каждого месяца — для позиций (в поиске и в рекламной выдаче)."""
+    by_month = defaultdict(list)
+    for k, v in list(by_day.items()):
+        by_month[k[:7]].append(v)
+    for mk, vals in by_month.items():
+        by_day[mk] = round(sum(vals) / len(vals), 2)
+
+
 def _plan_on(hist, d):
     """Плановый ДРР, действующий на дату: последняя запись истории с датой ≤ d."""
     v = None
@@ -208,6 +221,9 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
         "SELECT DISTINCT date FROM wb_ads_campaign_daily WHERE date BETWEEN %s AND %s", (d0, d1))}
 
     camp_ids = sorted({r["campaign_id"] for r in ad_rows if r["in_campaign"]})
+    with_clusters = {r["campaign_id"] for r in db.query_all(
+        "SELECT DISTINCT campaign_id FROM wb_ads_cluster_daily WHERE date BETWEEN %s AND %s AND campaign_id = ANY(%s)",
+        (d0, d1, camp_ids))} if camp_ids else set()
     # Название и место — по последней выгрузке кампании.
     campaigns = {r["campaign_id"]: r for r in db.query_all(
         """SELECT DISTINCT ON (campaign_id) campaign_id, campaign_name, placement, payment_type
@@ -277,7 +293,8 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
         for cid, by_day in own[art].items():
             info = campaigns.get(cid) or {}
             camp = prod.child(f"{pkey}|c{cid}", info.get("campaign_name") or str(cid), "campaign",
-                              campaign_id=cid, placement=info.get("placement"), payment_type=info.get("payment_type"))
+                              campaign_id=cid, placement=info.get("placement"), payment_type=info.get("payment_type"),
+                              has_clusters=cid in with_clusters)
             for d, r in by_day.items():
                 days.add(d)
                 fd = fdays.get(d) or {}
@@ -330,11 +347,7 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
                               (sorted(days), list(products))):
             products[r["seller_article"]].extra["pos"][r["date"].isoformat()] = _num(r["v"])
     for prod in products.values():
-        by_day = prod.extra["pos"]
-        for m in months:
-            vals = [by_day[dd["key"]] for dd in m["days"] if dd["key"] in by_day]
-            if vals:
-                by_day[m["key"]] = round(sum(vals) / len(vals), 2)
+        _month_avg(prod.extra["pos"])
 
     # Плановый ДРР товара: по дням — действующий на день, по месяцу — на последний день месяца в отчёте.
     def fill_plans(node):
@@ -377,3 +390,52 @@ def wb_linked(campaign_id: List[int] = Query(...), date_from: str = Query(...), 
            ORDER BY sum(orders) DESC, seller_article""", (campaign_id[:50], d0, d1))
     return {"items": [{"seller_article": r["seller_article"], "item_name": r["item_name"],
                        "orders": _num(r["orders"]), "orders_sum": _num(r["orders_sum"])} for r in rows]}
+
+
+@router.get("/wb/clusters")
+def wb_clusters(campaign_id: int, date_from: str = Query(...), date_to: str = Query(...),
+                user=Depends(auth.require_tabs("ads", "Wildberries"))):
+    """Поисковые запросы кампании за период (лист «Поисковые кластеры») — строки под кампанией, подгружаются при её
+    раскрытии. Только товар самой кампании и только дни, где у кампании есть строка (колонки отчёта).
+    «Прочие запросы» = кампания − сумма запросов за день: WB раскладывает по запросам не весь расход.
+    Позиция в рекламной выдаче (`adpos`): 0 в файле — нет данных; за месяц — среднее по дням."""
+    d0, d1 = _date(date_from, "date_from"), _date(date_to, "date_to")
+    camp = {r["date"]: r for r in db.query_all(
+        """SELECT date, sum(views) views, sum(clicks) clicks, sum(atbs) carts, sum(orders) orders, sum(spend) spend
+           FROM wb_ads_campaign_daily WHERE campaign_id = %s AND in_campaign AND date BETWEEN %s AND %s
+           GROUP BY 1""", (campaign_id, d0, d1))}
+    rows = db.query_all(
+        """SELECT date, cluster, sum(views) views, sum(clicks) clicks, sum(atbs) carts, sum(orders) orders,
+                  sum(spend) spend, avg(avg_position) FILTER (WHERE avg_position > 0) pos
+           FROM wb_ads_cluster_daily
+           WHERE campaign_id = %s AND date BETWEEN %s AND %s
+             AND nm_id IN (SELECT nm_id FROM wb_ads_campaign_daily WHERE campaign_id = %s AND in_campaign)
+           GROUP BY 1, 2""", (campaign_id, d0, d1, campaign_id))
+    nodes, sums = {}, defaultdict(lambda: defaultdict(float))
+    for r in rows:
+        if r["date"] not in camp:
+            continue
+        dk = r["date"].isoformat()
+        node = nodes.get(r["cluster"])
+        if node is None:
+            node = nodes[r["cluster"]] = Node(f"c{campaign_id}|k{r['cluster']}", r["cluster"], 0, "cluster", adpos={})
+        for f in CLUSTER_FIELDS:
+            node.cells[dk].add(f, r[f])
+            if r[f] is not None:
+                sums[dk][f] += float(r[f])
+        if r["pos"] is not None:
+            node.extra["adpos"][dk] = round(float(r["pos"]), 2)
+    if not nodes:
+        return {"items": []}
+    rest = Node(f"c{campaign_id}|rest", "Прочие запросы (WB не детализирует)", 0, "cluster_rest")
+    for d, r in camp.items():
+        for f in CLUSTER_FIELDS:
+            if r[f] is not None:                          # нет значения у кампании — прочерк, не «минус запросы»
+                rest.cells[d.isoformat()].add(f, float(r[f]) - sums[d.isoformat()][f])
+    for node in [*nodes.values(), rest]:
+        for k, cell in list(node.cells.items()):
+            node.cells[k[:7]].merge(cell)
+        if "adpos" in node.extra:
+            _month_avg(node.extra["adpos"])
+    items = sorted(nodes.values(), key=lambda n: (-n.spend(), n.name)) + [rest]
+    return {"items": [n.out() for n in items]}

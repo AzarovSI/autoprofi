@@ -2391,3 +2391,14 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 /* Общая нижняя полоса прокрутки на 12 px шире строк и не докручивает до конца — запас справа,
    чтобы итог последнего месяца был виден целиком. */
 .ads-card .rnps-legend, .ads-card .rnps-node-vals, .ads-card .rnps-m-vals { padding-right:12px; }
+
+/* «Реклама WB»: поисковые запросы под кампанией (02.11.2026) */
+.ads-cl-title { font-size:11px; color:#8a8f99; padding:6px 0 2px; }
+.ads-cl-node .rnp-node-head { background:#fcfcfd; }
+.ads-cl { font-size:12px; color:#333; }
+.ads-cl-warn { color:#c62828; font-weight:600; }
+.ads-cl-rest { color:#8a8f99; font-style:italic; }
+.ads-cl-more { font-size:12px; color:#1155CC; padding:3px 0; cursor:pointer; display:flex; align-items:center; gap:2px; }
+.ads-warn { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:#555; white-space:nowrap; }
+.ads-warn input { width:64px; }
+#ads-top { min-width:250px; }

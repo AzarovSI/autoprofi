@@ -233,6 +233,44 @@ class AdsWbTest(unittest.TestCase):
         self.assertNotIn("pos", l3)
         self.assertNotIn("pos", prod["children"][0])                            # у кампании позиции нет
 
+    def test_search_clusters_of_campaign(self):
+        """Поисковые запросы кампании — отдельным запросом: по убыванию расходов, «Прочие» = кампания − запросы;
+        только товар самой кампании и дни с её строкой; позиция 0 — нет данных, месяц — среднее (02.11.2026)."""
+        d1, d2, d3 = D(2026, 10, 22), D(2026, 10, 23), D(2026, 10, 24)
+
+        def cl(d, name, views, clicks, spend, orders, pos, nm=11, art="SKU-1"):
+            return [d, 1.0, "РК 1", "Поиск", "Активна", "За показы", float(nm), art, "Товар", name,
+                    views, clicks, 10.0, 10, 500, spend, 1, orders, orders, pos, UPD]
+        self.assertTrue(self.load(book(
+            [camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000) for d in (d1, d2)]
+            + [camp(d1, 2, "Рекомендации", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000)],
+            clusters=[cl(d1, "домкрат", 60, 6, 70.0, 1, 3), cl(d2, "домкрат", 50, 5, 60.0, 1, 5),
+                      cl(d1, "масло", 10, 1, 20.0, 0, 0),
+                      cl(d1, "чужой", 5, 1, 9.0, 0, 2, nm=12, art="SKU-2"),   # не товар кампании
+                      cl(d3, "домкрат", 40, 4, 50.0, 0, 7)],                  # у кампании нет строки за 24.10
+            funnel_rows=[]))["ok"])
+        tree = self.tree(date_from="2026-10-01", date_to="2026-10-31").json()
+        prod = tree["tree"]["children"][0]["children"][0]["children"][0]["children"][0]
+        self.assertEqual({c["campaign_id"]: c["has_clusters"] for c in prod["children"]}, {1: True, 2: False})
+        self.assertNotIn("children", prod["children"][0])                       # запросов в дереве нет
+        r = self.get("/api/ads/wb/clusters", campaign_id=1, date_from="2026-10-01", date_to="2026-10-31")
+        self.assertEqual(r.status_code, 200, r.text)
+        items = r.json()["items"]
+        f = {name: i for i, name in enumerate(tree["fields"])}
+        self.assertEqual([(k["kind"], k["name"]) for k in items],
+                         [("cluster", "домкрат"), ("cluster", "масло"),
+                          ("cluster_rest", "Прочие запросы (WB не детализирует)")])
+        self.assertEqual(items[0]["cells"]["2026-10"][f["spend"]], 130)
+        self.assertEqual(items[0]["adpos"], {"2026-10-22": 3, "2026-10-23": 5, "2026-10": 4})
+        self.assertEqual(items[1]["adpos"], {})                                  # позиция 0 — нет данных
+        rest = items[2]["cells"]["2026-10"]
+        self.assertEqual((rest[f["spend"]], rest[f["views"]]), (50, 80))          # 200 − 150, 200 − 120
+        self.assertEqual(prod["cells"]["2026-10"][f["spend"]], 300)               # запросы в товар не входят
+        self.assertEqual(self.get("/api/ads/wb/clusters", campaign_id=2, date_from="2026-10-01",
+                                  date_to="2026-10-31").json(), {"items": []})
+        self.assertEqual(self.get("/api/ads/wb/clusters", 103, campaign_id=1, date_from="2026-10-01",
+                                  date_to="2026-10-31").status_code, 403)
+
     def test_tree_ad_funnel_shares_plan_and_linked(self):
         d1, d2 = D(2026, 10, 22), D(2026, 10, 23)
         self.assertTrue(self.load(book([

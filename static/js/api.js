@@ -302,6 +302,8 @@ const API = (() => {
       p.append('date_from', from); p.append('date_to', to);
       return cget('/api/ads/wb/linked?' + p.toString());
     },
+    // Поисковые запросы кампании за период (строки под кампанией, при её раскрытии).
+    adsWbClusters: (id, from, to) => cget('/api/ads/wb/clusters' + qs({ campaign_id: id, date_from: from, date_to: to })),
     // Загрузка отчёта мониторинга цен конкурентов Ozon (PriceVA, .xlsx).
     // Даты в файле нет — передаём отдельно (дата мониторинга).
     uploadOzonPriceva: (file, reportDate) => {

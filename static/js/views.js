@@ -11524,6 +11524,9 @@ const Views = (() => {
   // ------------------------------------------------------------------
   const adsState = {
     mp: 'wb', from: '', to: '', manager: '', status: '', search: '', top: 'views',
+    // warnRub — порог ⚠ «расход без заказов» у поисковых запросов, руб за период; clMore — кампании, где раскрыты все запросы.
+    // clusters — поисковые запросы раскрытых кампаний (ключ кампании → {loading, items, error}), подгружаются по запросу.
+    warnRub: 300, clMore: {}, clusters: {},
     // collapsed — группы, свёрнутые вручную: остальные раскрыты, поэтому дерево открывается до товаров
     // (как РНП) и после первой загрузки, смены периода и фильтров. open — разворот товара и кампании.
     // rowOpen — раскрытые строки показателей (CR — CR карточки, ДРР общий — план и отклонение), по умолчанию свёрнуты.
@@ -11599,6 +11602,8 @@ const Views = (() => {
     { key: 'orders', label: 'Заказы с рекламы, шт', kind: 'qty', fn: c => c.orders },
     { key: 'share', label: 'Доля рекламы в заказах', kind: 'pct', fn: ADS_F.share },
     { key: 'pos', label: 'Средняя позиция в поиске', kind: 'num', low: true, fn: (c, k, n) => (n.pos || {})[k] },
+    // Только у поисковых запросов (лист «Поисковые кластеры»).
+    { key: 'adpos', label: 'Позиция в рекламной выдаче', kind: 'num', low: true, fn: (c, k, n) => (n.adpos || {})[k] },
     { key: 'spend', label: 'Расходы, руб', kind: 'rub', fn: c => c.spend },
     { key: 'cpm', label: 'Стоимость 1000 показов CPM, руб', kind: 'num', low: true, fn: ADS_F.cpm },
     { key: 'cpc', label: 'Стоимость перехода CPC, руб', kind: 'num', low: true, fn: ADS_F.cpc },
@@ -11611,7 +11616,9 @@ const Views = (() => {
   // Оформление строки узла: шкала по дням у товаров и кампаний (у «меньше — лучше» наоборот);
   // ДРР общий у товара — подсветка против плана вместо шкалы; запас в днях — в итоге последнего месяца товара.
   function adsHeadOpts(node, top, cols, isGroup, note) {
-    const opts = { heat: !isGroup, heatLow: !!top.low, note };
+    // Цветная шкала по дням — у товаров и кампаний; у поисковых запросов не нужна (владелец 02.11.2026).
+    const isCl = node.kind === 'cluster' || node.kind === 'cluster_rest';
+    const opts = { heat: !isGroup && !isCl, heatLow: !!top.low, note };
     if (top.key === 'drr' && node.kind === 'product' && node.plan) {
       opts.heat = false;
       opts.tint = (v, i) => adsPlanTint(v, node.plan[cols[i].key]);
@@ -11778,6 +11785,80 @@ const Views = (() => {
     return null;
   }
 
+  // ⚠ у поискового запроса: расход за весь период отчёта не меньше порога, заказов нет.
+  function adsClusterWarn(node) {
+    if (node.kind !== 'cluster') return false;
+    let spend = 0, orders = 0;
+    Object.keys(node.cells || {}).forEach(k => {
+      if (k.length !== 7) return;
+      const c = adsCell(node, k);
+      spend += c.spend || 0; orders += c.orders || 0;
+    });
+    return spend >= adsState.warnRub && spend > 0 && !orders;
+  }
+
+  // Строки показателей поискового запроса и «Прочих запросов».
+  function adsClusterRows(node) {
+    return [
+      adsState.top !== 'views' ? { label: 'Показы', fn: c => c.views, kind: 'qty' } : null,
+      { label: 'CTR', fn: ADS_F.ctr, kind: 'pct', color: ADS_C.cr },
+      { label: 'Клики', fn: c => c.clicks, kind: 'qty' },
+      { label: 'CR в корзину', fn: ADS_F.crc, kind: 'pct', color: ADS_C.cr },
+      { label: 'Корзины', fn: c => c.carts, kind: 'qty' },
+      { label: 'CR в заказ', fn: ADS_F.cro, kind: 'pct', color: ADS_C.cr },
+      { label: 'Заказы с рекламы, шт', fn: c => c.orders, kind: 'qty' },
+      node.kind === 'cluster' ? { label: 'Позиция в рекламной выдаче', fn: (c, k) => (node.adpos || {})[k], kind: 'num' } : null,
+      { label: 'Расходы, руб', fn: c => c.spend, kind: 'rub', color: ADS_C.ad, sep: true },
+      { label: 'Стоимость 1000 показов CPM, руб', fn: ADS_F.cpm, kind: 'num' },
+      { label: 'Стоимость перехода CPC, руб', fn: ADS_F.cpc, kind: 'num' },
+      { label: 'Стоимость заказа CPO, руб', fn: ADS_F.cpo, kind: 'num' },
+    ].filter(Boolean);
+  }
+
+  // Поисковые запросы кампании: первые 10 по расходу, остальные — под строкой «ещё N запросов», в конце «Прочие».
+  const ADS_CL_TOP = 10;
+  const adsPlural = (n, one, few, many) => {
+    const m10 = n % 10, m100 = n % 100;
+    return m10 === 1 && m100 !== 11 ? one : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many);
+  };
+  // Подгрузка запросов кампании за период отчёта; после ответа — перерисовка, если отчёт не перезагрузили.
+  async function adsLoadClusters(camp) {
+    const data = adsState.data;
+    adsState.clusters[camp.key] = { loading: true };
+    try {
+      const res = await API.adsWbClusters(camp.campaign_id, data.date_from, data.date_to);
+      adsState.clusters[camp.key] = { items: res.items || [] };
+    } catch (e) {
+      adsState.clusters[camp.key] = { error: e.message };
+    }
+    if (adsState.data === data) adsRenderMatrix();
+  }
+
+  function adsClustersHtml(camp, cols, depth) {
+    if (!camp.has_clusters) return '';
+    const pad = `padding-left:${3 + 14 * depth}px`;
+    const st = adsState.clusters[camp.key];
+    if (!st) adsLoadClusters(camp);
+    if (!st || st.loading) return `<div class="ads-cl-title" style="${pad}">Поисковые запросы · загрузка…</div>`;
+    if (st.error) return `<div class="ads-cl-title" style="${pad};color:#b00">Поисковые запросы: ${U.esc(st.error)}</div>`;
+    const kids = st.items.filter(n => n.kind === 'cluster');
+    const rest = st.items.find(n => n.kind === 'cluster_rest');
+    if (!kids.length) return '';
+    const more = !!adsState.clMore[camp.key];
+    const shown = more ? kids : kids.slice(0, ADS_CL_TOP);
+    const hidden = kids.slice(ADS_CL_TOP);
+    const hiddenWarn = hidden.filter(adsClusterWarn).length;
+    let html = `<div class="ads-cl-title" style="padding-left:${3 + 14 * depth}px">Поисковые запросы · ${kids.length}</div>`;
+    html += shown.map(n => adsNodeHtml(n, cols, depth)).join('');
+    if (hidden.length) {
+      const label = more ? 'свернуть' : `ещё ${hidden.length} ${adsPlural(hidden.length, 'запрос', 'запроса', 'запросов')}`
+        + (hiddenWarn ? ` · ⚠ ${hiddenWarn}` : '');
+      html += `<div class="ads-cl-more" style="padding-left:${3 + 14 * depth}px"><button class="rnp-exp-btn" data-clmore="${U.esc(camp.key)}">${more ? '▾' : '▸'}</button><span data-clmore="${U.esc(camp.key)}">${U.esc(label)}</span></div>`;
+    }
+    if (rest) html += adsNodeHtml(rest, cols, depth);
+    return html;
+  }
+
   function adsNodeHtml(node, cols, depth) {
     const isGroup = node.kind === 'root' || node.kind === 'group';
     const isCamp = node.kind === 'campaign';
@@ -11795,8 +11876,14 @@ const Views = (() => {
       if (open && kids.length) body += `<div class="rnp-children">${kids.map(ch => adsNodeHtml(ch, cols, depth + 1)).join('')}</div>`;
     } else if (isCamp) {
       const tip = `Кампания №${node.campaign_id} · ${node.name} · ${(node.payment_type || '').toLowerCase()}`;
-      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-camp" title="${U.esc(tip)}"><b>РК: ${U.esc(node.placement || '—')}</b><span class="ads-camp-name">${U.esc(node.name)}</span></span>`;
-      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols)}</div>`;
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="${node.has_clusters ? 'Показать/скрыть показатели и поисковые запросы' : 'Показать/скрыть показатели'}">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-camp" title="${U.esc(tip)}"><b>РК: ${U.esc(node.placement || '—')}</b><span class="ads-camp-name">${U.esc(node.name)}</span></span>`;
+      if (open) body = `<div class="rnp-node-body">${adsMetricRows(node, cols)}${adsClustersHtml(node, cols, depth + 1)}</div>`;
+    } else if (node.kind === 'cluster' || node.kind === 'cluster_rest') {
+      const warn = adsClusterWarn(node);
+      const tip = node.kind === 'cluster_rest' ? 'Кампания минус сумма запросов: часть расхода WB по запросам не раскладывает'
+        : (warn ? `Расход за период от ${adsState.warnRub} ₽ и ни одного заказа` : node.name);
+      name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели">${open ? '▾' : '▸'}</button><span class="rnp-nm ads-cl${warn ? ' ads-cl-warn' : ''}${node.kind === 'cluster_rest' ? ' ads-cl-rest' : ''}" title="${U.esc(tip)}">${warn ? '⚠ ' : ''}${U.esc(node.name)}</span>`;
+      if (open) body = `<div class="rnp-node-body">${adsClusterRows(node).map(r => adsMetricRow(node, cols, cols.map(c => adsCell(node, c.key)), r, false)).join('')}</div>`;
     } else {
       name = `<button class="rnp-exp-btn" data-okey="${k}" title="Показать/скрыть показатели и кампании">${open ? '▾' : '▸'}</button><span class="rnp-nm rnp-art-main rnp-art-link" data-arturl="${U.esc(node.url || '')}" title="Открыть карточку товара">${U.esc(node.name)}</span>`;
       status = statusSelectHtml(node.name, node.status, false);
@@ -11809,7 +11896,8 @@ const Views = (() => {
       promoIco = pNow ? `<span class="rnps-promo-ico" title="${U.esc(rnpsPromoTitle(pNow))}">${RNPS_ROCKET_SVG}</span>` : '<span class="rnps-promo-ico"></span>';
     }
     const note = adsNoteFn(node);
-    return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}">
+    const isCl = node.kind === 'cluster' || node.kind === 'cluster_rest';
+    return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}${isCl ? ' ads-cl-node' : ''}">
       <div class="rnp-node-head">
         <div class="rnp-node-name rnp-fixleft is-clickable" style="padding-left:${3 + 14 * depth}px">${name}</div>
         <div class="rnp-node-status rnp-fixleft">${status}</div>
@@ -11961,7 +12049,16 @@ const Views = (() => {
       adsRenderMatrix();
     };
     host.querySelectorAll('.rnp-exp-btn, .rnp-mbtn').forEach(el => {
+      if (el.hasAttribute('data-clmore')) return;
       el.addEventListener('click', (e) => { e.stopPropagation(); toggle(el); });
+    });
+    host.querySelectorAll('[data-clmore]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ck = el.getAttribute('data-clmore');
+        adsState.clMore[ck] = !adsState.clMore[ck];
+        adsRenderMatrix();
+      });
     });
     // Клик по названию раскрываемой строки (CR, ДРР общий) = клик по её стрелке.
     host.querySelectorAll('.rnps-m-name[data-rkey]').forEach(el => {
@@ -12115,6 +12212,7 @@ const Views = (() => {
       });
       await adsLoadRnpNotes();
       adsState.error = '';
+      adsState.clusters = {};   // запросы — за новый период и фильтры
       adsState.scrollEnd = true;
     } catch (e) {
       adsState.data = null;
@@ -12144,6 +12242,7 @@ const Views = (() => {
             <select class="input-sm" id="ads-mgr">${mgrOpts}</select>
             <select class="input-sm" id="ads-status">${stOpts}</select>
             <select class="input-sm" id="ads-top" title="Показатель в строке узла">${topOpts}</select>
+            <label class="ads-warn" title="Поисковый запрос с расходом за период от этой суммы и без заказов помечается ⚠">⚠ без заказов от <input class="input-sm" id="ads-warn" type="number" min="0" step="50" value="${adsState.warnRub}"> ₽</label>
             <button class="btn-sm" id="ads-expand">Развернуть всё</button>
             <button class="btn-sm" id="ads-collapse">Свернуть всё</button>
             <div class="rnp-period" id="ads-period">
@@ -12178,6 +12277,11 @@ const Views = (() => {
     root.querySelector('#ads-status').addEventListener('change', (e) => { adsState.status = e.target.value; adsRenderMatrix(); });
     root.querySelector('#ads-mgr').addEventListener('change', (e) => { adsState.manager = e.target.value; reload(); });
     root.querySelector('#ads-top').addEventListener('change', (e) => { adsState.top = e.target.value; adsRenderMatrix(); });
+    root.querySelector('#ads-warn').addEventListener('change', (e) => {
+      const v = Number(e.target.value);
+      adsState.warnRub = isFinite(v) && v >= 0 ? v : 300;
+      adsRenderMatrix();
+    });
     // Как в РНП: «Развернуть всё» — дерево до товаров (показатели товаров не открываются),
     // «Свернуть всё» — только «Итоги» с группами первого уровня, показатели закрыты.
     root.querySelector('#ads-expand').addEventListener('click', () => {
