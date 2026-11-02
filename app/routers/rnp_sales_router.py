@@ -477,13 +477,26 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             tuple([mp] + params),
         )
 
+    # Товары справочника со статусом (кроме «-») — в РНП и без данных площадки за период: новинку видно до первого
+    # отчёта, план, комментарии и акции — сразу (решение владельца 02.11.2026); ненужные переводят в «-».
+    # Только полностью распределённые, как и товары из отчётов. Пустой статус и «-» — по-прежнему только по данным.
+    catalog_rows = [r for r in db.query_all(
+        """SELECT cm.seller_article, ci.category_l1, ci.category_l2, ci.category_l3,
+                  cm.status, cm.manager, cm.product_url
+           FROM catalog_marketplace cm
+           LEFT JOIN catalog_items ci ON UPPER(ci.seller_article) = UPPER(cm.seller_article)
+           WHERE cm.marketplace = %s""", (mp,))
+        if (r["status"] or "").strip() != "-"
+        and not is_undistributed(r["category_l1"], r["category_l2"], r["category_l3"], r["status"], r["manager"])]
+
     if not is_ya:
         # Общий склад 1С доступен независимо от файла заказов.
-        # Состав товаров задают ТОЛЬКО дневные строки РНП выбранного периода.
-        # Склад дополняет даты этих товаров, но не расширяет состав отчёта.
+        # Состав товаров задают дневные строки РНП выбранного периода и товары справочника со статусом
+        # (catalog_rows). Склад дополняет даты этих товаров, но не расширяет состав отчёта.
         # Только точная дата; никаких переносов вчерашних значений
         # и искусственных нулей по заказам.
-        eligible_articles = {r["seller_article"].upper() for r in rows}
+        eligible_articles = ({r["seller_article"].upper() for r in rows}
+                             | {r["seller_article"].upper() for r in catalog_rows})
         stock_where, stock_params = [], [mp]
         if d_from:
             stock_where.append("sd.date >= %s")
@@ -700,6 +713,30 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         if not n4["leaf_info"].get("sku_ozon") and r.get("sku_ozon"):
             n4["leaf_info"]["sku_ozon"] = r.get("sku_ozon")
 
+    # Товары справочника со статусом без строк за период (catalog_rows): пустой товар в своей группе —
+    # с планом, комментариями и акциями; данные «приклеятся» с первым отчётом площадки или складом 1С.
+    for c in catalog_rows:
+        art = c["seller_article"]
+        if c["manager"]:
+            managers.add(c["manager"])
+        if c["status"]:
+            statuses.add(c["status"])
+        if art.upper() in root["arts"] or not passes(c["status"], c["manager"]):
+            continue
+        l1, l2, l3 = c["category_l1"], c["category_l2"], c["category_l3"]
+        node = root
+        node["arts"].add(art.upper())
+        for level, (key, name) in enumerate(((l1, l1), (f"{l1}|{l2}", l2), (f"{l1}|{l2}|{l3}", l3)), 1):
+            if key not in node["children"]:
+                node["children"][key] = new_node(key, name, level)
+            node = node["children"][key]
+            node["arts"].add(art.upper())
+        leaf = new_node(f"{l1}|{l2}|{l3}|{art}", art, 4)
+        leaf["arts"].add(art.upper())
+        leaf["leaf_info"] = {"seller_article": art, "sku_ozon": None, "status": c["status"],
+                             "manager": c["manager"], "product_url": c["product_url"]}
+        node["children"][leaf["key"]] = leaf
+
     # Список месяцев (по возрастанию), с днями.
     month_list = []
     for mk in sorted(months.keys()):
@@ -888,7 +925,8 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         }
         all_dates = set().union(*(info["days"] for info in months.values()))
         all_dates.update(pi_month_dates.values())
-        articles = {r["seller_article"] for r in rows if r.get("seller_article")}
+        articles = ({r["seller_article"] for r in rows if r.get("seller_article")}
+                    | {r["seller_article"] for r in catalog_rows})   # товары справочника без строк — тоже с Pi
         pi_by_day = daily_pi.load(articles, min(all_dates), max(all_dates), mp)
 
     def finalize(node):

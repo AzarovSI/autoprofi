@@ -31,25 +31,58 @@ def row(day=DAY, art="SKU-1", **values):
                 manager="Менеджер", **values)
 
 
-def tree(mp="ozon", sales=None, stocks=None, plan=300, future=False, date_to="2026-09-24"):
+def tree(mp="ozon", sales=None, stocks=None, plan=300, future=False, date_to="2026-09-24", catalog=None,
+         manager=None, plan_rows=()):
     def query(sql, params=None):
+        if "FROM catalog_marketplace cm" in sql:
+            return [dict(r) for r in (catalog or [])]
         if "daily_sales ods" in sql:
             return [dict(r) for r in (sales or [])]
         if "FROM stock_daily sd" in sql:
             return [dict(r) for r in (stocks or [])]
         if "FROM sales_plan" in sql:
             return [dict(seller_article="SKU-1", year=2026, month=9, q=plan),
-                    dict(seller_article="SKU-1", year=2026, month=10, q=450)]
+                    dict(seller_article="SKU-1", year=2026, month=10, q=450), *plan_rows]
         return []
     with patch.object(db, "query_all", side_effect=query), \
          patch.object(db, "query_one", return_value=None), \
          patch.object(rnp, "_today", return_value=DAY), \
          patch.object(rnp.daily_pi, "load", return_value={}), \
          patch.object(rnp.rnp_router, "negative_margin_articles", return_value=set()):
-        return rnp._build_rnp_sales_tree(mp, "2026-09-01", date_to, None, None, future)
+        return rnp._build_rnp_sales_tree(mp, "2026-09-01", date_to, None, manager, future)
 
 
 class TreeTests(unittest.TestCase):
+    def test_catalog_items_with_status_shown_without_data(self):
+        """Товар справочника со статусом (кроме «-») — в РНП и без строк площадки (02.11.2026): пустой, со складом 1С
+        если он есть; «-», пустой статус и нераспределённый — нет; товар из отчёта не задваивается."""
+        def cat(art, status="NEW", l3="Товары"):
+            return dict(seller_article=art, category_l1="Продукция ECOM", category_l2="Группа", category_l3=l3,
+                        status=status, manager="Менеджер", product_url=None)
+        for mp in ("ozon", "wb", "yandex"):
+            with self.subTest(mp=mp):
+                result = tree(mp, [row(orders_qty=10)],
+                              stocks=[{**row(art="SKU-STOCK", stock_ap_qty=7), "status": "NEW"},
+                                      row(art="SKU-OTHER", stock_ap_qty=5)],
+                              catalog=[cat("SKU-1", "Активный"), cat("SKU-NEW"), cat("SKU-STOCK"),
+                                       cat("SKU-OUT", "-"), cat("SKU-NOCAT", l3="")])
+                products = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
+                self.assertEqual(set(products), {"SKU-1", "SKU-NEW", "SKU-STOCK"})
+                self.assertEqual(products["SKU-NEW"]["leaf_info"]["status"], "NEW")
+                self.assertEqual(products["SKU-NEW"]["cells"]["2026-09"]["orders_qty"], None)   # нет данных — «—»
+                self.assertEqual(result["tree"]["cells"]["2026-09"]["orders_qty"], 10)
+                if mp != "yandex":                                                            # склад 1С — только Ozon/WB
+                    self.assertEqual(products["SKU-STOCK"]["cells"][DAY.isoformat()]["stock_ap_qty"], 7)
+        # План пустого товара — в товаре и в «Итогах»; фильтр менеджера действует и на товары справочника.
+        catalog = [cat("SKU-NEW")]
+        result = tree(sales=[row(orders_qty=10)], catalog=catalog,
+                      plan_rows=[dict(seller_article="SKU-NEW", year=2026, month=9, q=40)])
+        products = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
+        self.assertEqual(products["SKU-NEW"]["plan"]["2026-09"], 40)
+        self.assertEqual(result["tree"]["plan"]["2026-09"], 340)
+        other = tree(sales=[row(orders_qty=10)], catalog=[{**catalog[0], "manager": "Другой"}], manager="Менеджер")
+        self.assertEqual({n["leaf_info"]["seller_article"] for n in leaves(other["tree"])}, {"SKU-1"})
+
     def test_future_dates_add_empty_days_and_next_month_plan_only(self):
         """Галочка «Будущие даты» (01.11.2026): сегодня..конец месяца и весь следующий месяц —
         пустые дни; расчёты те же, что без галочки; у следующего месяца только план."""
@@ -268,6 +301,14 @@ class TreeTests(unittest.TestCase):
                 self.assertEqual(list(leaves(result["tree"])), [])
                 self.assertEqual(result["undistributed"]["count"], 0)
                 self.assertNotIn(DAY.isoformat(), result["tree"]["cells"])
+
+    def test_dash_status_with_marketplace_stock_is_shown(self):
+        """Статус «-» без заказов, но с остатком на складе площадки > 0 — в РНП (активность, 02.11.2026)."""
+        for mp in ("ozon", "wb", "yandex"):
+            with self.subTest(mp=mp):
+                daily = {**row(orders_qty=0, stock_ozon_qty=15), "status": "-"}
+                result = tree(mp, [daily], catalog=[{**daily, "product_url": None}])
+                self.assertEqual([n["leaf_info"]["seller_article"] for n in leaves(result["tree"])], ["SKU-1"])
 
     def test_stock_without_daily_source_keeps_report_empty(self):
         for mp in ("ozon", "wb"):
