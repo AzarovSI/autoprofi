@@ -175,6 +175,16 @@ class AdsWbTest(unittest.TestCase):
         group = r.json()["tree"]["children"][0]["children"][0]["children"][0]
         self.assertEqual([p["name"] for p in group["children"]], ["SKU-1", "SKU-2"])
 
+    def test_default_period_three_months_like_rnp(self):
+        """Период по умолчанию — месяц последней загрузки и два предыдущих, как в РНП (02.11.2026)."""
+        self.assertTrue(self.load(book([
+            camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000)
+            for d in (D(2025, 11, 30), D(2025, 12, 1), D(2026, 1, 2))
+        ], funnel_rows=[]))["ok"])
+        data = self.tree().json()
+        self.assertEqual((data["date_from"], data["date_to"]), ("2025-11-01", "2026-01-02"))
+        self.assertEqual([m["key"] for m in data["months"]], ["2025-11", "2025-12", "2026-01"])
+
     def test_search_position_from_rnp(self):
         """Средняя позиция в поиске — из РНП, только у товара, за дни отчёта; месяц — среднее по дням > 0 (02.11.2026)."""
         d1, d2, d3 = D(2026, 10, 22), D(2026, 10, 23), D(2026, 10, 24)

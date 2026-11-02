@@ -131,7 +131,9 @@ def _period(date_from, date_to):
     if d1 is None:
         row = db.query_one("SELECT max(date) AS d FROM wb_ads_campaign_daily")
         d1 = row["d"] if row and row["d"] else datetime.date.today()
-    d0 = date_from or d1.replace(day=1)
+    # По умолчанию, как в РНП: месяц последней загрузки и два предыдущих (фронт раскрывает последний по дням).
+    m = d1.year * 12 + d1.month - 1 - 2
+    d0 = date_from or datetime.date(m // 12, m % 12 + 1, 1)
     if d0 > d1:
         raise HTTPException(status_code=400, detail="Начало периода позже конца")
     return d0, d1
