@@ -68,7 +68,9 @@ class AdsWbTest(unittest.TestCase):
         price_model.migrate()
         with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
             # В тестовой схеме у этих таблиц только часть колонок рабочей БД.
-            conn.execute("""ALTER TABLE wb_daily_sales ADD COLUMN IF NOT EXISTS nm_id bigint""")
+            conn.execute("""ALTER TABLE wb_daily_sales ADD COLUMN IF NOT EXISTS nm_id bigint,
+                            ADD COLUMN IF NOT EXISTS avg_search_position numeric""")
+            conn.execute("DELETE FROM wb_daily_sales WHERE seller_article LIKE 'SKU-%'")
             conn.execute("ALTER TABLE catalog_marketplace ADD COLUMN IF NOT EXISTS manager text, "
                          "ADD COLUMN IF NOT EXISTS product_url text")
             conn.execute("""CREATE TABLE report_uploads (id bigserial PRIMARY KEY, marketplace text, year int,
@@ -84,6 +86,7 @@ class AdsWbTest(unittest.TestCase):
 
     def tearDown(self):
         db.execute("DELETE FROM price_model_hist WHERE seller_article LIKE %s", ("SKU-%",))
+        db.execute("DELETE FROM wb_daily_sales WHERE seller_article LIKE %s", ("SKU-%",))
         reset_ads()
         db.execute("DELETE FROM app_users WHERE id >= 100")
         reset_roles()
@@ -171,6 +174,23 @@ class AdsWbTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         group = r.json()["tree"]["children"][0]["children"][0]["children"][0]
         self.assertEqual([p["name"] for p in group["children"]], ["SKU-1", "SKU-2"])
+
+    def test_search_position_from_rnp(self):
+        """Средняя позиция в поиске — из РНП, только у товара, за дни отчёта; месяц — среднее по дням > 0 (02.11.2026)."""
+        d1, d2, d3 = D(2026, 10, 22), D(2026, 10, 23), D(2026, 10, 24)
+        self.assertTrue(self.load(book([
+            camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000) for d in (d1, d2, d3)
+        ], funnel_rows=[]))["ok"])
+        # 22.10 — 10, 23.10 — 0 (не позиция), 24.10 — 20, 25.10 — 40, но рекламы за этот день нет.
+        db.execute("INSERT INTO wb_daily_sales (seller_article, date, avg_search_position) VALUES "
+                   "('SKU-1', '2026-10-22', 10), ('SKU-1', '2026-10-23', 0), ('SKU-1', '2026-10-24', 20), "
+                   "('SKU-1', '2026-10-25', 40)")
+        data = self.tree(date_from="2026-10-01", date_to="2026-10-31").json()
+        l3 = data["tree"]["children"][0]["children"][0]["children"][0]
+        prod = l3["children"][0]
+        self.assertEqual(prod["pos"], {"2026-10-22": 10, "2026-10-24": 20, "2026-10": 15})
+        self.assertNotIn("pos", l3)
+        self.assertNotIn("pos", prod["children"][0])                            # у кампании позиции нет
 
     def test_tree_ad_funnel_shares_plan_and_linked(self):
         d1, d2 = D(2026, 10, 22), D(2026, 10, 23)

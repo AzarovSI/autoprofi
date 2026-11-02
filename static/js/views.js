@@ -11589,15 +11589,20 @@ const Views = (() => {
       { label: 'Корзины', fn: c => c.carts, kind: 'qty' },
       { id: 'cro', label: 'CR в заказ', fn: c => adsDiv(c.orders, c.carts), kind: 'pct', color: ADS_C.cr,
         sub: [{ label: 'CR в заказ карточки', fn: c => adsDiv(c.f_orders, c.f_carts), kind: 'pct', color: ADS_C.grey }] },
-      { label: 'Заказы, шт', fn: c => c.orders, kind: 'qty' },
+      // Заказы карточки целиком (лист «Воронка») — у товара, групп и «Итогов»; у кампании было бы то же число, что у товара.
+      camp ? null : { label: 'Заказы всего, шт', fn: c => c.f_orders, kind: 'qty',
+        tip: prod ? '' : 'Заказы всего, шт — только товары с рекламой за период' },
+      { label: 'Заказы с рекламы, шт', fn: c => c.orders, kind: 'qty' },
       // Ключевая метрика (владелец 29.10.2026) — жирным чёрным.
       { label: camp ? 'Доля кампании в заказах' : 'Доля рекламы в заказах', fn: c => adsDiv(c.orders_f, c.f_orders_a), kind: 'pct', bold: true },
+      // Средняя позиция в поиске — из РНП, только у товара (владелец 02.11.2026).
+      prod ? { label: 'Средняя позиция в поиске', fn: (c, k) => (node.pos || {})[k], kind: 'num' } : null,
       { label: 'Отмены, шт', fn: c => c.cancels, kind: 'qty', color: ADS_C.cancel },
       { label: 'Расходы, руб', fn: c => c.spend, kind: 'rub', color: ADS_C.ad, sep: true },
       { label: 'Стоимость 1000 показов CPM, руб', fn: c => { const v = adsDiv(c.spend, c.views); return v == null ? null : v * 1000; }, kind: 'num' },
       { label: 'Стоимость перехода CPC, руб', fn: c => adsDiv(c.spend, c.clicks), kind: 'num' },
       { label: 'Стоимость заказа CPO, руб', fn: c => adsDiv(c.spend, c.orders), kind: 'num' },
-    ];
+    ].filter(Boolean);
     if (camp) {
       rows.push({ label: 'ДРР рекламный', fn: c => adsDiv(c.spend, c.ad_sum), kind: 'pct', color: ADS_C.ad });
     } else {
@@ -11685,7 +11690,7 @@ const Views = (() => {
     }
     const arrow = r.sub ? `<button class="rnp-exp-btn ads-row-btn" data-rkey="${U.esc(k)}" title="Показать/скрыть">${open ? '▾' : '▸'}</button>` : '';
     const st = `color:${r.color || ADS_C.tot}${r.bold ? ';font-weight:700' : ''}`;
-    const row = `<div class="rnps-m-row${r.sep ? ' ads-sep' : ''}${child ? ' ads-child' : ''}"><span class="rnps-m-name rnp-fixleft${r.sub ? ' is-clickable' : ''}" title="${U.esc(r.label)}" style="${st}"${r.sub ? ` data-rkey="${U.esc(k)}"` : ''}>${arrow}${U.esc(r.label)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals${r.linked ? ' ads-linked' : ''}" style="${st}">${adsCells(vals, cols, r.kind, opts)}</span></span></div>`;
+    const row = `<div class="rnps-m-row${r.sep ? ' ads-sep' : ''}${child ? ' ads-child' : ''}"><span class="rnps-m-name rnp-fixleft${r.sub ? ' is-clickable' : ''}" title="${U.esc(r.tip || r.label)}" style="${st}"${r.sub ? ` data-rkey="${U.esc(k)}"` : ''}>${arrow}${U.esc(r.label)}</span><span class="rnps-m-status rnp-fixleft"></span><span class="rnps-m-mbtn rnp-fixleft"></span><span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals${r.linked ? ' ads-linked' : ''}" style="${st}">${adsCells(vals, cols, r.kind, opts)}</span></span></div>`;
     return row + (open ? r.sub.map(s => adsMetricRow(node, cols, cells, s, true)).join('') : '');
   }
 

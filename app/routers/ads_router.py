@@ -219,6 +219,7 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             cell.add("spend_f", r["spend"])
 
     root = Node("__root__", "Итоги", 0, "root")
+    products = {}                                     # артикул → узел товара
     days = set()
     for art in arts:
         c = cat.get(art) or {}
@@ -234,6 +235,7 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
         pkey = f"{key}|{art}"
         prod = node.child(pkey, art, "product", status=c.get("status"), manager=c.get("manager"),
                           url=c.get("product_url"))
+        products[art] = prod
         fdays = funnel.get(art, {})
         for cid, by_day in own[art].items():
             info = campaigns.get(cid) or {}
@@ -280,6 +282,22 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
         if not months or months[-1]["key"] != mk:
             months.append({"key": mk, "label": f"{MONTHS_RU[d.month - 1]} {d.year}", "days": []})
         months[-1]["days"].append({"key": d.isoformat(), "label": d.strftime("%d")})
+
+    # Средняя позиция в поиске — из РНП (wb_daily_sales), только у товара и только за дни отчёта;
+    # месяц — среднее по дням отчёта со значением > 0 (в РНП — по всем дням месяца, rnp_sales_router.AVG_COLS).
+    for prod in products.values():
+        prod.extra["pos"] = {}
+    if products and days:
+        for r in db.query_all("SELECT date, seller_article, avg_search_position AS v FROM wb_daily_sales "
+                              "WHERE date = ANY(%s) AND seller_article = ANY(%s) AND avg_search_position > 0",
+                              (sorted(days), list(products))):
+            products[r["seller_article"]].extra["pos"][r["date"].isoformat()] = _num(r["v"])
+    for prod in products.values():
+        by_day = prod.extra["pos"]
+        for m in months:
+            vals = [by_day[dd["key"]] for dd in m["days"] if dd["key"] in by_day]
+            if vals:
+                by_day[m["key"]] = round(sum(vals) / len(vals), 2)
 
     # Плановый ДРР товара: по дням — действующий на день, по месяцу — на последний день месяца в отчёте.
     def fill_plans(node):
