@@ -11592,6 +11592,7 @@ const Views = (() => {
     cpc: c => adsDiv(c.spend, c.clicks),
     cpo: c => adsDiv(c.spend, c.orders),
     drr: c => adsDiv(c.spend_f, c.f_rub_a),
+    drrAd: c => adsDiv(c.spend, c.ad_sum),
   };
   const ADS_TOP = [
     { key: 'views', label: 'Показы', kind: 'qty', fn: c => c.views },
@@ -11677,7 +11678,7 @@ const Views = (() => {
       { label: 'Стоимость заказа CPO, руб', fn: ADS_F.cpo, kind: 'num' },
     ].filter(Boolean);
     if (camp) {
-      rows.push({ label: 'ДРР рекламный', fn: c => adsDiv(c.spend, c.ad_sum), kind: 'pct', color: ADS_C.ad });
+      rows.push({ label: 'ДРР рекламный', fn: ADS_F.drrAd, kind: 'pct', color: ADS_C.ad });
     } else {
       // ДРР общий — расходы к заказам карточки; у товара — подсветка против планового («Ценовая модель»).
       const drr = { id: 'drr', label: 'ДРР общий', fn: ADS_F.drr, kind: 'pct', color: ADS_C.ad };
@@ -11690,6 +11691,8 @@ const Views = (() => {
         ];
       }
       rows.push(drr);
+      // ДРР рекламный карточки и групп — расходы к сумме рекламных заказов (как у кампании), жирным (владелец 02.11.2026).
+      rows.push({ label: 'ДРР рекламный', fn: ADS_F.drrAd, kind: 'pct', color: ADS_C.ad, bold: true });
     }
     rows.push({ label: 'Связанные заказы других товаров, шт', fn: c => c.linked, kind: 'qty', color: ADS_C.linked, linked: true });
     return rows;
