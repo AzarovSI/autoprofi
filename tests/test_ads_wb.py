@@ -69,7 +69,8 @@ class AdsWbTest(unittest.TestCase):
         with psycopg.connect(db.DB_DSN, autocommit=True) as conn:
             # В тестовой схеме у этих таблиц только часть колонок рабочей БД.
             conn.execute("""ALTER TABLE wb_daily_sales ADD COLUMN IF NOT EXISTS nm_id bigint,
-                            ADD COLUMN IF NOT EXISTS avg_search_position numeric""")
+                            ADD COLUMN IF NOT EXISTS avg_search_position numeric,
+                            ADD COLUMN IF NOT EXISTS stock_wb_qty numeric""")
             conn.execute("DELETE FROM wb_daily_sales WHERE seller_article LIKE 'SKU-%'")
             conn.execute("ALTER TABLE catalog_marketplace ADD COLUMN IF NOT EXISTS manager text, "
                          "ADD COLUMN IF NOT EXISTS product_url text")
@@ -185,6 +186,36 @@ class AdsWbTest(unittest.TestCase):
         self.assertEqual((data["date_from"], data["date_to"]), ("2025-11-01", "2026-01-02"))
         self.assertEqual([m["key"] for m in data["months"]], ["2025-11", "2025-12", "2026-01"])
 
+    def test_stock_days_like_rnp(self):
+        """Запас в днях — как в РНП (node_turnover): общая опорная дата, окно 30 дней, остаток строго на опорную дату."""
+        d1, d2 = D(2026, 10, 22), D(2026, 10, 23)
+        self.assertTrue(self.load(book([
+            camp(d2, i, "Поиск", 10 + i, f"SKU-{i}", True, 100, 10, 100.0, 1, 1000) for i in (1, 2, 3, 4)
+        ], funnel_rows=[]))["ok"])
+        db.execute("INSERT INTO wb_daily_sales (seller_article, date, orders_qty, stock_wb_qty) VALUES "
+                   "('SKU-1', '2026-10-22', 10, 90), ('SKU-1', '2026-10-23', 10, 100), "  # 100 / (20 / 2 дня) = 10
+                   "('SKU-2', '2026-10-23', 5, 0), "                                      # нет остатка → 0
+                   "('SKU-3', '2026-10-22', 10, 100), "                                   # на опорную дату строки нет → нет
+                   "('SKU-4', '2026-10-23', 0, 50)")                                      # остаток без заказов → ∞
+        data = self.tree(date_from="2026-10-01", date_to="2026-10-31").json()
+        prods = {}
+
+        def walk(n):
+            if n["kind"] == "product":
+                prods[n["name"]] = n
+            for ch in n.get("children", []):
+                walk(ch)
+        walk(data["tree"])
+        self.assertEqual({a: p.get("stock_days") for a, p in prods.items()},
+                         {"SKU-1": 10, "SKU-2": 0, "SKU-3": None, "SKU-4": "inf"})
+        self.assertEqual(data["turnover_cfg"], {"red": 20, "blue": 60, "as_of": d2.isoformat()})
+        # Период выбран вручную — запас на его конец, как в РНП: 22.10 — 90 / (10 / 1 день) = 9.
+        self.load(book([camp(d1, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000)], funnel_rows=[]))
+        early = self.tree(date_from="2026-10-01", date_to="2026-10-22").json()
+        self.assertEqual(early["turnover_cfg"]["as_of"], d1.isoformat())
+        walk(early["tree"])
+        self.assertEqual(prods["SKU-1"]["stock_days"], 9)
+
     def test_search_position_from_rnp(self):
         """Средняя позиция в поиске — из РНП, только у товара, за дни отчёта; месяц — среднее по дням > 0 (02.11.2026)."""
         d1, d2, d3 = D(2026, 10, 22), D(2026, 10, 23), D(2026, 10, 24)
@@ -242,11 +273,7 @@ class AdsWbTest(unittest.TestCase):
                          [("SKU-3", 2, 900), ("SKU-2", 1, 500)])
         one = self.get("/api/ads/wb/linked", campaign_id=1, date_from="2026-10-22", date_to="2026-10-31").json()
         self.assertEqual([x["seller_article"] for x in one["items"]], ["SKU-2"])
-        # Фильтр места показа — только кампании «Рекомендации».
-        rec = self.tree(date_from="2026-10-01", date_to="2026-10-31", placement="Рекомендации").json()
-        rprod = rec["tree"]["children"][0]["children"][0]["children"][0]["children"][0]
-        self.assertEqual([c["campaign_id"] for c in rprod["children"]], [2])
-        self.assertEqual(rprod["cells"]["2026-10"][f["spend"]], 50)
+        self.assertNotIn("placements", data)                                   # фильтра места показа нет (02.11.2026)
 
 
 if __name__ == "__main__":

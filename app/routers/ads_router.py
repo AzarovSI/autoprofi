@@ -15,12 +15,14 @@ catalog_marketplace (статус, менеджер, ссылка WB) и price_m
   • доля в заказах и ДРР общий — только за дни, где загружены и реклама, и воронка карточки:
     f_orders_a / f_rub_a — карточка за такие дни, orders_f / spend_f — реклама в дни с воронкой.
 Плановый ДРР — у товара, `plan`: {день или месяц: доля}; у месяца — план на последний день периода в месяце.
+Запас в днях — у товара, `stock_days`, как в РНП (`_stock_days`).
 NULL ≠ 0: нет строк — null; 0 из файла — 0.
 
 Эндпоинты:
-  GET /api/ads/wb/tree?date_from=&date_to=&manager=&placement=
+  GET /api/ads/wb/tree?date_from=&date_to=&manager=
   GET /api/ads/wb/linked?campaign_id=…&campaign_id=…&date_from=&date_to=   — связанные заказы списком
 """
+import calendar
 import datetime
 from collections import defaultdict
 from pathlib import Path
@@ -30,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import auth, db
 from ..util import canon_article, cat_sort_key, l1_sort_key
+from .rnp_sales_router import TURN_BLUE, TURN_RED, TURN_WINDOW_DAYS, _today
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
@@ -148,9 +151,45 @@ def _plan_on(hist, d):
     return v
 
 
+def _stock_days(arts, d0, d1, whole_month):
+    """Запас в днях товаров WB — как в РНП (rnp_sales_router.node_turnover) за тот же отрезок дат.
+
+    Отрезок — с d0 по d1, не позже сегодня (МСК). Период по умолчанию (whole_month) — до конца месяца d1, как в РНП
+    по умолчанию: реклама может отставать от РНП на день.
+    Опорная дата — последняя дата с заказами в отрезке; окно — 30 дней до неё, знаменатель — число дней
+    окна с заказами. Остаток WB — строго на опорную дату. Остатка нет → None; ≤ 0 → 0; нет заказов → "inf".
+    Возвращает ({артикул: дни | "inf" | 0}, опорная дата | None)."""
+    end = d1.replace(day=calendar.monthrange(d1.year, d1.month)[1]) if whole_month else d1
+    end = min(end, _today())
+    dates = [r["date"] for r in db.query_all(
+        "SELECT DISTINCT date FROM wb_daily_sales WHERE date BETWEEN %s AND %s AND orders_qty IS NOT NULL",
+        (d0, end))]
+    if not dates or not arts:
+        return {}, None
+    anchor = max(dates)
+    win_start = max(d0, anchor - datetime.timedelta(days=TURN_WINDOW_DAYS - 1))   # окно — внутри отрезка, как в РНП
+    days_n = sum(1 for d in dates if d >= win_start)
+    orders, stock = defaultdict(float), {}
+    for r in db.query_all(
+            "SELECT seller_article AS a, date, orders_qty, stock_wb_qty FROM wb_daily_sales "
+            "WHERE date BETWEEN %s AND %s AND seller_article = ANY(%s)", (win_start, anchor, list(arts))):
+        orders[r["a"]] += float(r["orders_qty"] or 0)
+        if r["date"] == anchor and r["stock_wb_qty"] is not None:
+            stock[r["a"]] = float(r["stock_wb_qty"])
+    out = {}
+    for art, st in stock.items():
+        if st <= 0:
+            out[art] = 0.0
+        elif orders[art] <= 0:
+            out[art] = "inf"
+        else:
+            out[art] = round(st / (orders[art] / days_n), 2)
+    return out, anchor
+
+
 @router.get("/wb/tree")
 def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
-            manager: Optional[str] = None, placement: Optional[str] = None,
+            manager: Optional[str] = None,
             user=Depends(auth.require_tabs("ads", "Wildberries"))):
     d0, d1 = _period(_date(date_from, "date_from"), _date(date_to, "date_to"))
 
@@ -159,18 +198,14 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
                   sum(views) views, sum(clicks) clicks, sum(atbs) carts, sum(orders) orders,
                   sum(orders_sum) ad_sum, sum(spend) spend, sum(cancels_qty) cancels
            FROM wb_ads_campaign_daily
-           WHERE date BETWEEN %s AND %s AND (%s::text IS NULL OR placement = %s)
+           WHERE date BETWEEN %s AND %s
            GROUP BY 1, 2, 3, 4""",
-        (d0, d1, placement or None, placement or None))
+        (d0, d1))
     funnel_rows = db.query_all(
         "SELECT date, seller_article, sum(visits) visits, sum(carts) carts, sum(orders) orders, "
         "sum(orders_sum) orders_sum FROM wb_ads_funnel_daily WHERE date BETWEEN %s AND %s GROUP BY 1, 2", (d0, d1))
     ad_dates = {r["date"] for r in db.query_all(
         "SELECT DISTINCT date FROM wb_ads_campaign_daily WHERE date BETWEEN %s AND %s", (d0, d1))}
-    placements = [r["placement"] for r in db.query_all(
-        "SELECT DISTINCT placement FROM wb_ads_campaign_daily WHERE date BETWEEN %s AND %s "
-        "AND placement IS NOT NULL", (d0, d1))]
-    placements.sort(key=lambda p: (PLACEMENT_ORDER.get(p, 9), p))
 
     camp_ids = sorted({r["campaign_id"] for r in ad_rows if r["in_campaign"]})
     # Название и место — по последней выгрузке кампании.
@@ -313,9 +348,17 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             fill_plans(ch)
     fill_plans(root)
 
+    # Запас в днях — у товара, показывается в итоге последнего месяца отчёта (как в РНП).
+    stock_days, stock_anchor = _stock_days(list(products), d0, d1, whole_month=not date_to)
+    for art, prod in products.items():
+        if art in stock_days:
+            prod.extra["stock_days"] = stock_days[art]
+
     return {
         "date_from": d0.isoformat(), "date_to": d1.isoformat(),
-        "fields": list(FIELDS), "months": months, "placements": placements,
+        "fields": list(FIELDS), "months": months,
+        "turnover_cfg": {"red": TURN_RED, "blue": TURN_BLUE,
+                         "as_of": stock_anchor.isoformat() if stock_anchor else None},
         "managers": sorted({(cat.get(a) or {}).get("manager") for a in own} - {None, ""}),
         "tree": root.out(),
     }

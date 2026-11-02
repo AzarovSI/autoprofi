@@ -76,6 +76,9 @@ RU_MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "
 # отставал от реальности и прогноз выполнения плана сильно ЗАВЫШАЛСЯ
 # (напр. факт за 20 дней делился на 10 → проекция ×2).
 _MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))
+# Запас в днях: окно среднедневных заказов и пороги светофора (общие с «Рекламой WB», ads_router._stock_days).
+TURN_WINDOW_DAYS = 30
+TURN_RED, TURN_BLUE = 20.0, 60.0
 def _today():
     return datetime.datetime.now(_MSK_TZ).date()
 
@@ -855,7 +858,6 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
     # anchor по последней дате данных, а не по календарному сегодня (иначе пустой
     # хвост занижал бы среднее). turn_window — set дат-isoformat с данными в окне;
     # turn_window_days_n — число таких дней (знаменатель среднедневного).
-    TURN_WINDOW_DAYS = 30
     _all_data_dates = set()
     for _m in months.values():
         _all_data_dates |= _m["days"] if is_ya else _m["days"] & order_dates
@@ -964,7 +966,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
 
     # Пороги светофора оборачиваемости, дни запаса: red — недостаточно (< 20), blue — излишек (> 60),
     # между — зелёный. До 26.10.2026 настраивались в шестерёнке «Аномалий» (таблица anomaly_rules).
-    turn_red, turn_blue, turn_on = 20.0, 60.0, True
+    turn_red, turn_blue, turn_on = TURN_RED, TURN_BLUE, True
 
     return {
         "marketplace": mp,

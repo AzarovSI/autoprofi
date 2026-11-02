@@ -2098,7 +2098,8 @@ const Views = (() => {
       if (unm.length) {
         warnHtml = '<div class="up-warn">⚠ Нераспределённых артикулов: ' + unm.length + ' — заполните группы/статус/менеджера в Справочнике (Wildberries).</div>';
       }
-      if (API.cacheClear) { API.cacheClear('/api/rnp_sales'); API.cacheClear('/api/catalog'); }
+      // Позиция и запас в днях «Рекламы WB» берутся из этого отчёта.
+      if (API.cacheClear) { API.cacheClear('/api/rnp_sales'); API.cacheClear('/api/catalog'); API.cacheClear('/api/ads'); }
     } catch (e) {
       App.toast('Ошибка загрузки: ' + e.message, 'err');
       errHtml = '<div class="note err" style="margin-top:10px;padding:9px 12px;font-size:12.5px;line-height:1.4">✖ Файл не загружен. ' + U.esc(e.message) + '</div>';
@@ -11522,7 +11523,7 @@ const Views = (() => {
   // OZON — в разработке.
   // ------------------------------------------------------------------
   const adsState = {
-    mp: 'wb', from: '', to: '', manager: '', placement: '', status: '', search: '',
+    mp: 'wb', from: '', to: '', manager: '', status: '', search: '', top: 'views',
     // collapsed — группы, свёрнутые вручную: остальные раскрыты, поэтому дерево открывается до товаров
     // (как РНП) и после первой загрузки, смены периода и фильтров. open — разворот товара и кампании.
     // rowOpen — раскрытые строки показателей (CR — CR карточки, ДРР общий — план и отклонение), по умолчанию свёрнуты.
@@ -11575,6 +11576,69 @@ const Views = (() => {
   // ----- Показатели -----
   const adsDiv = (a, b) => (a == null || b == null || !b) ? null : a / b;
   const ADS_C = { tot: '#000000', ad: '#674EA7', cr: '#1155CC', grey: '#8a8f99', cancel: '#990000', linked: '#7F6000' };
+  // Показатель в строке узла (02.11.2026, как выпадающий список «Юнит-экономики»): по умолчанию показы,
+  // остальные — из первого блока товара. low — меньше лучше (шкала по дням наоборот). У кампании — тот же
+  // показатель кампании; «Заказы всего» и позиция есть только у товара и групп / только у товара.
+  // Формулы показателей — общие для строки узла (ADS_TOP) и строк разворота (adsRows).
+  const ADS_F = {
+    ctr: c => adsDiv(c.clicks, c.views),
+    crc: c => adsDiv(c.carts, c.clicks),
+    cro: c => adsDiv(c.orders, c.carts),
+    share: c => adsDiv(c.orders_f, c.f_orders_a),
+    cpm: c => { const v = adsDiv(c.spend, c.views); return v == null ? null : v * 1000; },
+    cpc: c => adsDiv(c.spend, c.clicks),
+    cpo: c => adsDiv(c.spend, c.orders),
+    drr: c => adsDiv(c.spend_f, c.f_rub_a),
+  };
+  const ADS_TOP = [
+    { key: 'views', label: 'Показы', kind: 'qty', fn: c => c.views },
+    { key: 'ctr', label: 'CTR', kind: 'pct', fn: ADS_F.ctr },
+    { key: 'crc', label: 'CR в корзину', kind: 'pct', fn: ADS_F.crc },
+    { key: 'cro', label: 'CR в заказ', kind: 'pct', fn: ADS_F.cro },
+    { key: 'f_orders', label: 'Заказы всего, шт', kind: 'qty', fn: (c, k, n) => n.kind === 'campaign' ? null : c.f_orders },
+    { key: 'orders', label: 'Заказы с рекламы, шт', kind: 'qty', fn: c => c.orders },
+    { key: 'share', label: 'Доля рекламы в заказах', kind: 'pct', fn: ADS_F.share },
+    { key: 'pos', label: 'Средняя позиция в поиске', kind: 'num', low: true, fn: (c, k, n) => (n.pos || {})[k] },
+    { key: 'spend', label: 'Расходы, руб', kind: 'rub', fn: c => c.spend },
+    { key: 'cpm', label: 'Стоимость 1000 показов CPM, руб', kind: 'num', low: true, fn: ADS_F.cpm },
+    { key: 'cpc', label: 'Стоимость перехода CPC, руб', kind: 'num', low: true, fn: ADS_F.cpc },
+    { key: 'cpo', label: 'Стоимость заказа CPO, руб', kind: 'num', low: true, fn: ADS_F.cpo },
+    // У кампании — её вклад в ДРР общий товара: расходы кампании / сумма заказов карточки.
+    { key: 'drr', label: 'ДРР общий', kind: 'pct', low: true, fn: ADS_F.drr },
+  ];
+  const adsTopDef = () => ADS_TOP.find(m => m.key === adsState.top) || ADS_TOP[0];
+
+  // Оформление строки узла: шкала по дням у товаров и кампаний (у «меньше — лучше» наоборот);
+  // ДРР общий у товара — подсветка против плана вместо шкалы; запас в днях — в итоге последнего месяца товара.
+  function adsHeadOpts(node, top, cols, isGroup, note) {
+    const opts = { heat: !isGroup, heatLow: !!top.low, note };
+    if (top.key === 'drr' && node.kind === 'product' && node.plan) {
+      opts.heat = false;
+      opts.tint = (v, i) => adsPlanTint(v, node.plan[cols[i].key]);
+    }
+    if (node.kind === 'product') opts.badge = c => adsTurnBadge(node, c);
+    return opts;
+  }
+
+  // Запас в днях — как в РНП (rnpsTurnBadge): пилюля слева от итога последнего месяца, светофор 20 / 60 дней.
+  function adsTurnBadge(node, col) {
+    const d = adsState.data || {}, cfg = d.turnover_cfg || {}, months = d.months || [];
+    if (col.type !== 'total' || !months.length || col.key !== months[months.length - 1].key) return '';
+    const tv = node.stock_days;
+    if (tv == null) return '';
+    let cls, text, title;
+    if (tv === 'inf') {
+      cls = 'rnps-turn-blue'; text = '∞'; title = 'Оборачиваемость: есть остаток, нет заказов (излишек)';
+    } else {
+      const days = Math.round(tv);
+      text = String(days);
+      cls = tv < cfg.red ? 'rnps-turn-red' : (tv > cfg.blue ? 'rnps-turn-blue' : 'rnps-turn-green');
+      title = `Оборачиваемость: ~${days} дн. запаса (остаток WB / среднедневные заказы)`;
+    }
+    if (cfg.as_of) title += ' · Данные на ' + fmtRu(cfg.as_of);
+    return `<span class="rnps-turn ${cls}" title="${U.esc(title)}">${text}</span>`;
+  }
+
   // Строки разворота (решение владельца 29.10.2026): рекламная воронка товара (сумма кампаний),
   // группы и «Итогов»; у кампании — те же строки, но доля «кампании» и ДРР рекламный без плана.
   // id — строка с раскрытием (CR — CR карточки, ДРР общий — план и отклонение); sep — линия над строкой.
@@ -11582,38 +11646,40 @@ const Views = (() => {
     const camp = node.kind === 'campaign';
     const prod = node.kind === 'product';
     const rows = [
-      { label: 'CTR', fn: c => adsDiv(c.clicks, c.views), kind: 'pct', color: ADS_C.cr },
+      // Показы — в строке узла по умолчанию; если там выбран другой показатель, они первой строкой здесь.
+      adsState.top !== 'views' ? { label: 'Показы', fn: c => c.views, kind: 'qty' } : null,
+      { label: 'CTR', fn: ADS_F.ctr, kind: 'pct', color: ADS_C.cr },
       { label: 'Клики', fn: c => c.clicks, kind: 'qty' },
-      { id: 'crc', label: 'CR в корзину', fn: c => adsDiv(c.carts, c.clicks), kind: 'pct', color: ADS_C.cr,
+      { id: 'crc', label: 'CR в корзину', fn: ADS_F.crc, kind: 'pct', color: ADS_C.cr,
         sub: [{ label: 'CR в корзину карточки', fn: c => adsDiv(c.f_carts, c.f_visits), kind: 'pct', color: ADS_C.grey }] },
       { label: 'Корзины', fn: c => c.carts, kind: 'qty' },
-      { id: 'cro', label: 'CR в заказ', fn: c => adsDiv(c.orders, c.carts), kind: 'pct', color: ADS_C.cr,
+      { id: 'cro', label: 'CR в заказ', fn: ADS_F.cro, kind: 'pct', color: ADS_C.cr,
         sub: [{ label: 'CR в заказ карточки', fn: c => adsDiv(c.f_orders, c.f_carts), kind: 'pct', color: ADS_C.grey }] },
       // Заказы карточки целиком (лист «Воронка») — у товара, групп и «Итогов»; у кампании было бы то же число, что у товара.
       camp ? null : { label: 'Заказы всего, шт', fn: c => c.f_orders, kind: 'qty',
         tip: prod ? '' : 'Заказы всего, шт — только товары с рекламой за период' },
       { label: 'Заказы с рекламы, шт', fn: c => c.orders, kind: 'qty' },
       // Ключевая метрика (владелец 29.10.2026) — жирным чёрным.
-      { label: camp ? 'Доля кампании в заказах' : 'Доля рекламы в заказах', fn: c => adsDiv(c.orders_f, c.f_orders_a), kind: 'pct', bold: true },
+      { label: camp ? 'Доля кампании в заказах' : 'Доля рекламы в заказах', fn: ADS_F.share, kind: 'pct', bold: true },
       // Средняя позиция в поиске — из РНП, только у товара (владелец 02.11.2026).
       prod ? { label: 'Средняя позиция в поиске', fn: (c, k) => (node.pos || {})[k], kind: 'num' } : null,
       { label: 'Отмены, шт', fn: c => c.cancels, kind: 'qty', color: ADS_C.cancel },
       { label: 'Расходы, руб', fn: c => c.spend, kind: 'rub', color: ADS_C.ad, sep: true },
-      { label: 'Стоимость 1000 показов CPM, руб', fn: c => { const v = adsDiv(c.spend, c.views); return v == null ? null : v * 1000; }, kind: 'num' },
-      { label: 'Стоимость перехода CPC, руб', fn: c => adsDiv(c.spend, c.clicks), kind: 'num' },
-      { label: 'Стоимость заказа CPO, руб', fn: c => adsDiv(c.spend, c.orders), kind: 'num' },
+      { label: 'Стоимость 1000 показов CPM, руб', fn: ADS_F.cpm, kind: 'num' },
+      { label: 'Стоимость перехода CPC, руб', fn: ADS_F.cpc, kind: 'num' },
+      { label: 'Стоимость заказа CPO, руб', fn: ADS_F.cpo, kind: 'num' },
     ].filter(Boolean);
     if (camp) {
       rows.push({ label: 'ДРР рекламный', fn: c => adsDiv(c.spend, c.ad_sum), kind: 'pct', color: ADS_C.ad });
     } else {
       // ДРР общий — расходы к заказам карточки; у товара — подсветка против планового («Ценовая модель»).
-      const drr = { id: 'drr', label: 'ДРР общий', fn: c => adsDiv(c.spend_f, c.f_rub_a), kind: 'pct', color: ADS_C.ad };
+      const drr = { id: 'drr', label: 'ДРР общий', fn: ADS_F.drr, kind: 'pct', color: ADS_C.ad };
       if (prod && node.plan) {
         drr.plan = true;
         drr.sub = [
           { label: 'ДРР плановый', fn: (c, k) => node.plan[k], kind: 'pct', color: ADS_C.grey },
           { label: 'Отклонение от плана, п.п.', kind: 'pp', color: ADS_C.grey, dev: true,
-            fn: (c, k) => { const v = adsDiv(c.spend_f, c.f_rub_a), p = node.plan[k]; return v == null || p == null ? null : v - p; } },
+            fn: (c, k) => { const v = ADS_F.drr(c), p = node.plan[k]; return v == null || p == null ? null : v - p; } },
         ];
       }
       rows.push(drr);
@@ -11663,13 +11729,16 @@ const Views = (() => {
     });
     return cols.map((c, i) => {
       const st = [];
-      const bg = opts.heat && c.type === 'day' ? rnpsHeatColor(vals[i], mn, mx) : '';
+      const v = vals[i];
+      const bg = !opts.heat || c.type !== 'day' || v == null ? ''
+        : (opts.heatLow ? rnpsHeatColor(-v, -mx, -mn) : rnpsHeatColor(v, mn, mx));
       if (bg) st.push('background-color:' + bg);
       const tint = opts.tint ? opts.tint(vals[i], i) : '';
       if (tint) st.push(tint);
       const attrs = opts.attrs && vals[i] ? opts.attrs(i) : '';
       const note = opts.note && c.type === 'day' ? opts.note(c.key) : null;   // комментарии и акции РНП
-      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}${note ? note.cls : ''}"${st.length ? ` style="${st.join(';')}"` : ''}${attrs}${note ? note.attrs : ''}>${note ? note.mark : ''}${adsFmt(vals[i], kind)}</span>`;
+      const badge = opts.badge ? opts.badge(c) : '';
+      return `<span class="rnps-col${c.type === 'total' ? ' rnps-total' : ''}${badge ? ' rnps-has-turn' : ''}${note ? note.cls : ''}"${st.length ? ` style="${st.join(';')}"` : ''}${attrs}${note ? note.attrs : ''}>${note ? note.mark : ''}${badge}${adsFmt(vals[i], kind)}</span>`;
     }).join('');
   }
 
@@ -11715,7 +11784,8 @@ const Views = (() => {
     const open = isGroup ? !adsState.collapsed[node.key] : !!adsState.open[node.key];
     const kids = node.children || [];
     const k = U.esc(node.key);
-    const head = cols.map(c => adsCell(node, c.key).views);
+    const top = adsTopDef();
+    const head = cols.map(c => top.fn(adsCell(node, c.key), c.key, node));
     let name, status = '', mbtn = '', body = '';
     if (isGroup) {
       name = `<button class="rnp-exp-btn" data-xkey="${k}" title="Раскрыть/свернуть">${open ? '▾' : '▸'}</button><span class="rnp-nm">${U.esc(node.name)}</span>`;
@@ -11744,7 +11814,7 @@ const Views = (() => {
         <div class="rnp-node-name rnp-fixleft is-clickable" style="padding-left:${3 + 14 * depth}px">${name}</div>
         <div class="rnp-node-status rnp-fixleft">${status}</div>
         <span class="rnp-node-mbtn rnp-fixleft">${promoIco}${mbtn}</span>
-        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, 'qty', { heat: !isGroup, note })}</div></div>
+        <div class="rnp-wk-scroll" data-rnp-scroll><div class="rnps-node-vals">${adsCells(head, cols, top.kind, adsHeadOpts(node, top, cols, isGroup, note))}</div></div>
       </div>${body}</div>`;
   }
 
@@ -12042,7 +12112,6 @@ const Views = (() => {
     try {
       adsState.data = await API.adsWbTree({
         date_from: adsState.from, date_to: adsState.to, manager: adsState.manager,
-        placement: adsState.placement,
       });
       await adsLoadRnpNotes();
       adsState.error = '';
@@ -12062,7 +12131,7 @@ const Views = (() => {
     const opt = (v, label, cur) => `<option value="${U.esc(v)}"${cur === v ? ' selected' : ''}>${U.esc(label)}</option>`;
     const mgrOpts = opt('', 'Все менеджеры', adsState.manager) + (d.managers || []).map(m => opt(m, m, adsState.manager)).join('');
     const stOpts = opt('', 'Все статусы', adsState.status) + STATUS_PRESETS.map(s => opt(s, s, adsState.status)).join('');
-    const plOpts = opt('', 'Все места показа', adsState.placement) + (d.placements || []).map(p => opt(p, p, adsState.placement)).join('');
+    const topOpts = ADS_TOP.map(m => opt(m.key, m.label, adsState.top)).join('');
     // Период по умолчанию (сервер: с 1-го числа по последний день с данными) не запоминаем в adsState —
     // иначе после новой загрузки запрос шёл бы со старым концом и свежих дней не было бы до перезагрузки
     // страницы. adsState.from/to — только период, выбранный вручную (как в РНП).
@@ -12074,7 +12143,7 @@ const Views = (() => {
             <input class="input-sm" id="ads-search" placeholder="Поиск по артикулу…" value="${U.esc(adsState.search)}">
             <select class="input-sm" id="ads-mgr">${mgrOpts}</select>
             <select class="input-sm" id="ads-status">${stOpts}</select>
-            <select class="input-sm" id="ads-placement">${plOpts}</select>
+            <select class="input-sm" id="ads-top" title="Показатель в строке узла">${topOpts}</select>
             <button class="btn-sm" id="ads-expand">Развернуть всё</button>
             <button class="btn-sm" id="ads-collapse">Свернуть всё</button>
             <div class="rnp-period" id="ads-period">
@@ -12108,7 +12177,7 @@ const Views = (() => {
     });
     root.querySelector('#ads-status').addEventListener('change', (e) => { adsState.status = e.target.value; adsRenderMatrix(); });
     root.querySelector('#ads-mgr').addEventListener('change', (e) => { adsState.manager = e.target.value; reload(); });
-    root.querySelector('#ads-placement').addEventListener('change', (e) => { adsState.placement = e.target.value; reload(); });
+    root.querySelector('#ads-top').addEventListener('change', (e) => { adsState.top = e.target.value; adsRenderMatrix(); });
     // Как в РНП: «Развернуть всё» — дерево до товаров (показатели товаров не открываются),
     // «Свернуть всё» — только «Итоги» с группами первого уровня, показатели закрыты.
     root.querySelector('#ads-expand').addEventListener('click', () => {
