@@ -477,17 +477,44 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             tuple([mp] + params),
         )
 
-    # Товары справочника со статусом (кроме «-») — в РНП и без данных площадки за период: новинку видно до первого
-    # отчёта, план, комментарии и акции — сразу (решение владельца 02.11.2026); ненужные переводят в «-».
-    # Только полностью распределённые, как и товары из отчётов. Пустой статус и «-» — по-прежнему только по данным.
-    catalog_rows = [r for r in db.query_all(
-        """SELECT cm.seller_article, ci.category_l1, ci.category_l2, ci.category_l3,
+    # План продаж (помесячно) по Ozon: (art, year, month) -> plan_qty.
+    plan_rows = db.query_all(
+        """SELECT seller_article, year, month, SUM(plan_qty) AS q
+           FROM sales_plan WHERE marketplace = %s
+           GROUP BY seller_article, year, month""",
+        (mp,),
+    )
+    plan_by_art = {}  # art_upper -> {(y,m): qty}
+    for r in plan_rows:
+        a = (r.get("seller_article") or "").upper()
+        y = int(r["year"] or 0); mm = int(r["month"] or 0)
+        if a and 1 <= mm <= 12:
+            plan_by_art.setdefault(a, {})[(y, mm)] = _f(r.get("q"))
+
+    # Товары с планом > 0 на месяц выбранного периода: видны в РНП при любом статусе, в т.ч. «-» без движения —
+    # чтобы план, поставленный по ошибке, не прятался (решение владельца 02.11.2026).
+    def _in_period(y, m):
+        return ((not d_from or y * 100 + m >= d_from.year * 100 + d_from.month)
+                and (not d_to or y * 100 + m <= d_to.year * 100 + d_to.month))
+    planned = {a for a, by in plan_by_art.items() if any(q > 0 and _in_period(y, m) for (y, m), q in by.items())}
+
+    # Товары справочника со статусом (кроме «-») или с планом — в РНП и без данных площадки за период: новинку видно до
+    # первого отчёта, план, комментарии и акции — сразу (решение владельца 02.11.2026); ненужные переводят в «-».
+    # Только полностью распределённые, как и товары из отчётов; нераспределённые с планом — в «Требуют распределения».
+    catalog_all = db.query_all(
+        """SELECT cm.seller_article, ci.sample_name AS item_name, ci.category_l1, ci.category_l2, ci.category_l3,
                   cm.status, cm.manager, cm.product_url
            FROM catalog_marketplace cm
            LEFT JOIN catalog_items ci ON UPPER(ci.seller_article) = UPPER(cm.seller_article)
            WHERE cm.marketplace = %s""", (mp,))
-        if (r["status"] or "").strip() != "-"
-        and not is_undistributed(r["category_l1"], r["category_l2"], r["category_l3"], r["status"], r["manager"])]
+    catalog_rows, planned_undist = [], []
+    for r in catalog_all:
+        undist = is_undistributed(r["category_l1"], r["category_l2"], r["category_l3"], r["status"], r["manager"])
+        if undist:
+            if r["seller_article"].upper() in planned:
+                planned_undist.append(r)
+        elif (r["status"] or "").strip() != "-" or r["seller_article"].upper() in planned:
+            catalog_rows.append(r)
 
     if not is_ya:
         # Общий склад 1С доступен независимо от файла заказов.
@@ -535,20 +562,6 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         mk = f"{d.year}-{d.month:02d}"
         m = months.setdefault(mk, {"year": d.year, "month": d.month, "days": set()})
         m["days"].add(d)
-
-    # План продаж (помесячно) по Ozon: (art, year, month) -> plan_qty.
-    plan_rows = db.query_all(
-        """SELECT seller_article, year, month, SUM(plan_qty) AS q
-           FROM sales_plan WHERE marketplace = %s
-           GROUP BY seller_article, year, month""",
-        (mp,),
-    )
-    plan_by_art = {}  # art_upper -> {(y,m): qty}
-    for r in plan_rows:
-        a = (r.get("seller_article") or "").upper()
-        y = int(r["year"] or 0); mm = int(r["month"] or 0)
-        if a and 1 <= mm <= 12:
-            plan_by_art.setdefault(a, {})[(y, mm)] = _f(r.get("q"))
 
     # Фильтр по статусу/менеджеру (на уровне артикула).
     def passes(st, mgr):
@@ -659,7 +672,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         # (status задан): тогда показываем такие товары всегда. «?» и прочие
         # статусы по этому правилу не скрываются.
         st_norm = (st or "").strip()
-        if st_norm == "-" and not status and art and art not in active:
+        if st_norm == "-" and not status and art and art not in active and art.upper() not in planned:
             continue
         # WB: пустой статус не делает старый товар активным. Одни отзывы,
         # цены или общий склад без заказов/рекламы/остатка WB не являются
@@ -998,6 +1011,11 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
 
     tree = finalize(root)
     _mark_neg(tree)
+
+    # Нераспределённые товары с планом на период — в «Требуют распределения», даже без движения: план не прячется.
+    for c in planned_undist:
+        if passes(c["status"], c["manager"]):
+            undistributed.setdefault(c["seller_article"], {"item_name": c["item_name"], "orders_rub": 0.0})
 
     undist_list = [{"seller_article": a, "item_name": u["item_name"], "orders_rub": round(u["orders_rub"], 2)}
                    for a, u in sorted(undistributed.items())]

@@ -297,7 +297,7 @@ class TreeTests(unittest.TestCase):
                 daily["status"] = "-"
                 stock = row(stock_ap_qty=80)
                 stock["status"] = "-"
-                result = tree(mp, [daily], [stock])
+                result = tree(mp, [daily], [stock], plan=0)        # с планом на период «-» виден (отдельный тест)
                 self.assertEqual(list(leaves(result["tree"])), [])
                 self.assertEqual(result["undistributed"]["count"], 0)
                 self.assertNotIn(DAY.isoformat(), result["tree"]["cells"])
@@ -309,6 +309,29 @@ class TreeTests(unittest.TestCase):
                 daily = {**row(orders_qty=0, stock_ozon_qty=15), "status": "-"}
                 result = tree(mp, [daily], catalog=[{**daily, "product_url": None}])
                 self.assertEqual([n["leaf_info"]["seller_article"] for n in leaves(result["tree"])], ["SKU-1"])
+
+    def test_planned_items_shown_even_with_dash_status(self):
+        """План > 0 на месяц периода — товар в РНП при любом статусе, в т.ч. «-» без движения (с данными — его нули,
+        без данных — пустой); нераспределённый с планом — в «Требуют распределения» (02.11.2026)."""
+        dash = {**row(PREV, orders_qty=0), "status": "-"}
+        for mp in ("ozon", "wb", "yandex"):
+            with self.subTest(mp=mp):
+                hidden = tree(mp, [dash], plan=0)
+                self.assertEqual(list(leaves(hidden["tree"])), [])
+                shown = tree(mp, [dash])                                   # план SKU-1 на 09.2026 = 300
+                product = next(leaves(shown["tree"]))
+                self.assertEqual((product["cells"]["2026-09"]["orders_qty"], product["plan"]["2026-09"]), (0, 300))
+                cat_dash = {**dash, "seller_article": "SKU-OFF", "product_url": None, "item_name": "Снят"}
+                cat_undist = {**cat_dash, "seller_article": "SKU-UND", "status": "NEW", "category_l3": ""}
+                plans = [dict(seller_article="SKU-OFF", year=2026, month=9, q=5),
+                         dict(seller_article="SKU-UND", year=2026, month=9, q=7),
+                         dict(seller_article="SKU-LATE", year=2026, month=12, q=9)]
+                result = tree(mp, [row(orders_qty=10)], catalog=[cat_dash, cat_undist,
+                              {**cat_dash, "seller_article": "SKU-LATE"}], plan_rows=plans)
+                products = {n["leaf_info"]["seller_article"]: n for n in leaves(result["tree"])}
+                self.assertEqual(set(products), {"SKU-1", "SKU-OFF"})              # план в декабре — вне периода
+                self.assertEqual(products["SKU-OFF"]["plan"]["2026-09"], 5)
+                self.assertEqual([a["seller_article"] for a in result["undistributed"]["articles"]], ["SKU-UND"])
 
     def test_stock_without_daily_source_keeps_report_empty(self):
         for mp in ("ozon", "wb"):
