@@ -3566,22 +3566,23 @@ const Views = (() => {
   // и → значение маркетплейса в БД. Единая точка правды, чтобы не плодить
   // тернарники (иначе Яндекс «утекал» бы в ozon).
   // Wildberries и OZON — новая подача (testMetricTable, с 16.10.2026), Yandex — с 03.11.2026 (выплата строки
-  // общих удержаний — из сверки с ИТОГО); «… (старый вид)» (wb_old / oz_old, только по праву №102–103) — прежняя.
+  // общих удержаний — из сверки с ИТОГО). Вкладки «… (старый вид)» (№102–103) убраны 03.11.2026; прежняя
+  // подача карточки (productMetricRows) осталась только у «Сводной».
   function rnpIsTest() { return rnpState.mp === 'ozon' || rnpState.mp === 'wb' || rnpState.mp === 'yandex'; }
   // Месячный вид юнит-экономики — пока только в тестовых вкладках (переключатель «Недели / Месяцы»).
   function rnpCanMonth() { return rnpIsTest() && App.can('unit.month'); }
   function rnpIsMonth() { return rnpCanMonth() && rnpState.period === 'month'; }
   function rnpMpParam() {
-    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'wb'
+    return rnpState.mp === 'wb' ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
   function rnpMpDbName() {
-    return (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'Wildberries'
+    return rnpState.mp === 'wb' ? 'Wildberries'
          : rnpState.mp === 'yandex' ? 'Yandex' : 'Ozon';
   }
   function rnpMpCls() {
     return rnpState.mp === 'cross' ? 'cross'
-         : (rnpState.mp === 'wb' || rnpState.mp === 'wb_old') ? 'wb'
+         : rnpState.mp === 'wb' ? 'wb'
          : rnpState.mp === 'yandex' ? 'yandex' : 'ozon';
   }
 
@@ -3606,9 +3607,6 @@ const Views = (() => {
   function rnpTabs() {
     const tabs = [['wb', 'Wildberries', 'wb'], ['ozon', 'OZON', 'ozon'],
                   ['yandex', 'Yandex', 'yandex']].filter(([id]) => App.canTab('unit', id));
-    // Прежняя подача — на время перехода (№102–103, по умолчанию только администратор).
-    if (App.can('unit.tab.wb_old')) tabs.push(['wb_old', 'Wildberries (старый вид)', 'wb']);
-    if (App.can('unit.tab.oz_old')) tabs.push(['oz_old', 'OZON (старый вид)', 'ozon']);
     if (App.can('unit.uploads.open')) tabs.push(['upload', 'Загрузка данных', 'cross', true]);
     return tabs;
   }
