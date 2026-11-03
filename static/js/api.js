@@ -156,6 +156,8 @@ const API = (() => {
     // ABC (анализ товарной матрицы)
     abcData: () => cget('/api/abc/data'),
     abcSummary: () => cget('/api/abc/summary'),
+    // P&L (раздел «P&L»): помесячные итоги вкладки cross | ozon | wb
+    pnlData: (mp) => cget('/api/pnl/data?marketplace=' + encodeURIComponent(mp)),
     abcRulesSave: (rules) => request('/api/abc/rules', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules }),

@@ -8,15 +8,15 @@ const App = (() => {
   };
 
   const titles = {
-    rnp_sales: 'РНП', rnp: 'Юнит-экономика', ads: 'Реклама', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
+    rnp_sales: 'РНП', rnp: 'Юнит-экономика', pnl: 'P&L', ads: 'Реклама', skus: 'Продажи, шт.', abc: 'ABC', warehouses: 'Склады', prices: 'Цены', catalog: 'Товары', users: 'Пользователи',
   };
 
   // Раздел → функция «Открыть раздел» (коды — app/permissions.py, docs/access_roles.md).
   const VIEW_RIGHTS = {
-    rnp_sales: 'rnp.open', rnp: 'unit.open', ads: 'ads.open', prices: 'prices.open', skus: 'sales.open',
+    rnp_sales: 'rnp.open', rnp: 'unit.open', pnl: 'pnl.open', ads: 'ads.open', prices: 'prices.open', skus: 'sales.open',
     abc: 'abc.open', warehouses: 'stock.open', catalog: 'catalog.open', users: 'users.open',
   };
-  const MENU_ORDER = ['rnp_sales', 'rnp', 'ads', 'prices', 'skus', 'abc', 'warehouses', 'catalog', 'users'];
+  const MENU_ORDER = ['rnp_sales', 'rnp', 'pnl', 'ads', 'prices', 'skus', 'abc', 'warehouses', 'catalog', 'users'];
 
   // --- Разделы «только для владельца» (временно скрыты от всех, кроме меня) ---
   // Пока раздел «в разработке», он виден и доступен ТОЛЬКО этим e-mail'ам.

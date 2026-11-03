@@ -12395,7 +12395,13 @@ const Views = (() => {
     }
   }
 
-  Object.assign(api, { rnp_sales: rnpSales, rnp, ads, dynamics, compare, categories, skus, catalog, upload, users, abc, warehouses, prices });
+  // Раздел «P&L» — static/js/pnl.js (window.PnlView).
+  function pnl(root, ctl) {
+    if (!window.PnlView) { root.innerHTML = '<div class="empty">Модуль P&L не загружен (pnl.js).</div>'; return; }
+    return window.PnlView.render(root, ctl);
+  }
+
+  Object.assign(api, { rnp_sales: rnpSales, rnp, pnl, ads, dynamics, compare, categories, skus, catalog, upload, users, abc, warehouses, prices });
 
   // Сохранить вертикальную прокрутку окна для активного РНП-отчёта перед
   // уходом на другой раздел (вызывается из App.setView). Снимок раскрытия

@@ -292,7 +292,7 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
 
 
-# «Сводная v2» и «P&L» ABC: помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
+# «Сводная v2» ABC и раздел «P&L» (pnl_router): помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
 # юнит-экономики (rnp_router.build_tree, period=month), без товаров и групп. Доли — от выручки месяца.
 # holds — удержания площадки по товарам + без разбивки (строка общих удержаний), как каскад до «К оплате»;
 # mp_holds и noart — те же части по отдельности, состав mp_holds — доли его строк (как в юнит-экономике).
@@ -304,18 +304,11 @@ def _pct(c, key):
     return None if v is None else float(v)
 
 
-@router.get("/summary")
-def summary(user=Depends(auth.require("abc.open"))):
-    """Помесячные итоги ОЗОН и WB для «Сводной v2» и «P&L» ABC:
-    {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
-
-    Только площадки роли (как вкладки юнит-экономики): площадки нет у роли — её нет в ответе."""
-    auth.check(user, "abc.tab.summary_v2", "abc.tab.pnl")
-    allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
+def month_totals(keys):
+    """Помесячные «Итоги» площадок `keys` ('ozon' | 'vb'): {"mp": {key: {"ГГГГ-ММ": {...}}}, "partial": {key: {...}}}."""
     out, partial = {}, {}
-    for key, mp in _SUMMARY_MP.items():
-        if mp not in allowed:
-            continue
+    for key in keys:
+        mp = _SUMMARY_MP[key]
         tree = rnp_router.build_tree(mp, monthly=True)
         cells = tree["tree"]["cells"]
         out[key], partial[key] = {}, {}
@@ -347,6 +340,16 @@ def summary(user=Depends(auth.require("abc.open"))):
             if w.get("partial_through"):
                 partial[key][ym] = w["partial_through"]
     return {"mp": out, "partial": partial}
+
+
+@router.get("/summary")
+def summary(user=Depends(auth.require("abc.open"))):
+    """Помесячные итоги ОЗОН и WB для «Сводной v2»: {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
+
+    Только площадки роли (как вкладки юнит-экономики): площадки нет у роли — её нет в ответе."""
+    auth.check(user, "abc.tab.summary_v2")
+    allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
+    return month_totals([k for k, mp in _SUMMARY_MP.items() if mp in allowed])
 
 
 @router.put("/rules")

@@ -151,6 +151,11 @@ button { font-family: inherit; cursor: pointer; }
   .appbar .right { gap:10px; }
   .appbar .uname { max-width:120px; }
 }
+/* 03.11.2026: в меню 10 разделов (добавлен «P&L») — плотнее пункты, иначе меню наезжает на имя пользователя;
+   на 1321–1400 px — без значков (ниже, как и раньше, меню сворачивается в ☰) */
+@media (max-width:1700px){ .nav a { padding:0 7px; gap:5px; } }
+@media (max-width:1500px){ .nav a { font-size:13px; } }
+@media (min-width:1321px) and (max-width:1400px){ .nav a .ico { display:none; } }
 @media (max-width:1320px){
   .nav { position:absolute; top:calc(var(--header-h) - 12px); left:26px; right:26px;
     flex-direction:column; align-items:stretch; background:var(--bg-elev);
@@ -2410,3 +2415,27 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .ads-warn { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:#555; white-space:nowrap; }
 .ads-warn input { width:64px; }
 #ads-top { min-width:250px; }
+
+/* ============ Раздел «P&L» (static/js/pnl.js) — таблица показателей юнит-экономики ============
+   Колонка: сумма полностью в рублях + её доля от продаж справа; итог года — нейтральная подложка. */
+.rnp-card.pnl-card { --rnp-col:158px; --rnp-mname-w:290px; --rnp-mname-pad:28px; padding-bottom:8px; }
+.pnl-card .rnp-toolbar-top > .pnl-year { margin-left:auto; flex:none; }
+.pnl-ct { display:flex; align-items:baseline; gap:10px; }
+.pnl-ct .rnp-card-title { margin:0; }
+.pnl-ct .muted { font-size:12px; color:var(--text-mute); }
+.pnl-desc { font-size:12px; color:var(--text-dim); margin:4px 0 10px; max-width:1100px; line-height:1.45; }
+.pnl-scroll { overflow-x:auto; margin:0 -20px; }
+.pnl-card .rnp-mtbl td.num, .pnl-card .rnp-mtbl th.num { padding-left:14px; }
+.pnl-card .rnp-mtbl td, .pnl-card .rnp-mtbl th { padding-top:3.5px; padding-bottom:3.5px; }
+.pnl-card .rnp-vc-v { font-size:11.5px; }
+.pnl-card .rnp-vc-d.pnl-sh { flex:0 0 46px; width:46px; min-width:46px; text-align:right; font-size:10.5px; font-weight:400; color:var(--text-dim); }
+.pnl-card .rnp-mtbl td.num + td.num { box-shadow:inset 1px 0 0 #eef1f4; }
+.pnl-card .rnp-mtbl .pnl-tot { background:#f2f5f8; box-shadow:inset 2px 0 0 #d2dae4 !important; }
+.pnl-card .rnp-mtbl td.pnl-tot, .pnl-card .rnp-mtbl th.pnl-tot,
+.pnl-card .rnp-mtbl td.pnl-ly, .pnl-card .rnp-mtbl th.pnl-ly { width:184px; min-width:184px; max-width:184px; }
+.pnl-card .rnp-mtbl .pnl-ly .rnp-vc-v { color:#8a939c !important; font-weight:400 !important; }
+.pnl-card .rnp-mtbl .pnl-part .rnp-vc-v, .pnl-card .rnp-mtbl .pnl-part .pnl-sh { opacity:.55; }
+.pnl-card .rnp-mtbl thead th.rnp-wkcol .rnp-wkh { align-items:center; }
+.pnl-sub { display:flex; justify-content:space-between; align-self:stretch; gap:6px; margin-top:2px; font-size:8.5px; font-weight:600;
+  color:var(--text-mute); text-transform:none; letter-spacing:0; }
+.pnl-sub span:last-child { width:46px; text-align:right; }

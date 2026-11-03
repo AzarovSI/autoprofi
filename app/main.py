@@ -19,7 +19,7 @@ from .routers import (
     rnp_router, catalog_router, upload_router, users_router,
     abc_router, sales_router, rnp_sales_router, rnp_comments_router, rnp_promos_router,
     warehouses_router, ozon_warehouses_router,
-    prices_router, roles_router, ads_router,
+    prices_router, roles_router, ads_router, pnl_router,
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,6 +128,7 @@ app.include_router(catalog_router.router)
 app.include_router(upload_router.router)
 app.include_router(users_router.router)
 app.include_router(abc_router.router)
+app.include_router(pnl_router.router)
 app.include_router(sales_router.router)
 app.include_router(rnp_sales_router.router)
 app.include_router(rnp_comments_router.router)

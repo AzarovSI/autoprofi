@@ -938,29 +938,3 @@
 @media (max-width: 1280px) { .abc-dash .s2-t5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .abc-dash .s2-as { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .abc-dash .s2-t5, .abc-dash .s2-g3 { grid-template-columns: 1fr; } .abc-dash .s2-h { flex-wrap: wrap; } }
 
-/* ============ «P&L» (тест, static/js/abc_pnl.js) — таблица показателей юнит-экономики ============ */
-.abc-dash .abcp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin: 0 0 14px; }
-.abc-dash .abcp-head h3 { margin: 0 0 2px; font-size: 17px; font-weight: 600; }
-.abc-dash .abcp-head .muted { font-size: 12.5px; max-width: 1000px; }
-.abc-dash .abcp-year { flex: none; }
-/* колонка: сумма полностью в рублях + её доля от продаж справа */
-.abc-dash .abcp-card { --rnp-col: 158px; --rnp-mname-w: 290px; --rnp-mname-pad: 28px; padding: 14px 0 6px; margin-bottom: 16px; }
-.abc-dash .abcp-ct { display: flex; align-items: baseline; gap: 10px; padding: 0 20px 6px; }
-.abc-dash .abcp-ct .rnp-card-title { margin: 0; }
-.abc-dash .abcp-ct .muted { font-size: 12px; }
-.abc-dash .abcp-scroll { overflow-x: auto; }
-.abc-dash .abcp-card .rnp-mtbl td.num, .abc-dash .abcp-card .rnp-mtbl th.num { padding-left: 14px; }
-.abc-dash .abcp-card .rnp-mtbl td, .abc-dash .abcp-card .rnp-mtbl th { padding-top: 3.5px; padding-bottom: 3.5px; }
-.abc-dash .abcp-card .rnp-vc-v { font-size: 11.5px; }
-.abc-dash .abcp-card .rnp-vc-d.abcp-sh { flex: 0 0 46px; width: 46px; min-width: 46px; text-align: right; font-size: 10.5px; font-weight: 400; color: var(--text-dim); }
-.abc-dash .abcp-card .rnp-mtbl td.num + td.num { box-shadow: inset 1px 0 0 #eef1f4; }
-.abc-dash .abcp-card .rnp-mtbl .abcp-tot { background: #f2f5f8; box-shadow: inset 2px 0 0 #d2dae4 !important; }
-.abc-dash .abcp-card .rnp-mtbl td.abcp-tot, .abc-dash .abcp-card .rnp-mtbl th.abcp-tot,
-.abc-dash .abcp-card .rnp-mtbl td.abcp-ly, .abc-dash .abcp-card .rnp-mtbl th.abcp-ly { width: 184px; min-width: 184px; max-width: 184px; }
-.abc-dash .abcp-card .rnp-mtbl .abcp-ly .rnp-vc-v { color: #8a939c !important; font-weight: 400 !important; }
-.abc-dash .abcp-card .rnp-mtbl .abcp-part .rnp-vc-v, .abc-dash .abcp-card .rnp-mtbl .abcp-part .abcp-sh { opacity: .55; }
-.abc-dash .abcp-sub { display: flex; justify-content: space-between; align-self: stretch; gap: 6px; margin-top: 2px; font-size: 8.5px; font-weight: 600;
-  color: var(--text-mute); text-transform: none; letter-spacing: 0; }
-.abc-dash .abcp-sub span:last-child { width: 46px; text-align: right; }
-.abc-dash .abcp-card .rnp-mtbl thead th.rnp-wkcol .rnp-wkh { align-items: center; }
-.abc-dash .abcp-foot { font-size: 11.5px; color: var(--text-faint); margin: 4px 0 0; }
