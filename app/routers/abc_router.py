@@ -33,8 +33,7 @@ import datetime as dt
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from .. import db, auth, abc_rules, permissions
-from . import rnp_router
+from .. import db, auth, abc_rules
 
 router = APIRouter(prefix="/api/abc", tags=["abc"])
 
@@ -290,66 +289,6 @@ def abc_data(user=Depends(auth.require("abc.open"))):
 
     return {"rows": rows, "holds": holds, "months": months, "cats": cats,
             "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
-
-
-# «Сводная v2» ABC и раздел «P&L» (pnl_router): помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
-# юнит-экономики (rnp_router.build_tree, period=month), без товаров и групп. Доли — от выручки месяца.
-# holds — удержания площадки по товарам + без разбивки (строка общих удержаний), как каскад до «К оплате»;
-# mp_holds и noart — те же части по отдельности, состав mp_holds — доли его строк (как в юнит-экономике).
-_SUMMARY_MP = {"ozon": "Ozon", "vb": "Wildberries"}
-
-
-def _pct(c, key):
-    v = c.get(key)
-    return None if v is None else float(v)
-
-
-def month_totals(keys):
-    """Помесячные «Итоги» площадок `keys` ('ozon' | 'vb'): {"mp": {key: {"ГГГГ-ММ": {...}}}, "partial": {key: {...}}}."""
-    out, partial = {}, {}
-    for key in keys:
-        mp = _SUMMARY_MP[key]
-        tree = rnp_router.build_tree(mp, monthly=True)
-        cells = tree["tree"]["cells"]
-        out[key], partial[key] = {}, {}
-        for w in tree["weeks"]:
-            c = cells.get(w["key"]) or {}
-            if not c.get("revenue"):
-                continue
-            holds = _pct(c, "p_mp_holds_pct")
-            ym = "%d-%02d" % (int(w["year"]), int(w["week"]))  # ключ как у месяцев ABC
-            out[key][ym] = {
-                "rev": float(c["revenue"]),
-                "profit": c.get("profit"),
-                "payout": c.get("p_payout"),
-                "orders_rub": c.get("orders_rub"),
-                "qty": c.get("sales_qty"),
-                "holds": None if holds is None else holds + (_pct(c, "noart_pay_pct") or 0.0),
-                "ads": _pct(c, "p_ads_paid_pct"),
-                "cogs": _pct(c, "p_cogs_pct"),
-                "buyout": _pct(c, "buyout_pct"),
-                "mp_holds": holds,
-                "noart": _pct(c, "noart_pay_pct"),
-                "commission": _pct(c, "p_commission_pct"),
-                "logistics": _pct(c, "p_logistics_pct"),
-                "acquiring": _pct(c, "p_acquiring_pct"),
-                "storage": _pct(c, "p_storage_pct"),
-                "acceptance": _pct(c, "p_acceptance_pct"),
-                "fines": _pct(c, "p_fines_pct"),
-            }
-            if w.get("partial_through"):
-                partial[key][ym] = w["partial_through"]
-    return {"mp": out, "partial": partial}
-
-
-@router.get("/summary")
-def summary(user=Depends(auth.require("abc.open"))):
-    """Помесячные итоги ОЗОН и WB для «Сводной v2»: {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
-
-    Только площадки роли (как вкладки юнит-экономики): площадки нет у роли — её нет в ответе."""
-    auth.check(user, "abc.tab.summary_v2")
-    allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
-    return month_totals([k for k, mp in _SUMMARY_MP.items() if mp in allowed])
 
 
 @router.put("/rules")
