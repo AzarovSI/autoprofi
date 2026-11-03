@@ -1020,11 +1020,22 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
     except Exception:
         neg_margin_arts = set()
 
+    # WB: метка «FBS» у монеток — остаток на складе FBS Москва за вчера (по Москве) > 0.
+    # Вчерашний день, а не период отчёта: метка о текущем наличии (решение владельца 03.11.2026).
+    fbs_day = _today() - datetime.timedelta(days=1)
+    fbs_msk = {}
+    if is_wb:
+        fbs_msk = {(r["seller_article"] or "").upper(): float(r["stock_fbs_msk"]) for r in db.query_all(
+            "SELECT seller_article, stock_fbs_msk FROM wb_daily_sales WHERE date = %s AND stock_fbs_msk > 0",
+            (fbs_day,))}
+
     def _mark_neg(node):
         li = node.get("leaf_info")
         if li:
             art = (li.get("seller_article") or "").strip().upper()
             li["ue_neg"] = bool(art) and art in neg_margin_arts
+            if art in fbs_msk:
+                li["fbs_msk"] = fbs_msk[art]
         for ch in node.get("children", []):
             _mark_neg(ch)
 
@@ -1055,6 +1066,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
                             if not is_ya else {})},
         "tree": tree,
         "today": today.isoformat(),
+        **({"fbs_day": fbs_day.isoformat()} if is_wb else {}),
         "undistributed": {"count": len(undist_list), "articles": undist_list,
                           "orders_rub": round(sum(u["orders_rub"] for u in undist_list), 2),
                           "total_orders_rub": round(total_orders_rub, 2)},

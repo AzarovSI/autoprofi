@@ -5645,6 +5645,15 @@ const Views = (() => {
     return rows;
   }
 
+  // WB: надпись «FBS» справа от монеток — вчера был остаток на складе FBS Москва (03.11.2026).
+  function rnpsFbsTag(node) {
+    const qty = (node.leaf_info || {}).fbs_msk;
+    if (!qty) return '';
+    const day = (rnpSalesState.data || {}).fbs_day || '';
+    const dd = day ? `${day.slice(8, 10)}.${day.slice(5, 7)}` : '';
+    return `<span class="rnps-fbs-tag" title="Склад FBS Москва${dd ? ' на ' + dd : ''}: ${U.fmtNum(qty, 0)} шт">FBS</span>`;
+  }
+
   // Блок одного узла: строка-заголовок + (опц.) таблица метрик + дети.
   function rnpsNodeBlock(node, cols) {
     const hasChildren = node.children && node.children.length > 0;
@@ -5703,7 +5712,7 @@ const Views = (() => {
     const mBtn = promoIco + (isItem
       ? (!App.can('rnp.unit_popup') ? '' : `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v3c0 1.1 2.24 2 5 2s5-.9 5-2V4"/><path d="M3 7.5v3c0 1.1 2.24 2 5 2s5-.9 5-2v-3"/></svg>`
-        + `</button>`)
+        + `</button>`) + rnpsFbsTag(node)
       : `<button class="rnp-mbtn ${metricsOpen ? 'on' : ''}" data-mkey="${U.esc(node.key)}" title="Показать/скрыть показатели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"/><line x1="8" y1="13" x2="8" y2="4"/><line x1="13" y1="13" x2="13" y2="9"/></svg>`
         + `</button>`);
@@ -7439,7 +7448,7 @@ const Views = (() => {
 
     root.innerHTML = `
       ${undistHtml}
-      <div class="card rnp-card ${mpCls}${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}">
+      <div class="card rnp-card ${mpCls}${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}${isWb ? ' rnps-fbs-on' : ''}">
         <div class="rnp-toolbar">
           <div class="subtabs" id="rnps-subtabs"></div>
           <div class="rnp-filters-host">

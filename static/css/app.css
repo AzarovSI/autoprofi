@@ -862,8 +862,8 @@ tr.drv-row > td { background: var(--bg); padding: 0; }
 .rnp-art-link:hover { text-decoration:underline; text-underline-offset:2px; }
 /* имя артикула — нежирное (перебиваем наследуемую жирность от .lvl-0 .rnp-nm) */
 .rnp-node.lvl-4 .rnp-art-main { font-weight:400; }
-/* «Скопировать артикул» (30.10.2026): бледный значок у правого края колонки имени, ровным столбиком */
-.rnp-copybtn { position:relative; margin-left:auto; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+/* «Скопировать артикул» (30.10.2026; с 03.11.2026 — у левого края таблицы, в отступе дерева, ровным столбиком) */
+.rnp-copybtn { position:absolute; left:4px; top:50%; transform:translateY(-50%); display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
   width:20px; height:20px; padding:0; color:var(--text-mute); opacity:.6; background:transparent; border:1px solid transparent;
   border-radius:5px; cursor:pointer; transition:all .12s; }
 .rnp-copybtn svg { display:block; }
@@ -1592,6 +1592,14 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 .rnps-promo-ico { flex:0 0 auto; display:inline-flex; width:16px; height:22px; align-items:center; justify-content:center;
   margin-right:2px; color:#4A5561; }
 .rnps-promo-ico svg { display:block; }
+/* РНП заказы WB: надпись «FBS» справа от монеток (остаток на складе FBS Москва вчера) — колонка значков шире на 24px. */
+.rnp-card.rnps-fbs-on .rnp-node-mbtn, .rnp-card.rnps-fbs-on .rnp-legend-mspacer, .rnp-card.rnps-fbs-on .rnps-m-mbtn { width:56px; }
+.rnp-card.rnps-fbs-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 56px); }
+.rnp-card.rnps-fbs-on.rnps-promos-on .rnp-node-mbtn, .rnp-card.rnps-fbs-on.rnps-promos-on .rnp-legend-mspacer,
+.rnp-card.rnps-fbs-on.rnps-promos-on .rnps-m-mbtn { width:74px; }
+.rnp-card.rnps-fbs-on.rnps-promos-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 74px); }
+.rnps-fbs-tag { flex:0 0 auto; margin-left:-7px; padding:0 3px; font-size:9.5px; font-weight:600; line-height:14px;
+  letter-spacing:.02em; color:#4A5561; border:1px solid rgba(74,85,97,.35); border-radius:4px; cursor:default; }
 
 .rnps-pop-tabs { display:flex; gap:16px; padding:0 12px; border-bottom:1px solid var(--border-soft); }
 .rnps-pop-tab { border:none; background:transparent; padding:8px 0 7px; font-size:12px; font-weight:600;
