@@ -1,27 +1,30 @@
 /* ================================================================
    Раздел «P&L» (с 03.11.2026; права №127–130, пока только администратор).
-   Подразделы: «Сводная» (ОЗОН + WB), «ОЗОН», «Wildberries» — помесячные
+   Подразделы: «Сводная» (ОЗОН + WB), «Wildberries», «OZON» — помесячные
    прибыли и убытки выбранного года. Порядок строк — каскад юнит-экономики
    (продажи → удержания → продвижение → к оплате → себестоимость → прибыль).
    Данные — помесячные «Итоги» юнит-экономики (GET /api/pnl/data).
-   Разметка — карточка и таблица показателей юнит-экономики (.rnp-card,
-   .rnp-toolbar, .subtabs, .rnp-mtbl, .rnp-vc из app.css): в каждой колонке
-   сумма полностью в рублях и справа — её доля от продаж.
+   Оформление — как РНП (решение владельца 03.11.2026): карточка площадки
+   (.rnp-card + .rnp-toolbar + .subtabs), шапка таблицы липнет под тулбаром
+   (.rnp-head-sticky, --rnp-filters-h), колонка названий закреплена слева,
+   строки окрашены оттенками площадки (--lvl-bg-*). У месяца две колонки:
+   сумма полностью в рублях и её доля от продаж.
    ================================================================ */
 window.PnlView = (function () {
   'use strict';
 
   const MF = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const ML = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
-  // Вкладка → ключи площадок в ответе API, класс карточки и подвкладки (как в юнит-экономике).
+  // Вкладка → ключи площадок в ответе API и класс карточки/подвкладки. Порядок — как в РНП
+  // (Wildberries, OZON), «Сводная» — первой (решение владельца 03.11.2026).
   const TABS = [
-    { id: 'cross', label: 'Сводная', cls: 'cross', keys: ['ozon', 'vb'], title: 'Сводная · ОЗОН + Wildberries', note: 'рубли сложены, доли — от общей выручки' },
-    { id: 'ozon', label: 'OZON', cls: 'ozon', keys: ['ozon'], title: 'ОЗОН' },
-    { id: 'wb', label: 'Wildberries', cls: 'wb', keys: ['vb'], title: 'Wildberries', note: 'логистика и хранение почти нулевые — индивидуальные условия WB' },
+    { id: 'cross', label: 'Сводная', cls: 'cross', keys: ['ozon', 'vb'], title: 'P&L по месяцам Ozon + Wildberries' },
+    { id: 'wb', label: 'Wildberries', cls: 'wb', keys: ['vb'], title: 'P&L по месяцам Wildberries' },
+    { id: 'ozon', label: 'OZON', cls: 'ozon', keys: ['ozon'], title: 'P&L по месяцам Ozon' },
   ];
   // Доли от выручки, которые при сложении месяцев/площадок пересчитываются через рубли.
   const PCTS = ['mp_holds', 'noart', 'commission', 'logistics', 'acquiring', 'storage', 'acceptance', 'fines', 'ads', 'cogs'];
-  const SUMS = ['rev', 'orders_rub', 'qty', 'profit', 'payout'];
+  const SUMS = ['rev', 'profit', 'payout'];
   // «Другие удержания» — остаток удержаний после строк состава (как tOtherHolds юнит-экономики);
   // у суммы месяцев — сумма месячных остатков (sum() кладёт её в c.other).
   const other = (c) => (c.other !== undefined ? c.other : c.mp_holds == null ? null
@@ -30,32 +33,31 @@ window.PnlView = (function () {
   const shareOf = (f) => (c) => (f === 'other' ? other(c) : c[f]);
   const rubOf = (share) => (c) => { const s = share(c); return s == null || c.rev == null ? null : s * c.rev; };
   const line = (o) => Object.assign({ calc: rubOf(o.s), kind: 'rub' }, o);
-  // Строки: b — блок (линия над первой строкой блока), g — сворачиваемая группа, head — её заголовок,
-  // s — доля от продаж в колонке справа от суммы.
+  // Строки. lvl — уровень заливки, как у узлов РНП: key — итоговые строки каскада (как «Итоги»),
+  // grp — расходы-группы, sub — состав удержаний (белые), ratio — маржинальности.
+  // g — сворачиваемая группа, head — её заголовок; s — доля от продаж в колонке справа от суммы.
   const ROWS = [
-    { b: 'f', f: 'orders_rub', l: 'Заказы, руб', kind: 'rub' },
-    { b: 'f', f: 'qty', l: 'Продажи, шт', kind: 'qty' },
-    { b: 'm', f: 'rev', l: 'Продажи, руб', kind: 'rub', bold: true },
-    line({ b: 'm', s: shareOf('mp_holds'), l: '− Удержания площадки', color: 'C0392B', g: 'holds', head: true,
+    { lvl: 'key', f: 'rev', l: 'Продажи, руб', kind: 'rub', s: () => null },
+    line({ lvl: 'grp', s: shareOf('mp_holds'), l: '− Удержания площадки', color: 'C0392B', g: 'holds', head: true,
       tip: 'Удержания площадки по товарам, кроме рекламы' }),
-    line({ b: 'm', s: shareOf('commission'), l: 'Комиссия', g: 'holds' }),
-    line({ b: 'm', s: shareOf('logistics'), l: 'Логистика', g: 'holds' }),
-    line({ b: 'm', s: shareOf('acquiring'), l: 'Эквайринг', g: 'holds' }),
-    line({ b: 'm', s: shareOf('storage'), l: 'Хранение и прочие удержания', g: 'holds' }),
-    line({ b: 'm', s: shareOf('acceptance'), l: 'Приёмка', g: 'holds' }),
-    line({ b: 'm', s: shareOf('fines'), l: 'Штрафы', g: 'holds', color: 'D11414' }),
-    line({ b: 'm', s: shareOf('other'), l: 'Другие удержания', g: 'holds',
+    line({ lvl: 'sub', s: shareOf('commission'), l: 'Комиссия', g: 'holds' }),
+    line({ lvl: 'sub', s: shareOf('logistics'), l: 'Логистика', g: 'holds' }),
+    line({ lvl: 'sub', s: shareOf('acquiring'), l: 'Эквайринг', g: 'holds' }),
+    line({ lvl: 'sub', s: shareOf('storage'), l: 'Хранение и прочие удержания', g: 'holds' }),
+    line({ lvl: 'sub', s: shareOf('acceptance'), l: 'Приёмка', g: 'holds' }),
+    line({ lvl: 'sub', s: shareOf('fines'), l: 'Штрафы', g: 'holds', color: 'D11414' }),
+    line({ lvl: 'sub', s: shareOf('other'), l: 'Другие удержания', g: 'holds',
       tip: 'Остаток удержаний площадки после строк выше; бывает отрицательным (возвраты удержаний)' }),
-    line({ b: 'm', s: shareOf('noart'), l: '− Удержания без разбивки по товарам', color: '980000',
+    line({ lvl: 'grp', s: shareOf('noart'), l: '− Удержания без разбивки по товарам', color: '980000',
       tip: 'Удержания площадки, не привязанные к товарам (строка общих удержаний отчёта)' }),
-    line({ b: 'm', s: shareOf('ads'), l: '− Продвижение', color: '9900FF',
+    line({ lvl: 'grp', s: shareOf('ads'), l: '− Продвижение', color: '9900FF',
       tip: 'Реклама, оплаченная деньгами (WB — «Баланс», без промо-бонусов; Ozon — «Продвижение всего»)' }),
-    { b: 'm', f: 'payout', s: (c) => (c.payout == null ? null : c.payout / c.rev), l: '= К оплате на р/с', kind: 'rub', color: '1E7D34', bold: true,
+    { lvl: 'key', f: 'payout', s: (c) => (c.payout == null ? null : c.payout / c.rev), l: '= К оплате на р/с', kind: 'rub', color: '1E7D34',
       tip: 'Продажи − удержания − продвижение: сколько площадка перечисляет на расчётный счёт' },
-    line({ b: 'c', s: shareOf('cogs'), l: '− Себестоимость', color: '0000FF' }),
-    { b: 'c', f: 'profit', s: (c) => c.gm, l: '= Прибыль', kind: 'rub', bold: true, tip: 'Справа — доля от продаж, это и есть валовая маржинальность' },
-    { b: 'r', f: 'gm', l: 'Маржинальность валовая, %', kind: 'pct', color: '16191D', tip: 'Прибыль ÷ Продажи, руб' },
-    { b: 'r', f: 'nm', l: 'Маржинальность чистая, %', kind: 'pct', color: '1E7D34', tip: 'Прибыль ÷ К оплате на р/с' },
+    line({ lvl: 'grp', s: shareOf('cogs'), l: '− Себестоимость', color: '0000FF' }),
+    { lvl: 'key', f: 'profit', s: (c) => c.gm, l: '= Прибыль', kind: 'rub', tip: 'Справа — доля от продаж, это и есть валовая маржинальность' },
+    { lvl: 'ratio', f: 'gm', l: 'Маржинальность валовая, %', kind: 'pct', tip: 'Прибыль ÷ Продажи, руб' },
+    { lvl: 'ratio', f: 'nm', l: 'Маржинальность чистая, %', kind: 'pct', color: '1E7D34', tip: 'Прибыль ÷ К оплате на р/с' },
   ];
 
   const S = { tab: null, year: null, open: { holds: true }, scroll: 0 };
@@ -72,7 +74,7 @@ window.PnlView = (function () {
     return r === 0 ? '0' : r.toLocaleString('ru-RU');
   };
 
-  // Сумма ячеек (месяцы и/или площадки): рубли и штуки складываются, доли — от суммарной выручки.
+  // Сумма ячеек (месяцы и/или площадки): рубли складываются, доли — от суммарной выручки.
   // Нет значения хоть в одной ячейке — нет и суммы (NULL ≠ 0).
   function sum(cells) {
     cells = cells.filter((c) => c && c.rev); if (!cells.length) return null;
@@ -99,13 +101,6 @@ window.PnlView = (function () {
     return cur.length > 0 && cur.every((s) => raw(s, K(y - 1, m)) && !isPartial(K(y - 1, m), [s]));
   }
   const val = (c, r) => (c == null ? null : (r.calc ? r.calc(c) : c[r.f]));
-  const valStyle = (r) => (r.color ? `color:#${r.color};` : '') + (r.bold ? 'font-weight:700;' : '');
-  // Ячейка: сумма и справа её доля от продаж (у строк без доли — пустое место той же ширины).
-  function vc(c, r) {
-    const share = r.s && c ? r.s(c) : null;
-    return `<span class="rnp-vc"><span class="rnp-vc-v" style="${valStyle(r)}">${fmt(val(c, r), r.kind)}</span>`
-      + `<span class="rnp-vc-d pnl-sh">${share == null ? '' : fmt(share, 'pct')}</span></span>`;
-  }
   function years() {
     const ys = new Set();
     tabDef().keys.forEach((s) => Object.keys((D.mp || {})[s] || {}).forEach((k) => ys.add(Number(k.slice(0, 4)))));
@@ -118,7 +113,18 @@ window.PnlView = (function () {
     : ms[ms.length - 1] - ms[0] + 1 !== ms.length ? ms.length + ' мес.: ' + ms.map((m) => ML[m - 1].slice(0, 3)).join(', ')
     : ms[0] === 1 && ms[ms.length - 1] === 12 ? 'январь–декабрь' : ML[ms[0] - 1] + '–' + ML[ms[ms.length - 1] - 1]);
 
-  function tableHtml() {
+  // Колонки: название | месяцы (сумма, %) | «Итого» (сумма, %) | прошлый год (сумма, %).
+  // Одинаковый <colgroup> у шапки и тела — колонки совпадают при горизонтальной прокрутке.
+  const W = { name: 300, rub: 128, pct: 64, tot: 148 };
+  function colgroup(nm) {
+    const c = (w) => `<col style="width:${w}px">`;
+    let h = '<colgroup>' + c(W.name);
+    for (let i = 0; i < nm; i++) h += c(W.rub) + c(W.pct);
+    return h + c(W.tot) + c(W.pct) + c(W.tot) + c(W.pct) + '</colgroup>';
+  }
+  const tableW = (nm) => W.name + nm * (W.rub + W.pct) + 2 * (W.tot + W.pct);
+
+  function tables() {
     const y = S.year, ms = months(y);
     const part = (m) => isPartial(K(y, m));
     const closed = ms.filter((m) => !part(m));
@@ -126,44 +132,71 @@ window.PnlView = (function () {
     const cols = ms.map((m) => cellOf(K(y, m)));
     const tot = sum(closed.map((m) => cellOf(K(y, m))));
     const ly = sum(comp.map((m) => cellOf(K(y - 1, m))));
-    const sub = '<span class="pnl-sub"><span>руб</span><span>% продаж</span></span>';
-    const hcol = (cls, d1, n) => `<th class="num rnp-wkcol${cls}"><span class="rnp-wkh"><span class="rnp-wkh-d1">${d1}</span><span class="rnp-wkh-n">${n}</span>${sub}</span></th>`;
-    const head = `<tr><th class="rnp-m-name"></th>${ms.map((m) => hcol(part(m) ? ' pnl-part' : '', y + (part(m) ? ' · неполный' : ''), MF[m - 1])).join('')}`
-      + hcol(' pnl-tot', range(closed), 'Итого ' + y) + hcol(' pnl-ly', range(comp), String(y - 1)) + '<th class="rnp-m-tail"></th></tr>';
-    let body = '', last = null;
+    const cg = colgroup(ms.length);
+    const th = (cls, a, b) => `<th class="${cls}"><span class="pnl-h1">${a}</span><span class="pnl-h2">${b}</span></th>`;
+    let head = '<tr><th class="pnl-name"></th>';
+    ms.forEach((m) => {
+      const p = part(m) ? ' pnl-part' : '';
+      head += th('pnl-rub pnl-mstart' + p, MF[m - 1] + (part(m) ? '*' : ''), part(m) ? 'неполный' : 'руб') + th('pnl-pct' + p, '', '% продаж');
+    });
+    head += th('pnl-rub pnl-tot pnl-tstart', 'Итого ' + y, U.esc(range(closed))) + th('pnl-pct pnl-tot', '', '% продаж')
+      + th('pnl-rub pnl-tot pnl-ly pnl-mstart', String(y - 1), U.esc(range(comp))) + th('pnl-pct pnl-tot pnl-ly', '', '% продаж') + '</tr>';
+    let body = '';
     ROWS.forEach((r) => {
       if (r.g && !r.head && !S.open[r.g]) return;
-      const blk = r.b !== last ? ' rnp-t-blk' : ''; last = r.b;
-      const name = r.head
-        ? `<button class="rnp-exp-btn rnp-tgrp-toggle" type="button" data-g="${r.g}" title="Показать/скрыть состав">${S.open[r.g] ? '▾' : '▸'}</button>${U.esc(r.l)}`
-        : U.esc(r.l);
-      const nameCls = 'rnp-m-name' + (r.g && !r.head ? ' rnp-t-child-name' : '') + (r.head ? ' rnp-tgrp-head is-clickable' : '');
-      const st = valStyle(r);
-      let tr = `<tr class="${(r.bold ? 'rnp-t-total' : '') + blk}"><td class="${nameCls}"${r.head ? ` data-g="${r.g}"` : ''}${st ? ` style="${st}"` : ''}${r.tip ? ` title="${U.esc(r.tip)}"` : ''}>${name}</td>`;
-      cols.forEach((c, i) => { tr += `<td class="num rnp-wkcol${part(ms[i]) ? ' pnl-part' : ''}">${vc(c, r)}</td>`; });
-      tr += `<td class="num rnp-wkcol pnl-tot">${vc(tot, r)}</td><td class="num rnp-wkcol pnl-ly">${vc(ly, r)}</td>`;
-      body += tr + '<td class="rnp-m-tail"></td></tr>';
+      const st = r.color ? ` style="color:#${r.color}"` : '';
+      const name = (r.head
+        ? `<button class="rnp-exp-btn" type="button" data-g="${r.g}" title="Показать/скрыть состав">${S.open[r.g] ? '▾' : '▸'}</button>`
+        : '<span class="exp-spacer"></span>') + `<span class="pnl-nm">${U.esc(r.l)}</span>`;
+      const cell = (c, cls) => {
+        const v = val(c, r), s = r.s && c ? r.s(c) : null;
+        return `<td class="pnl-rub${cls}"${st}>${fmt(v, r.kind)}</td><td class="pnl-pct${cls.replace(' pnl-mstart', '').replace(' pnl-tstart', '')}">${r.s && c && s != null ? fmt(s, 'pct') : ''}</td>`;
+      };
+      let tr = `<tr class="pnl-r pnl-${r.lvl}${r.head ? ' pnl-head-row' : ''}"${r.head ? ` data-g="${r.g}"` : ''}><td class="pnl-name"${r.tip ? ` title="${U.esc(r.tip)}"` : ''}>${name}</td>`;
+      cols.forEach((c, i) => { tr += cell(c, ' pnl-mstart' + (part(ms[i]) ? ' pnl-part' : '')); });
+      tr += cell(tot, ' pnl-tot pnl-tstart') + cell(ly, ' pnl-tot pnl-ly pnl-mstart');
+      body += tr + '</tr>';
     });
-    return `<table class="tbl rnp-mtbl rnp-mtbl-test"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    const tw = ` style="width:${tableW(ms.length)}px"`;
+    return {
+      head: `<table class="pnl-t"${tw}>${cg}<thead>${head}</thead></table>`,
+      body: `<table class="pnl-t"${tw}>${cg}<tbody>${body}</tbody></table>`,
+    };
   }
+
+  // Высота липкого тулбара → --rnp-filters-h (под ним липнет шапка таблицы), как в РНП.
+  function syncToolbarH() {
+    requestAnimationFrame(() => {
+      const tb = document.querySelector('.pnl-card .rnp-toolbar');
+      document.documentElement.style.setProperty('--rnp-filters-h', (tb ? Math.round(tb.getBoundingClientRect().height) : 0) + 'px');
+    });
+  }
+  if (!window.__pnlResizeBound) { window.__pnlResizeBound = true; window.addEventListener('resize', () => { if (document.querySelector('.pnl-card')) syncToolbarH(); }); }
 
   function draw(root) {
     const t = tabDef();
-    const sc = root.querySelector('.pnl-scroll'); if (sc) S.scroll = sc.scrollLeft;
+    const prev = root.querySelector('.pnl-bscroll'); if (prev) S.scroll = prev.scrollLeft;
     const ys = years();
     if (!S.year || !ys.includes(S.year)) S.year = ys[ys.length - 1];
+    const tb = tables();
     root.innerHTML = `
       <div class="card rnp-card mp-${t.cls} pnl-card">
         <div class="rnp-toolbar"><div class="rnp-toolbar-top"><div class="subtabs" id="pnl-subtabs"></div>
           <div class="seg pnl-year">${ys.map((y) => `<button type="button" class="seg-btn${y === S.year ? ' active' : ''}" data-y="${y}">${y}</button>`).join('')}</div></div></div>
-        <div class="pnl-ct"><span class="rnp-card-title">P&amp;L ${S.year} · ${U.esc(t.title)}</span>${t.note ? `<span class="muted">${U.esc(t.note)}</span>` : ''}</div>
-        <p class="pnl-desc">От продаж через удержания и продвижение к «К оплате на р/с» и прибыли — по отчётам MPPROFIT за месяц (те же «Итоги», что в помесячной юнит-экономике). В каждой колонке — сумма в рублях и справа её доля от продаж: доли расходов складываются в итоговую маржинальность, доля прибыли — это и есть валовая маржинальность. «Итого» — закрытые месяцы ${S.year} года; колонка ${S.year - 1} — те же месяцы прошлого года (подписаны над колонкой). Неполный месяц — бледнее, в «Итого» не входит.</p>
-        <div class="pnl-scroll">${tableHtml()}</div>
+        <div class="rnp-head-sticky pnl-headwrap">
+          <div class="rnp-card-title">${U.esc(t.title)}</div>
+          <div class="pnl-hscroll">${tb.head}</div>
+        </div>
+        <div class="pnl-bscroll">${tb.body}</div>
       </div>`;
     subtabs(root);
-    const scroll = root.querySelector('.pnl-scroll'); if (S.scroll) scroll.scrollLeft = S.scroll;
+    syncToolbarH();
+    // Шапка прокручивается по горизонтали вместе с телом таблицы.
+    const hs = root.querySelector('.pnl-hscroll'), bs = root.querySelector('.pnl-bscroll');
+    bs.addEventListener('scroll', () => { hs.scrollLeft = bs.scrollLeft; });
+    if (S.scroll) { bs.scrollLeft = S.scroll; hs.scrollLeft = bs.scrollLeft; }
     root.querySelectorAll('.pnl-year .seg-btn').forEach((b) => b.addEventListener('click', () => { S.year = Number(b.dataset.y); draw(root); }));
-    root.querySelectorAll('.rnp-tgrp-head[data-g]').forEach((td) => td.addEventListener('click', () => { S.open[td.dataset.g] = !S.open[td.dataset.g]; draw(root); }));
+    root.querySelectorAll('tr.pnl-head-row').forEach((tr) => tr.addEventListener('click', () => { S.open[tr.dataset.g] = !S.open[tr.dataset.g]; draw(root); }));
   }
 
   function subtabs(root) {

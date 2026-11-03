@@ -2416,26 +2416,46 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .ads-warn input { width:64px; }
 #ads-top { min-width:250px; }
 
-/* ============ Раздел «P&L» (static/js/pnl.js) — таблица показателей юнит-экономики ============
-   Колонка: сумма полностью в рублях + её доля от продаж справа; итог года — нейтральная подложка. */
-.rnp-card.pnl-card { --rnp-col:158px; --rnp-mname-w:290px; --rnp-mname-pad:28px; padding-bottom:8px; }
+/* ============ Раздел «P&L» (static/js/pnl.js) — в стиле РНП ============
+   Карточка площадки и тулбар — как РНП; шапка таблицы липнет под тулбаром (.rnp-head-sticky,
+   --rnp-filters-h); колонка названий закреплена слева с тенью; строки — оттенки площадки
+   (--lvl-bg-*: «Продажи», «К оплате», «Прибыль» — как «Итоги»; расходы — светлее; состав — белый).
+   Фон ячейки = оттенок строки (--row-tint) поверх фона колонки (--col-bg): итоги года — серая подложка. */
 .pnl-card .rnp-toolbar-top > .pnl-year { margin-left:auto; flex:none; }
-.pnl-ct { display:flex; align-items:baseline; gap:10px; }
-.pnl-ct .rnp-card-title { margin:0; }
-.pnl-ct .muted { font-size:12px; color:var(--text-mute); }
-.pnl-desc { font-size:12px; color:var(--text-dim); margin:4px 0 10px; max-width:1100px; line-height:1.45; }
-.pnl-scroll { overflow-x:auto; margin:0 -20px; }
-.pnl-card .rnp-mtbl td.num, .pnl-card .rnp-mtbl th.num { padding-left:14px; }
-.pnl-card .rnp-mtbl td, .pnl-card .rnp-mtbl th { padding-top:3.5px; padding-bottom:3.5px; }
-.pnl-card .rnp-vc-v { font-size:11.5px; }
-.pnl-card .rnp-vc-d.pnl-sh { flex:0 0 46px; width:46px; min-width:46px; text-align:right; font-size:10.5px; font-weight:400; color:var(--text-dim); }
-.pnl-card .rnp-mtbl td.num + td.num { box-shadow:inset 1px 0 0 #eef1f4; }
-.pnl-card .rnp-mtbl .pnl-tot { background:#f2f5f8; box-shadow:inset 2px 0 0 #d2dae4 !important; }
-.pnl-card .rnp-mtbl td.pnl-tot, .pnl-card .rnp-mtbl th.pnl-tot,
-.pnl-card .rnp-mtbl td.pnl-ly, .pnl-card .rnp-mtbl th.pnl-ly { width:184px; min-width:184px; max-width:184px; }
-.pnl-card .rnp-mtbl .pnl-ly .rnp-vc-v { color:#8a939c !important; font-weight:400 !important; }
-.pnl-card .rnp-mtbl .pnl-part .rnp-vc-v, .pnl-card .rnp-mtbl .pnl-part .pnl-sh { opacity:.55; }
-.pnl-card .rnp-mtbl thead th.rnp-wkcol .rnp-wkh { align-items:center; }
-.pnl-sub { display:flex; justify-content:space-between; align-self:stretch; gap:6px; margin-top:2px; font-size:8.5px; font-weight:600;
-  color:var(--text-mute); text-transform:none; letter-spacing:0; }
-.pnl-sub span:last-child { width:46px; text-align:right; }
+.pnl-headwrap .rnp-card-title { margin:0 0 8px; }
+.pnl-hscroll { overflow:hidden; margin:0 -20px; }
+.pnl-bscroll { overflow-x:auto; margin:0 -20px; }
+.pnl-t { border-collapse:separate; border-spacing:0; table-layout:fixed; font-variant-numeric:tabular-nums; }
+.pnl-t th, .pnl-t td { --row-tint:transparent; --col-bg:var(--bg-elev); box-sizing:border-box;
+  background:linear-gradient(var(--row-tint), var(--row-tint)), var(--col-bg); white-space:nowrap; }
+.pnl-t th { padding:6px 8px 5px; text-align:right; vertical-align:bottom; --col-bg:var(--bg-elev2);
+  border-bottom:1px solid var(--border-soft); }
+.pnl-h1 { display:block; font-size:12.5px; font-weight:700; color:var(--text); line-height:1.25; min-height:16px; }
+.pnl-h2 { display:block; font-size:9.5px; font-weight:600; color:var(--text-mute); line-height:1.2; margin-top:1px; }
+.pnl-t td { padding:5px 8px; text-align:right; font-family:var(--mono); font-size:12px; color:var(--text); border-top:1px solid var(--border-soft); }
+.pnl-t td.pnl-pct { font-size:11px; color:var(--text-dim); padding-left:2px; }
+.pnl-t .pnl-mstart { border-left:1px solid var(--border-soft); }
+.pnl-t .pnl-tstart { border-left:2px solid #c9d1da; }
+.pnl-t .pnl-tot { --col-bg:#f4f6f9; }
+.pnl-t th.pnl-tot { --col-bg:#e9edf2; }
+.pnl-t .pnl-ly.pnl-rub, .pnl-t td.pnl-ly { color:#8a939c !important; font-weight:400 !important; }
+.pnl-t .pnl-part { color:var(--text-mute) !important; }
+/* колонка названий — закреплена слева, отделена линией и тенью (как имя узла в РНП) */
+.pnl-t .pnl-name { position:sticky; left:0; z-index:2; text-align:left; padding-left:20px; font-family:var(--sans);
+  box-shadow:inset -1px 0 0 var(--border), 6px 0 8px -6px rgba(15,23,42,.18); }
+.pnl-name .rnp-exp-btn, .pnl-name .exp-spacer { margin-right:4px; vertical-align:-1px; }
+.pnl-nm { font-size:12.5px; font-weight:600; color:var(--text); }
+/* уровни строк */
+.pnl-key td { --row-tint:var(--lvl-bg-0); }
+.pnl-key td.pnl-rub { font-weight:700; font-size:12.5px; }
+.pnl-key .pnl-nm { font-size:13.5px; font-weight:700; }
+.pnl-grp td { --row-tint:var(--lvl-bg-2); }
+.pnl-sub .pnl-nm { font-weight:400; font-size:12px; color:var(--text-dim); }
+.pnl-sub td.pnl-name { padding-left:42px; }
+.pnl-ratio td { --row-tint:var(--lvl-bg-3); }
+.pnl-t tr.pnl-head-row { cursor:pointer; }
+/* наведение — красная полоса через всю строку, как в РНП */
+.pnl-t tr.pnl-r:hover td { --row-tint:rgba(235,20,20,.07); }
+.pnl-t tr.pnl-r:hover td:not(.pnl-name) { box-shadow:inset 0 1px 0 rgba(235,20,20,.25), inset 0 -1px 0 rgba(235,20,20,.25); }
+.pnl-t tr.pnl-r:hover td.pnl-name { box-shadow:inset -1px 0 0 var(--border), 6px 0 8px -6px rgba(15,23,42,.18),
+  inset 0 1px 0 rgba(235,20,20,.25), inset 0 -1px 0 rgba(235,20,20,.25); }
