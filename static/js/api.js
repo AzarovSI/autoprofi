@@ -155,7 +155,6 @@ const API = (() => {
     rnpTrend: (p) => cget('/api/rnp/trend' + qs(p)),
     // ABC (анализ товарной матрицы)
     abcData: () => cget('/api/abc/data'),
-    abcSummary: () => cget('/api/abc/summary'),
     // P&L (раздел «P&L»): помесячные итоги вкладки cross | ozon | wb
     pnlData: (mp) => cget('/api/pnl/data?marketplace=' + encodeURIComponent(mp)),
     abcRulesSave: (rules) => request('/api/abc/rules', {

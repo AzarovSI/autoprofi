@@ -3058,6 +3058,7 @@ window.ABCDash = (function () {
     STATE.loaded = false;
     const api = window.API || API;
     if (api && api.cacheClear) api.cacheClear('/api/abc');
+    if (window.PnlView) window.PnlView.invalidate();   // P&L считается из тех же месячных отчётов
   }
 
   return { render, destroy, invalidate };
