@@ -182,7 +182,13 @@ window.PnlView = (function () {
     root.innerHTML = `
       <div class="card rnp-card mp-${t.cls} pnl-card">
         <div class="rnp-toolbar"><div class="rnp-toolbar-top"><div class="subtabs" id="pnl-subtabs"></div>
-          <div class="seg pnl-year">${ys.map((y) => `<button type="button" class="seg-btn${y === S.year ? ' active' : ''}" data-y="${y}">${y}</button>`).join('')}</div></div></div>
+          <div class="rnp-period" id="pnl-period">
+            <button class="rnp-period-field" id="pnl-period-field" type="button" title="Выбрать год">
+              <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+              <span class="rnp-period-text">${S.year} год</span>
+            </button>
+            <div class="rnp-cal pnl-ycal" id="pnl-ycal" hidden></div>
+          </div></div></div>
         <div class="rnp-head-sticky pnl-headwrap">
           <div class="rnp-card-title">${U.esc(t.title)}</div>
           <div class="pnl-hscroll">${tb.head}</div>
@@ -195,8 +201,46 @@ window.PnlView = (function () {
     const hs = root.querySelector('.pnl-hscroll'), bs = root.querySelector('.pnl-bscroll');
     bs.addEventListener('scroll', () => { hs.scrollLeft = bs.scrollLeft; });
     if (S.scroll) { bs.scrollLeft = S.scroll; hs.scrollLeft = bs.scrollLeft; }
-    root.querySelectorAll('.pnl-year .seg-btn').forEach((b) => b.addEventListener('click', () => { S.year = Number(b.dataset.y); draw(root); }));
+    bindYear(root, ys);
     root.querySelectorAll('tr.pnl-head-row').forEach((tr) => tr.addEventListener('click', () => { S.open[tr.dataset.g] = !S.open[tr.dataset.g]; draw(root); }));
+  }
+
+  // Поле года — как поле периода «Продаж, шт.»: поповер с сеткой лет (под годом — месяцы с данными,
+  // неполный год виден сразу), быстрый выбор «Текущий год» / «Прошлый год». Год один: P&L — за год.
+  function bindYear(root, ys) {
+    const field = root.querySelector('#pnl-period-field'), cal = root.querySelector('#pnl-ycal');
+    const thisYear = new Date().getFullYear();
+    const pick = (y) => { cal.hidden = true; field.classList.remove('open'); if (y !== S.year && ys.includes(y)) { S.year = y; draw(root); } };
+    const short = (m) => ML[m - 1].slice(0, 3);
+    function drawYears() {
+      const cells = ys.map((y) => {
+        const ms = months(y);
+        const r = ms.length === 12 ? 'весь год' : ms.length ? short(ms[0]) + '–' + short(ms[ms.length - 1]) : '';
+        return `<button type="button" class="pnl-y${y === S.year ? ' end' : ''}${y === thisYear ? ' today' : ''}" data-y="${y}"><b>${y}</b><span>${r}</span></button>`;
+      }).join('');
+      const pre = (y, l) => `<button type="button" class="rnp-cal-preset" data-y="${y}"${ys.includes(y) ? '' : ' disabled'}>${l}</button>`;
+      cal.innerHTML = `<div class="rnp-cal-mtitle">Год</div><div class="pnl-ygrid">${cells}</div>
+        <div class="rnp-cal-presets sp-mcal-presets">${pre(thisYear, 'Текущий год')}${pre(thisYear - 1, 'Прошлый год')}</div>`;
+    }
+    field.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = cal.hidden;
+      cal.hidden = !open; field.classList.toggle('open', open);
+      if (open) drawYears();
+    });
+    cal.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const b = e.target.closest('[data-y]');
+      if (b && !b.disabled) pick(Number(b.dataset.y));
+    });
+  }
+  // Клик мимо открытого поповера года закрывает его (один обработчик на модуль).
+  if (!window.__pnlYearCloseBound) {
+    window.__pnlYearCloseBound = true;
+    document.addEventListener('click', (e) => {
+      const cal = document.getElementById('pnl-ycal'), wrap = document.getElementById('pnl-period');
+      if (cal && !cal.hidden && wrap && !wrap.contains(e.target)) { cal.hidden = true; const f = document.getElementById('pnl-period-field'); if (f) f.classList.remove('open'); }
+    });
   }
 
   function subtabs(root) {

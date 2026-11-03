@@ -2421,7 +2421,20 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
    --rnp-filters-h); колонка названий закреплена слева с тенью; строки — оттенки площадки
    (--lvl-bg-*: «Продажи», «К оплате», «Прибыль» — как «Итоги»; расходы — светлее; состав — белый).
    Фон ячейки = оттенок строки (--row-tint) поверх фона колонки (--col-bg): итоги года — серая подложка. */
-.pnl-card .rnp-toolbar-top > .pnl-year { margin-left:auto; flex:none; }
+/* поле года — как поле периода «Продаж, шт.»; в поповере сетка лет (под годом — месяцы с данными) */
+.pnl-ycal { width:250px; }
+.pnl-ygrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-bottom:10px; }
+.pnl-y { height:46px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  background:transparent; border:1px solid transparent; border-radius:8px; cursor:pointer; color:var(--text);
+  transition:background .1s, color .1s; }
+.pnl-y b { font-size:13.5px; font-weight:700; line-height:1; }
+.pnl-y span { font-size:10px; color:var(--text-mute); line-height:1; }
+.pnl-y:hover { background:var(--cal-acc-soft); }
+.pnl-y.today { border-color:#f3b9b9; }
+.pnl-y.end { background:var(--cal-acc); color:#fff; }
+.pnl-y.end span { color:rgba(255,255,255,.85); }
+.pnl-y.end:hover { background:#cf1111; }
+.pnl-ycal .rnp-cal-preset:disabled { opacity:.4; cursor:default; }
 .pnl-headwrap .rnp-card-title { margin:0 0 8px; }
 .pnl-hscroll { overflow:hidden; margin:0 -20px; }
 .pnl-bscroll { overflow-x:auto; margin:0 -20px; }
