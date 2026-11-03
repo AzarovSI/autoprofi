@@ -295,7 +295,7 @@ YA_MAP = [
     ("cancels_qty",       "Продажи :: Невыкупы/отмены шт."),
     ("total_sales_qty",   "Продажи :: Выкупы шт."),
     ("revenue",           "Продажи :: Продажи руб."),
-    ("sales_gross",       "Продажи :: Выкупы, руб."),
+    ("sales_gross",       "Продажи :: Выкупы руб."),  # в отчёте без запятой (до 03.11.2026 не читалось)
     ("returns_rub",       "Продажи :: Возвраты руб."),
     ("revenue_share_pct", "Продажи :: Доля выручки %"),
     ("avg_sale_price",    "Продажи :: Средняя цена продажи"),
@@ -353,6 +353,30 @@ YA_REQUIRED = [
 # фронтовые формулы (-promo = расход на рекламу) работали единообразно.
 YA_NEGATE = {"promo_total"}
 
+# --- Яндекс: сверка с ИТОГО (03.11.2026, по образцу Ozon) ---
+# Строго: Σ строк товаров = ИТОГО (сверено на месячных 09.2025 и 09.2026 — до рубля): продажи, себестоимость,
+# реклама — то, что MPPROFIT всегда разносит по товарам. Удержания (комиссия, логистика, эквайринг, хранение) он
+# разносит не всегда — их разница уходит в «Общие удержания» (YA_HOLD_ABSORB).
+YA_SUM_CHECK = [
+    "Продажи :: Выкупы шт.", "Продажи :: Возвраты шт.", "Продажи :: Продажи шт.",
+    "Продажи :: Выкупы руб.", "Продажи :: Возвраты руб.", "Продажи :: Продажи руб.",
+    "Себестоимость :: Себестоимость", "Продвижение :: Итого",
+]
+# Как у WB/Ozon: ИТОГО заказов и невыкупов MPPROFIT бывает неверным — только предупреждение; налог и внешние
+# расходы на сайте отдельно не выводятся (входят в прибыль, её разница — в общей строке).
+YA_SUM_WARN_ONLY = ["Продажи :: Заказы шт.", "Продажи :: Заказы, руб.", "Продажи :: Невыкупы/отмены шт.",
+                    "Налог :: Налог", "Внешние расходы :: Внешние расходы"]
+# Колонки, которые MPPROFIT разносит по товарам не полностью: в 09.2025 «Комиссия» по всем товарам 0, вся —
+# только в ИТОГО (1 428 686 ₽), плюс часть логистики и прочих удержаний. Разница ИТОГО − Σ строк — это строка
+# «Общие удержания» (удержания без разбивки по товарам) и её состав; выплата и прибыль строки — тоже из ИТОГО.
+YA_HOLD_ABSORB = {
+    "Все удержания ЯМ :: Все удержания": "holds_total", "Финансы :: Выплата на р/с": "payout",
+    "Финансы :: Прибыль": "profit", "Комиссии :: Комиссия": "commission",
+    "Логистика :: Вся логистика": "logistics_total", "Платежи :: Итого": "acquiring",
+    "Другие удержания :: Хранение": "storage",
+}
+
+
 def build_ya_colidx(ws):
     """Составной индекс «Секция :: Метрика» -> № колонки для отчёта Яндекса.
     Секции (строка 4) объединены merge — протягиваем вперёд. Метрики — строка 5.
@@ -377,6 +401,9 @@ def build_ya_colidx(ws):
             if label:
                 idx.setdefault(f"{section} :: {label}", c)
                 idx.setdefault(f"Продажи :: {label}", c)
+    # Запасное написание: в отчётах 09.2025 и 09.2026 «Выкупы руб.» без запятой (до 03.11.2026 загрузчик ждал «Выкупы, руб.»).
+    if "Продажи :: Выкупы руб." not in idx and "Продажи :: Выкупы, руб." in idx:
+        idx["Продажи :: Выкупы руб."] = idx["Продажи :: Выкупы, руб."]
     return idx
 
 # Полный порядок колонок для INSERT.
@@ -639,6 +666,53 @@ def check_wb_report(ws, idx):
                       + ", ".join(bad_ads[:3]))
     return errors, warnings
 
+def check_ya_report(ws, idx):
+    """Сверка отчёта Яндекса до записи в БД. Возвращает (errors, warnings, hold_deltas).
+
+    errors (загрузка отклоняется): Σ строк ≠ ИТОГО в колонках YA_SUM_CHECK.
+    warnings: Σ ≠ ИТОГО в YA_SUM_WARN_ONLY; «Выплата на р/с» ≠ «Продажи руб.» − «Все удержания» в строке товара
+    или в ИТОГО — у Яндекса это бывает в самом отчёте MPPROFIT (EDV25-20RW 10.2026: продажи 0, удержания 341 ₽,
+    выплата +341 ₽; ICE-1107 BK/WH 07.2026 — 2 973 ₽), отклонять весь период из-за этого нельзя; выплата — как в отчёте.
+    hold_deltas: {колонка БД: ИТОГО − Σ строк} по YA_HOLD_ABSORB — состав строки «Общие удержания»."""
+    errors, warnings = [], []
+    # Строки, которые load_report запишет товарами: с артикулом, не строки «Удержания…». Суммы остальных (строки
+    # без артикула, строка удержаний из файла) не теряются — попадают в разницу ИТОГО − Σ, в «Общие удержания».
+    art_c = idx.get("Продажи :: Артикул продавца") or 1
+    name_c = idx.get("Продажи :: Наименование") or 2
+    rows = []
+    for r in range(7, ws.max_row + 1):
+        art, name = ws.cell(r, art_c).value, ws.cell(r, name_c).value
+        if is_hold_row(art, name) or canon_article(art) in ("", "-"):
+            continue
+        rows.append(r)
+    data = [(r, False) for r in rows]
+    e, w = _sum_check(ws, idx, data, YA_SUM_CHECK + YA_SUM_WARN_ONLY, YA_SUM_WARN_ONLY)
+    errors += e; warnings += w
+
+    def num(r, name):
+        c = idx.get(name)
+        return (to_num(ws.cell(r, c).value) or 0) if c else 0
+
+    rev, holds, pay = "Продажи :: Продажи руб.", "Все удержания ЯМ :: Все удержания", "Финансы :: Выплата на р/с"
+    bad = [f"стр. {r} ({str(ws.cell(r, art_c).value or '').strip()})" for r in rows
+           if abs(num(r, pay) - (num(r, rev) - num(r, holds))) > SUM_TOLERANCE]
+    if bad:
+        warnings.append(f"в отчёте «Выплата на р/с» ≠ «Продажи руб.» − «Все удержания» в {len(bad)} стр.: "
+                        + ", ".join(bad[:3]) + " — загружено как в отчёте")
+    if abs(num(6, pay) - (num(6, rev) - num(6, holds))) > SUM_TOLERANCE:
+        warnings.append(f"в ИТОГО выплата {_fmt_num(num(6, pay))} ≠ продажи {_fmt_num(num(6, rev))} − "
+                        f"удержания {_fmt_num(num(6, holds))} — загружено как в отчёте")
+    deltas = {}
+    for name, col in YA_HOLD_ABSORB.items():
+        c = idx.get(name)
+        total = to_num(ws.cell(6, c).value) if c else None
+        if total is None:
+            continue
+        d = round(total - sum(num(r, name) for r in rows), 2)
+        if abs(d) > SUM_TOLERANCE:
+            deltas[col] = d
+    return errors, warnings, deltas
+
 def is_hold_row(art, name):
     a = ("" if art is None else str(art).strip()).lower()
     n = ("" if name is None else str(name).strip()).lower()
@@ -787,9 +861,11 @@ def load_report(conn, path, mp_key):
 
     # --- WB/Ozon: сверка сумм до любой записи (в т.ч. до пополнения справочника) ---
     check_warnings, hold_deltas = [], {}
-    if mp_key in ("wb", "ozon"):
+    if mp_key in ("wb", "ozon", "yandex"):
         if mp_key == "wb":
             check_errs, check_warnings = check_wb_report(ws, idx)
+        elif ya:
+            check_errs, check_warnings, hold_deltas = check_ya_report(ws, idx)
         else:
             check_errs, check_warnings, hold_deltas = check_oz_report(ws, idx)
         if check_errs:
@@ -1032,39 +1108,16 @@ def load_report(conn, path, mp_key):
             f"{names[c]} {'+' if hold_deltas[c] > 0 else ''}{_fmt_num(hold_deltas[c])} ₽"
             for c in names if c in hold_deltas))
 
-    # --- Общие удержания ЯНДЕКСА (аналог Ozon) -----------------------------
-    # У Яндекса основная часть удержаний разнесена по товарам (holds_total
-    # товарных строк), но часть — общая (напр. общий логистический сбор
-    # 165₽ в отчёте 03-09.08). Строка «Общие удержания» должна нести только
-    # НЕРАСПРЕДЕЛЁННЫЙ ОСТАТОК = «Все удержания» из ИТОГО (стр.6) −
-    # Σ(holds_total товарных). Но у Яндекса в файле чаще НЕТ отдельной
-    # строки-удержания — поэтому если остаток > 0, а строки нет —
-    # СОЗДАЁМ её. Логика profit = −remainder (как Ozon).
+    # --- Общие удержания ЯНДЕКСА (с 03.11.2026 — из сверки с ИТОГО, check_ya_report) ---
+    # Строка «Общие удержания» = ИТОГО − Σ строк товаров по YA_HOLD_ABSORB: все удержания, их состав (комиссия,
+    # логистика; прочее — остаток), выплата и прибыль. Так «К оплате на р/с» площадки = выплате ИТОГО, а комиссия,
+    # которую MPPROFIT не разнёс по товарам (09.2025 — вся), видна в составе удержаний без разбивки. Остаток
+    # бывает и отрицательным (возвраты удержаний) — не обнуляем (как Ozon с 14.10.2026). До 03.11.2026 в строке
+    # были только удержания и прибыль (остаток ≥ 0), выплаты не было — исправится перезагрузкой периодов.
     if ya:
-        ix_rt   = insert_cols.index("row_type")
-        ix_hold = insert_cols.index("holds_total")
-        ix_prof = insert_cols.index("profit")
-        sum_holds_items = sum(
-            (r[ix_hold] or 0) for r in rows if r[ix_rt] == "Товар")
-        c_total_holds = idx.get("Все удержания ЯМ :: Все удержания")
-        total_holds_report = to_num(ws.cell(6, c_total_holds).value) if c_total_holds else 0
-        total_holds_report = total_holds_report or 0
-        remainder = round(total_holds_report - sum_holds_items, 2)
-        if remainder < 0:
-            remainder = 0.0
-        has_hold_row = any(r[ix_rt] == "Общие удержания" for r in rows)
-        new_rows = []
-        for r in rows:
-            if r[ix_rt] == "Общие удержания":
-                lr = list(r)
-                lr[ix_hold] = remainder
-                lr[ix_prof] = -remainder
-                r = tuple(lr)
-            new_rows.append(r)
-        rows = new_rows
-        # Строки «Общие удержания» в файле нет, но есть нераспределённый
-        # остаток — создаём строку сами (все метрики None, кроме holds/profit).
-        if not has_hold_row and remainder > 0:
+        ix_rt = insert_cols.index("row_type")
+        rows = [r for r in rows if r[ix_rt] != "Общие удержания"]  # в файле Яндекса такой строки нет
+        if hold_deltas:
             base = {
                 period_col: period_val, "year": year, "period_text": period,
                 "period_start": start, "period_end": end,
@@ -1074,8 +1127,8 @@ def load_report(conn, path, mp_key):
             }
             for col in BASE_COLS:
                 base.setdefault(col, None)
-            base["holds_total"] = remainder
-            base["profit"] = -remainder
+            for col, d in hold_deltas.items():
+                base[col] = d
             rows.append(tuple(base[col] for col in insert_cols))
 
     # --- перезапись периода: удаляем прежние строки этого МП/периода/года ---

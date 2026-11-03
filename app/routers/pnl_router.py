@@ -3,18 +3,19 @@
 
 Данные — помесячные «Итоги» юнит-экономики (`rnp_router.build_tree`, period=month): расчёт тот же,
 что в помесячной юнит-экономике, без товаров и групп; подача — во фронтенде (`static/js/pnl.js`).
-Вкладки: «Сводная» (№128, нужны обе площадки роли), «ОЗОН» (№129), «Wildberries» (№130).
+Вкладки: «Сводная» (№128, площадки роли — с 03.11.2026 ОЗОН, WB и Яндекс), «ОЗОН» (№129), «Wildberries»
+(№130), «Yandex» (№131).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import auth
+from .. import auth, permissions
 from . import rnp_router
 
 router = APIRouter(prefix="/api/pnl", tags=["pnl"])
 
 # Вкладка → площадки в ответе и их имена в БД.
-_TABS = {"cross": ("ozon", "vb"), "ozon": ("ozon",), "wb": ("vb",)}
-_MP = {"ozon": "Ozon", "vb": "Wildberries"}
+_TABS = {"cross": ("ozon", "vb", "ya"), "ozon": ("ozon",), "wb": ("vb",), "ya": ("ya",)}
+_MP = {"ozon": "Ozon", "vb": "Wildberries", "ya": "Yandex"}
 
 
 def _pct(c, key):
@@ -26,7 +27,8 @@ def month_totals(keys):
     """Помесячные «Итоги» площадок `keys` ('ozon' | 'vb'): {"mp": {key: {"ГГГГ-ММ": {...}}}, "partial": {key: {...}}}.
 
     Рубли — продажи, к оплате, прибыль; остальное — доли от продаж месяца: удержания площадки по товарам (mp_holds)
-    и их состав, удержания без разбивки (noart, строка общих удержаний), продвижение (ads), себестоимость (cogs).
+    и их состав, удержания без разбивки (noart, строка общих удержаний) и их состав (noart_comm, noart_logi; прочее —
+    остаток), продвижение (ads), себестоимость (cogs).
     Месяц без продаж не отдаётся; partial — «факт по» неполного месяца из журнала загрузок."""
     out, partial = {}, {}
     for key in keys:
@@ -44,6 +46,8 @@ def month_totals(keys):
                 "payout": c.get("p_payout"),
                 "mp_holds": _pct(c, "p_mp_holds_pct"),
                 "noart": _pct(c, "noart_pay_pct"),
+                "noart_comm": _pct(c, "noart_comm_pct"),
+                "noart_logi": _pct(c, "noart_logi_pct"),
                 "commission": _pct(c, "p_commission_pct"),
                 "logistics": _pct(c, "p_logistics_pct"),
                 "acquiring": _pct(c, "p_acquiring_pct"),
@@ -61,11 +65,18 @@ def month_totals(keys):
 @router.get("/data")
 def pnl_data(marketplace: str = Query("cross"), user=Depends(auth.require("pnl.open"))):
     """Помесячные итоги для вкладки `marketplace` ('cross' | 'ozon' | 'wb'):
-    {"mp": {"ozon"|"vb": {"ГГГГ-ММ": {...}}}, "partial": {...}}. Без права вкладки или площадки роли — 403."""
+    {"mp": {"ozon"|"vb"|"ya": {"ГГГГ-ММ": {...}}}, "partial": {...}}. Без права вкладки или площадки роли — 403.
+    «Сводная» — по площадкам роли (хотя бы одна); вкладка площадки — только при этой площадке у роли."""
     tab = (marketplace or "").strip().lower()
     if tab not in _TABS:
         raise HTTPException(status_code=400, detail="Неизвестная вкладка P&L: " + (marketplace or ""))
-    keys = _TABS[tab]
     auth.check(user, "pnl.tab." + tab)
-    auth.check_marketplace(user, *[_MP[k] for k in keys])
+    if tab == "cross":
+        allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
+        keys = [k for k in _TABS["cross"] if _MP[k] in allowed]
+        if not keys:
+            raise HTTPException(status_code=403, detail="У роли нет площадок — «Сводная» P&L недоступна")
+    else:
+        keys = _TABS[tab]
+        auth.check_marketplace(user, *[_MP[k] for k in keys])
     return month_totals(keys)

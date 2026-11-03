@@ -1,6 +1,6 @@
 /* ================================================================
    Раздел «P&L» (с 03.11.2026; права №127–130, пока только администратор).
-   Подразделы: «Сводная» (ОЗОН + WB), «Wildberries», «OZON» — помесячные
+   Подразделы: «Сводная» (площадки роли), «Wildberries», «OZON», «Yandex» — помесячные
    прибыли и убытки выбранного года. Порядок строк — каскад юнит-экономики
    (продажи → удержания → продвижение → к оплате → себестоимость → прибыль).
    Данные — помесячные «Итоги» юнит-экономики (GET /api/pnl/data).
@@ -16,14 +16,21 @@ window.PnlView = (function () {
   const MF = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const ML = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
   // Вкладка → ключи площадок в ответе API и класс карточки/подвкладки. Порядок — как в РНП
-  // (Wildberries, OZON), «Сводная» — первой (решение владельца 03.11.2026).
+  // (Wildberries, OZON, Yandex), «Сводная» — первой (решение владельца 03.11.2026).
+  const MP_TITLE = { vb: 'Wildberries', ozon: 'Ozon', ya: 'Yandex' };
   const TABS = [
-    { id: 'cross', label: 'Сводная', cls: 'cross', keys: ['ozon', 'vb'], title: 'P&L по месяцам Ozon + Wildberries' },
-    { id: 'wb', label: 'Wildberries', cls: 'wb', keys: ['vb'], title: 'P&L по месяцам Wildberries' },
-    { id: 'ozon', label: 'OZON', cls: 'ozon', keys: ['ozon'], title: 'P&L по месяцам Ozon' },
+    { id: 'cross', label: 'Сводная', cls: 'cross', keys: ['vb', 'ozon', 'ya'] },
+    { id: 'wb', label: 'Wildberries', cls: 'wb', keys: ['vb'] },
+    { id: 'ozon', label: 'OZON', cls: 'ozon', keys: ['ozon'] },
+    { id: 'ya', label: 'Yandex', cls: 'yandex', keys: ['ya'] },
   ];
+  // Заголовок карточки: площадки, которые есть в ответе (у «Сводной» — площадки роли).
+  const tabTitle = (t) => 'P&L по месяцам ' + t.keys.filter((k) => (D.mp || {})[k]).map((k) => MP_TITLE[k]).join(' + ');
   // Доли от выручки, которые при сложении месяцев/площадок пересчитываются через рубли.
   const PCTS = ['mp_holds', 'noart', 'commission', 'logistics', 'acquiring', 'storage', 'acceptance', 'fines', 'ads', 'cogs'];
+  // Состав удержаний без разбивки (строка общих удержаний): нет значения у месяца с общей строкой — 0.
+  const NOART_PARTS = ['noart_comm', 'noart_logi'];
+  const noartOther = (c) => (c.noart == null ? null : c.noart - (c.noart_comm || 0) - (c.noart_logi || 0));
   const SUMS = ['rev', 'profit', 'payout'];
   // «Другие удержания» — остаток удержаний после строк состава (как tOtherHolds юнит-экономики);
   // у суммы месяцев — сумма месячных остатков (sum() кладёт её в c.other).
@@ -48,8 +55,12 @@ window.PnlView = (function () {
     line({ lvl: 'sub', s: shareOf('fines'), l: 'Штрафы', g: 'holds', color: 'D11414' }),
     line({ lvl: 'sub', s: shareOf('other'), l: 'Другие удержания', g: 'holds',
       tip: 'Остаток удержаний площадки после строк выше; бывает отрицательным (возвраты удержаний)' }),
-    line({ lvl: 'grp', s: shareOf('noart'), l: '− Удержания без разбивки по товарам', color: '980000',
+    line({ lvl: 'grp', s: shareOf('noart'), l: '− Удержания без разбивки по товарам', color: '980000', g: 'noart', head: true,
       tip: 'Удержания площадки, не привязанные к товарам (строка общих удержаний отчёта)' }),
+    // Состав — разница «ИТОГО − Σ товаров» по колонкам отчёта (Яндекс 2025: вся комиссия — здесь, по товарам её нет).
+    line({ lvl: 'sub', s: (c) => (c.noart == null ? null : c.noart_comm || 0), l: 'Комиссия', g: 'noart' }),
+    line({ lvl: 'sub', s: (c) => (c.noart == null ? null : c.noart_logi || 0), l: 'Логистика', g: 'noart' }),
+    line({ lvl: 'sub', s: noartOther, l: 'Прочие удержания', g: 'noart', tip: 'Остальные удержания без разбивки (хранение, приёмка и др.)' }),
     line({ lvl: 'grp', s: shareOf('ads'), l: '− Продвижение', color: '9900FF',
       tip: 'Реклама, оплаченная деньгами (WB — «Баланс», без промо-бонусов; Ozon — «Продвижение всего»)' }),
     { lvl: 'key', f: 'payout', s: (c) => (c.payout == null ? null : c.payout / c.rev), l: '= К оплате на р/с', kind: 'rub', color: '1E7D34',
@@ -60,7 +71,7 @@ window.PnlView = (function () {
     { lvl: 'ratio', f: 'nm', l: 'Маржинальность чистая, %', kind: 'pct', color: '1E7D34', tip: 'Прибыль ÷ К оплате на р/с' },
   ];
 
-  const S = { tab: null, year: null, open: { holds: true }, scroll: 0 };
+  const S = { tab: null, year: null, open: { holds: true, noart: true }, scroll: 0 };
   let D = null;       // ответ API текущей вкладки
   let CROSS = null;   // ответ «Сводной» (ОЗОН + WB) — из него же вкладки площадок
   // Сброс кэша (новые загрузки отчётов): см. API.cacheClear('/api/pnl').
@@ -83,6 +94,7 @@ window.PnlView = (function () {
     PCTS.forEach((f) => { o[f] = cells.some((c) => c[f] == null) ? null : cells.reduce((s, c) => s + c[f] * c.rev, 0) / o.rev; });
     // «без разбивки» есть не у каждого месяца (нет строки общих удержаний) — считаем по тем, где есть
     if (o.noart == null && cells.some((c) => c.noart != null)) o.noart = cells.reduce((s, c) => s + (c.noart || 0) * c.rev, 0) / o.rev;
+    NOART_PARTS.forEach((f) => { o[f] = o.noart == null ? null : cells.reduce((s, c) => s + (c[f] || 0) * c.rev, 0) / o.rev; });
     o.other = cells.some((c) => other(c) == null) ? null : cells.reduce((s, c) => s + other(c) * c.rev, 0) / o.rev;
     o.gm = o.profit != null ? o.profit / o.rev : null;
     o.nm = (o.payout > 0 && o.profit != null) ? o.profit / o.payout : null;
@@ -190,7 +202,7 @@ window.PnlView = (function () {
             <div class="rnp-cal pnl-ycal" id="pnl-ycal" hidden></div>
           </div></div></div>
         <div class="rnp-head-sticky pnl-headwrap">
-          <div class="rnp-card-title">${U.esc(t.title)}</div>
+          <div class="rnp-card-title">${U.esc(tabTitle(t))}</div>
           <div class="pnl-hscroll">${tb.head}</div>
         </div>
         <div class="pnl-bscroll">${tb.body}</div>
@@ -260,8 +272,10 @@ window.PnlView = (function () {
   }
 
   // Вкладки роли: функция вкладки и её площадки (у «Сводной» — обе).
+  // «Сводная» — по площадкам роли (сервер отдаёт только их), нужна хотя бы одна.
   function visibleTabs() {
-    return TABS.filter((t) => App.can('pnl.tab.' + t.id) && (t.id === 'cross' ? App.hasMp('ozon') && App.hasMp('wb') : App.hasMp(t.id)));
+    return TABS.filter((t) => App.can('pnl.tab.' + t.id)
+      && (t.id === 'cross' ? ['ozon', 'wb', 'ya'].some((m) => App.hasMp(m)) : App.hasMp(t.id)));
   }
 
   async function render(root, ctl) {
@@ -270,8 +284,8 @@ window.PnlView = (function () {
     if (!tabs.length) { root.innerHTML = '<div class="empty">Нет доступных вкладок.</div>'; return; }
     if (!tabs.some((t) => t.id === S.tab)) S.tab = tabs[0].id;
     const tab = S.tab;
-    // ОЗОН и WB есть в ответе «Сводной» — если он уже загружен, второй раз не считаем на сервере.
-    const crossOk = tab !== 'cross' && tabs.some((t) => t.id === 'cross') && CROSS;
+    // Площадки есть в ответе «Сводной» — если он уже загружен и в нём есть площадка вкладки, второй раз не считаем.
+    const crossOk = tab !== 'cross' && CROSS && tabDef().keys.every((k) => (CROSS.mp || {})[k]);
     let data;
     try { data = crossOk ? CROSS : await API.pnlData(tab); } catch (e) {
       if (root.isConnected && tab === S.tab) stub(root, 'Не удалось загрузить P&L: ' + ((e && e.message) || e));

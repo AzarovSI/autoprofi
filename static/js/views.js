@@ -3565,9 +3565,9 @@ const Views = (() => {
   // Хелперы маппинга текущего МП юнит-экономики (rnpState.mp) → параметр API
   // и → значение маркетплейса в БД. Единая точка правды, чтобы не плодить
   // тернарники (иначе Яндекс «утекал» бы в ozon).
-  // Wildberries и OZON — новая подача (testMetricTable, с 16.10.2026); «… (старый вид)»
-  // (wb_old / oz_old, только по праву №102–103) и Yandex — прежняя. Данные те же.
-  function rnpIsTest() { return rnpState.mp === 'ozon' || rnpState.mp === 'wb'; }
+  // Wildberries и OZON — новая подача (testMetricTable, с 16.10.2026), Yandex — с 03.11.2026 (выплата строки
+  // общих удержаний — из сверки с ИТОГО); «… (старый вид)» (wb_old / oz_old, только по праву №102–103) — прежняя.
+  function rnpIsTest() { return rnpState.mp === 'ozon' || rnpState.mp === 'wb' || rnpState.mp === 'yandex'; }
   // Месячный вид юнит-экономики — пока только в тестовых вкладках (переключатель «Недели / Месяцы»).
   function rnpCanMonth() { return rnpIsTest() && App.can('unit.month'); }
   function rnpIsMonth() { return rnpCanMonth() && rnpState.period === 'month'; }
@@ -3900,8 +3900,6 @@ const Views = (() => {
   // в рублях нет). Применяется единообразно к строкам групп и товара.
   function rnpMetricVisible(key) {
     if (key === 'p_fines_rub' && rnpMpParam() !== 'wb') return false;
-    // «К оплате на р/с» — пока только WB и Ozon: выплату Яндекса ещё не сверяли.
-    if ((key === 'p_payout' || key === 'p_net_margin_pct') && rnpState.mp === 'yandex') return false;
     return true;
   }
 

@@ -888,9 +888,8 @@ window.ABCDash = (function () {
     // Маржинальность — отношение сумм, не сумма. Для неё собираем profit и знаменатель помесячно и считаем отношение внутри ячеек/сумм.
     const isMargin = metric in YOY_RATIO_DEN;
     const denFld = YOY_RATIO_DEN[metric];
-    // Выплату Яндекса не сверяли (у строки общих удержаний её нет): в блоках «к оплате» и
-    // «чистая маржинальность» Яндекса нет, «Общий» = ОЗОН + ВБ (решение владельца 26.10.2026).
-    const noYa = metric === 'payout' || metric === 'net_margin';
+    // До 03.11.2026 у Яндекса не было блоков «к оплате» и «чистая маржинальность» («Общий» = ОЗОН + ВБ):
+    // выплату не сверяли. С 03.11.2026 выплата строки общих удержаний — из сверки с ИТОГО (check_ya_report).
     // Собираем выбранную метрику по (месяц-число, год) для каждого МП и общего
     const buildByYearMonth = (rows, fld = metric) => {
       // map: year -> Array(12) revenue
@@ -925,7 +924,7 @@ window.ABCDash = (function () {
     const dashYa = (STATE.raw.dashYa   && STATE.raw.dashYa.length)   ? STATE.raw.dashYa   : null;
     const srcOz = dashOz || (STATE.raw.ozon   || []);
     const srcVb = dashVb || (STATE.raw.vb     || []);
-    const srcYa = noYa ? [] : (dashYa || (STATE.raw.yandex || []));
+    const srcYa = dashYa || (STATE.raw.yandex || []);
 
     // Для маржи собираем выручку, прибыль и знаменатель помесячно
     const ozRevMap = buildByYearMonth(srcOz, 'revenue');
@@ -947,7 +946,7 @@ window.ABCDash = (function () {
     // они не учтены, поэтому прибавляем их к прибыли/выплате (и к числителю/знаменателю маржи).
     // Оборот (revenue) НЕ трогаем — у удержаний нет выручки.
     const allHolds = (STATE.raw.holds || []);
-    const holdMap = (mp, fld) => buildByYearMonth(noYa && mp === 'ya' ? [] : allHolds.filter(h => h.mp === mp), fld);
+    const holdMap = (mp, fld) => buildByYearMonth(allHolds.filter(h => h.mp === mp), fld);
     const addHolds = (target, holdMap) => {
       for (const y of Object.keys(holdMap)) {
         if (!target[y]) target[y] = new Array(12).fill(0);
@@ -1012,8 +1011,6 @@ window.ABCDash = (function () {
 
     // Годы для сравнения — отсортированы по возрастанию
     const allYears = [...yearsSet].map(Number).sort();
-    // Годы, в которых у Яндекса есть выручка, — для пустой карточки (те же строки, что в других блоках).
-    const yaYears = noYa ? Object.keys(buildByYearMonth(STATE.raw.yandex || [], 'revenue')).map(Number).sort() : [];
 
     // Корневой элемент блока (для выборки карточек только в этом блоке)
     const block = document.querySelector(selector);
@@ -1025,14 +1022,11 @@ window.ABCDash = (function () {
     cards.forEach(card => {
       const root = block.querySelector(card.selector);
       if (!root) return;
-      // Яндекс без выплаты: карточка того же вида (годы, сравнение, пустой график), значения — «—».
-      const noData = noYa && card.pk === 'ya';
 
       // Итоги по всем годам — для строк
       // Для маржи: total = sum(profit)/sum(den)*100; arr[i] = profit[i]/den[i]*100 (или null)
       // Год без данных площадки (Яндекс до 07.2025) не показываем строкой «0 ₽».
-      const yearTotals = noData ? yaYears.map(y => ({ year: y, total: null, arr: new Array(12).fill(null) }))
-        : allYears.filter(y => card.pk === 'all' || card.rev[y]).map(y => {
+      const yearTotals = allYears.filter(y => card.pk === 'all' || card.rev[y]).map(y => {
         if (isMargin) {
           const r = card.den[y] || new Array(12).fill(0);
           const p = card.prof[y] || new Array(12).fill(0);
@@ -1049,7 +1043,7 @@ window.ABCDash = (function () {
       // Сопоставимый YoY — берём два последних года и их пересечение по месяцам.
       // Для прибыли/маржи в месяце может быть 0/отрицательным — считаем «присутствует» по выручке.
       let comparable = null;
-      if (allYears.length >= 2 && !noData) {
+      if (allYears.length >= 2) {
         const prev = allYears[allYears.length - 2];
         const curr = allYears[allYears.length - 1];
         const a = card.map[prev] || new Array(12).fill(0);
@@ -1128,11 +1122,6 @@ window.ABCDash = (function () {
           ? `Сравнение по сопоставимым месяцам (${comparable.monthsBoth.join(', ')}): ${absTxt}. Не равно разнице годовых итогов.`
           : `Сопоставимо: ${comparable.monthsBoth.join(', ')} · ${absTxt}`;
         if (comparable.skipped.length) footTxt += ` · без неполного месяца (${comparable.skipped.join(', ')})`;
-      } else if (noData) {
-        if (yaYears.length >= 2) {
-          html += `<div class="yoy-row delta flat"><span class="y">${yaYears[yaYears.length - 1]} к ${yaYears[yaYears.length - 2]}</span><span class="v">—</span></div>`;
-        }
-        footTxt = 'Нет данных: выплату Яндекса ещё не сверяли с отчётом.';
       } else {
         footTxt = 'Данных для YoY-сравнения пока недостаточно';
       }
@@ -2484,13 +2473,13 @@ window.ABCDash = (function () {
     <div class="card">
       <div class="card-head">
         <h3>Год к году — к оплате на р/с</h3>
-        <p class="muted">Выплата площадки на расчётный счёт за <b>весь период</b>, с общими удержаниями. Сопоставимая сумма — только по месяцам, активным в обоих годах (по выручке). Яндекса нет: его выплату ещё не сверяли.</p>
+        <p class="muted">Выплата площадки на расчётный счёт за <b>весь период</b>, с общими удержаниями. Сопоставимая сумма — только по месяцам, активным в обоих годах (по выручке).</p>
       </div>
       <div class="yoy-grid yoy-grid-payout yoy-grid-4">
         <div class="yoy-card" data-mp="oz"><div class="yoy-head">ОЗОН</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="vb"><div class="yoy-head">Wildberries</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="ya"><div class="yoy-head">Яндекс</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ + Яндекс)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
       </div>
     </div>
 
@@ -2523,13 +2512,13 @@ window.ABCDash = (function () {
     <div class="card">
       <div class="card-head">
         <h3>Год к году — маржинальность чистая</h3>
-        <p class="muted">Отношение прибыли к «К оплате на р/с» за <b>весь период</b> — какая часть выплаты площадки остаётся прибылью. Сопоставимая маржа — по суммам в месяцах, активных в обоих годах; дельта — в процентных пунктах (pp). Яндекса нет: его выплату ещё не сверяли.</p>
+        <p class="muted">Отношение прибыли к «К оплате на р/с» за <b>весь период</b> — какая часть выплаты площадки остаётся прибылью. Сопоставимая маржа — по суммам в месяцах, активных в обоих годах; дельта — в процентных пунктах (pp).</p>
       </div>
       <div class="yoy-grid yoy-grid-net-margin yoy-grid-4">
         <div class="yoy-card" data-mp="oz"><div class="yoy-head">ОЗОН</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="vb"><div class="yoy-head">Wildberries</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
         <div class="yoy-card" data-mp="ya"><div class="yoy-head">Яндекс</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
-        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
+        <div class="yoy-card" data-mp="all"><div class="yoy-head">ОБЩИЙ (ОЗОН + ВБ + Яндекс)</div><div class="yoy-rows"></div><div class="yoy-foot muted"></div><div class="yoy-chart"><canvas></canvas></div></div>
       </div>
     </div>
 

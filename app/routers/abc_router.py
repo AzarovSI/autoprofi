@@ -22,7 +22,8 @@
   MPPROFIT «(с рекл.)» не вычитает рекламу вовсе, берём profit/margin_pct.
 - payout («К оплате на р/с») — по тому же правилу: Ozon — payout, WB —
   wb_payout_with_ads, а в месяцах без рекламы по товарам — payout (как в
-  юнит-экономике). Яндекс — None: его выплату ещё не сверяли.
+  юнит-экономике). Яндекс — payout, как Ozon (с 03.11.2026 выплата строки общих
+  удержаний — из сверки с ИТОГО, loader_core.check_ya_report).
 
 Также отдаём список доступных месяцев с границами дат — клиентский
 фильтр периода (календарный диапазон) переводит выбранный диапазон
@@ -143,7 +144,7 @@ SQL_YA = """
         f.year, f.month,
         UPPER(COALESCE(f.seller_article, '')) AS sku,
         f.item_name           AS name,
-        f.revenue, f.profit, f.margin_pct AS margin,
+        f.revenue, f.profit, f.margin_pct AS margin, f.payout,
         f.sales_qty, f.orders_qty, f.returns_qty,
         f.promo_total         AS ad_spend,
         cm.status             AS status
@@ -171,8 +172,11 @@ SQL_HOLDS = """
         f.year, f.month, f.marketplace,
         CASE WHEN f.marketplace = 'Wildberries' AND na.year IS NULL
              THEN f.wb_profit_with_ads ELSE f.profit END AS profit,
+        -- Яндекс до перезагрузки новым загрузчиком (03.11.2026): выплаты в строке нет, она = −удержаниям (как в ИТОГО)
         CASE WHEN f.marketplace = 'Wildberries' AND na.year IS NULL
-             THEN f.wb_payout_with_ads ELSE f.payout END AS payout
+             THEN f.wb_payout_with_ads
+             WHEN f.marketplace = 'Yandex' THEN COALESCE(f.payout, -f.holds_total)
+             ELSE f.payout END AS payout
     FROM fact_monthly f
     LEFT JOIN (""" + WB_NO_ADS_MONTHS + """) na
            ON f.marketplace = 'Wildberries' AND na.year = f.year AND na.month = f.month
@@ -208,8 +212,8 @@ def _shape(row, mp):
         "revenue": _num(row["revenue"]),
         "profit": _num(row["profit"]),
         "margin": _num(row["margin"]),
-        # К оплате на р/с; у Яндекса выплата не сверена (нет у строки общих удержаний) — None.
-        "payout": None if mp == "ya" else _num(row["payout"]),
+        # К оплате на р/с (у Яндекса — с 03.11.2026: выплата строки общих удержаний из сверки с ИТОГО).
+        "payout": _num(row["payout"]),
         "sales_qty": _num(row["sales_qty"]),
         "orders_qty": _num(row["orders_qty"]),
         "returns_qty": _num(row["returns_qty"]),
@@ -241,7 +245,7 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             "year": int(r["year"]),
             "month": MONTH_RU.get(int(r["month"]), str(r["month"])),
             "profit": _num(r["profit"]),
-            "payout": None if r["marketplace"] == "Yandex" else _num(r["payout"]),
+            "payout": _num(r["payout"]),
         }
         for r in hold_rows
     ]

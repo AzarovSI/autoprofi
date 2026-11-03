@@ -47,11 +47,11 @@ class AdSpendSignTest(unittest.TestCase):
             self.assertEqual(r["ad_spend"], 0.0)
             self.assertEqual(str(r["ad_spend"]), "0.0")  # не «-0.0»
 
-    def test_payout_without_yandex(self):
-        """«К оплате на р/с» — у Ozon и WB; выплату Яндекса не сверяли — None, а не 0."""
+    def test_payout_all_marketplaces(self):
+        """«К оплате на р/с» — у всех площадок; у Яндекса с 03.11.2026 (выплата общей строки — из сверки с ИТОГО)."""
         res = self.data([row("OZ-1", -1.0)], [row("WB-1", 1.0)], [row("YA-1", -1.0)])
         got = {r["mp"]: r["payout"] for r in res["rows"]}
-        self.assertEqual(got, {"ozon": 600.0, "vb": 600.0, "ya": None})
+        self.assertEqual(got, {"ozon": 600.0, "vb": 600.0, "ya": 600.0})
 
 
 class PartialMonthTest(unittest.TestCase):

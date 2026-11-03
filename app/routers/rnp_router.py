@@ -245,13 +245,12 @@ def _compute_cell(agg, mp="Ozon"):
     # узле нет рекламы по товарам (MPPROFIT не разнёс её: 06.2024–01.2025,
     # 03–06.2025), «(с рекл.)» не вычитает рекламу вовсе — берём обычную выплату
     # (решение владельца 14.10.2026, docs/decisions.md). Ozon — «Выплата на р/с»,
-    # реклама в ней уже вычтена. Яндекс — пока не выводим (None).
+    # реклама в ней уже вычтена. Яндекс (с 03.11.2026) — как Ozon: «Выплата на р/с», реклама в удержаниях;
+    # выплата строки общих удержаний — из сверки с ИТОГО (loader_core.check_ya_report).
     if mp == "Wildberries":
         payout = _f(agg.get("wb_payout_with_ads")) if wb_ads else _f(agg.get("payout"))
-    elif mp == "Ozon":
-        payout = _f(agg.get("payout"))
     else:
-        payout = None
+        payout = _f(agg.get("payout"))
 
     # При нулевой выручке все доли/удельные = None (как в прод-API).
     promo_pct = _div(promo, rev)
@@ -312,6 +311,9 @@ def _compute_cell(agg, mp="Ozon"):
         "p_ads_paid_orders_pct": _div(ads_paid, orders_rub),
         "noart_pay_pct":        (_div(_f(noart_pay), rev) if noart_pay is not None else None),
         "noart_pay_rub":        (_f(noart_pay) if noart_pay is not None else None),
+        # состав удержаний без разбивки (раздел «P&L»): комиссия и логистика строки общих удержаний; прочее — остаток
+        "noart_comm_pct":       (_div(_f(agg.get("noart_comm")), rev) if noart_pay is not None else None),
+        "noart_logi_pct":       (_div(_f(agg.get("noart_logi")), rev) if noart_pay is not None else None),
     })
 
     cell.update({
@@ -382,6 +384,8 @@ def _empty_agg():
     a["noart_pay"] = None
     a["noart_pay_plain"] = None
     a["noart_profit"] = None
+    a["noart_comm"] = None
+    a["noart_logi"] = None
     a["orders_rub_sum"] = None
     return a
 
@@ -659,7 +663,8 @@ def build_tree(mp, monthly=False, mgr_sel=None):
     noart_rows = db.query_all(
         f"""
         SELECT year, {pc} AS week, SUM(holds_total) AS holds,
-               SUM(payout) AS pay, SUM(wb_payout_with_ads) AS wpay, SUM(profit) AS prof
+               SUM(payout) AS pay, SUM(wb_payout_with_ads) AS wpay, SUM(profit) AS prof,
+               SUM(commission) AS comm, SUM(logistics_total) AS logi
         FROM {tbl}
         WHERE marketplace = %s AND row_type = 'Общие удержания'
         GROUP BY year, {pc}
@@ -940,7 +945,11 @@ def build_tree(mp, monthly=False, mgr_sel=None):
         sh = noart_share[wk]
         if nr.get("holds") is not None:
             root["_agg"][wk]["noart_exp"] = _f(nr["holds"]) * sh
-        # К оплате на р/с «Итогов» = Σ товаров + выплата строки общих удержаний.
+        # К оплате на р/с «Итогов» = Σ товаров + выплата строки общих удержаний. У Яндекса до перезагрузки периода
+        # новым загрузчиком (03.11.2026) выплаты в строке нет — она равна −удержаниям (у строки нет продаж; так
+        # считает ИТОГО MPPROFIT, сверено на 09.2025 и 09.2026).
+        if mp == "Yandex" and nr.get("pay") is None and nr.get("holds") is not None:
+            nr = dict(nr, pay=-_f(nr["holds"]))
         root["_agg"][wk]["payout"] += _f(nr.get("pay")) * sh
         root["_agg"][wk]["wb_payout_with_ads"] += _f(nr.get("wpay")) * sh
         # тестовые вкладки: удержания без разбивки = −выплата общей строки (WB — «с рекл.»:
@@ -948,6 +957,8 @@ def build_tree(mp, monthly=False, mgr_sel=None):
         root["_agg"][wk]["noart_pay"] = -_f(nr.get("wpay") if mp == "Wildberries" else nr.get("pay")) * sh
         root["_agg"][wk]["noart_pay_plain"] = -_f(nr.get("pay")) * sh   # WB без рекламы по товарам
         root["_agg"][wk]["noart_profit"] = _f(nr.get("prof")) * sh
+        root["_agg"][wk]["noart_comm"] = _f(nr.get("comm")) * sh
+        root["_agg"][wk]["noart_logi"] = _f(nr.get("logi")) * sh
 
     # Для Wildberries прибыль узла берётся из готовой колонки wb_profit_with_ads
     # (см. _compute_cell). Строка «Общие удержания» имеет СВОЁ значение
