@@ -7216,11 +7216,14 @@ const Views = (() => {
             <div class="upload-zone" id="uz-wbday">
               <div style="font-size:28px;">⬆️</div>
               <div>Перетащите Excel сюда или <a href="#" id="pick-wbday">выберите файл</a></div>
-              <div class="muted" style="font-size:12px;margin-top:6px;">Отчёт «Воронка продаж» WB, лист «TDSheet», .xlsx · дневные данные для раздела «РНП заказы»</div>
+              <div class="muted" style="font-size:12px;margin-top:6px;">Таблица «Воронка ВБ - для дашборда», лист «Воронка», .xlsx · дневные данные для раздела «РНП заказы»</div>
               <input type="file" id="file-wbday" accept=".xlsx,.xls" class="hidden">
             </div>
-            <div class="muted fact-date-hint">Где взять: 1С → отчёт «Статистика рекламных кампаний Wildberries» → период (со вчерашнего дня и два предыдущих) → организация «ТД АВТОПРОФИ» → кнопка «Статистика по карточкам товаров». Откроются два отчёта — «Рейтинг товаров» и «Воронка». Сюда загружаем «Воронку».</div>
             <div class="muted fact-date-hint">Даты берутся из файла и перезаписываются целиком (WB иногда обновляет прошлые периоды). Новые артикулы добавляются в справочник как нераспределённые.</div>
+            <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
+              Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1KE_jFPdBLb4pSpPdLKgzTZwQ1p6gut9D9wtSBXyw_mc/edit?gid=1288509287#gid=1288509287" target="_blank" rel="noopener noreferrer"
+                title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">Воронка ВБ - для дашборда</a>
+            </div>
           </div>
           <div class="card">
             <h3>Wildberries — Рейтинг и отзывы</h3>

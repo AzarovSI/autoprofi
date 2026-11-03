@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Загрузчик отчёта «Воронка» Wildberries (лист «TDSheet») в wb_daily_sales.
+"""Загрузчик отчёта «Воронка» Wildberries в wb_daily_sales.
+
+Источник с 03.11.2026 — Google-таблица «Воронка ВБ - для дашборда», скачанная
+в .xlsx: лист «Воронка» (рядом пустой «Лист1» и служебный «_История воронки»).
+Прежний формат — выгрузка 1С, лист «TDSheet» (пустой столбец B) — тоже читается.
 
 Формат: дневные данные (одна строка = день × артикул), 16 колонок, заголовки
-в строке 1, данные со 2-й строки. Столбец B в шапке пустой — читаем ПО ИМЕНИ
-заголовка, а не по позиции.
+в строке 1, данные со 2-й строки. Колонки читаем ПО ИМЕНИ заголовка, а не по
+позиции (у 1С в шапке пустой столбец B, у Google-таблицы его нет).
 
 Перезагрузка за уже загруженные даты = перезапись (WB иногда обновляет данные
 в прошлых периодах):
@@ -35,7 +39,8 @@ except ImportError:  # запуск напрямую
     from util import canon_article
 
 MP_NAME = "Wildberries"
-SHEET_NAME = "TDSheet"
+# Листы с данными по приоритету: Google-таблица, затем выгрузка 1С.
+SHEET_NAMES = ("Воронка", "TDSheet")
 
 # Ключевые заголовки файла (проверка формата ПО ИМЕНИ).
 WB_VORONKA_REQUIRED = [
@@ -156,9 +161,9 @@ def _build_colidx(header_row):
 
 
 def _read_sheet(path):
-    """Читаем первый (или TDSheet) лист через calamine → список строк (list)."""
+    """Читаем лист «Воронка» / «TDSheet» (иначе первый) через calamine → список строк."""
     wb = CalamineWorkbook.from_path(path)
-    name = SHEET_NAME if SHEET_NAME in wb.sheet_names else wb.sheet_names[0]
+    name = next((n for n in SHEET_NAMES if n in wb.sheet_names), wb.sheet_names[0])
     return wb.get_sheet_by_name(name).to_python(), name
 
 

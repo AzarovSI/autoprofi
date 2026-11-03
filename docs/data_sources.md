@@ -99,7 +99,7 @@
 | R2 | Аналитика продвижения | Ozon | Продвижение → Аналитика продвижения → Скачать отчёт → период **один день** | Лист строго «Statistics»; дата в A1 «Период: ДД.ММ.ГГГГ - ДД.ММ.ГГГГ», шапка в строке 2 | admin | `ozon_ads_loader.py:load_ozon_ads` → `ozon_ads` | `ozon_daily_sales` | Обновляет `ads_expense_rub`, `ctr_pct` по SKU; строка-заглушка, если продаж не было |
 | R3 | Список товаров (рейтинг, отзывы) | Ozon | Товары → Список товаров → Скачать шаблон (XLSX) | XLSX (первый лист) или старый CSV; шапка ищется по «Артикул»; дата в форме | admin | `ozon_reviews_loader.py:load_ozon_reviews` → `ozon_reviews` | `ozon_daily_sales` (`rating`, `delivery_time_hours` = число отзывов) | UPSERT (дата, артикул), только товары из `catalog_items` |
 | R4 | Цены конкурентов PriceVA | Ozon | PriceVA, полный отчёт; путь НЕ ЗНАЮ | `priceva_report_full_*.xlsx`, лист «Отчёт» или первый; дата в форме | admin | `ozon_priceva_loader.py:load_ozon_priceva` → `ozon_priceva` | `ozon_daily_sales` (`comp_price_min/avg`) | UPSERT (дата, артикул), только товары из `catalog_items` |
-| R5 | Воронка | WB / 1С | 1С → «Статистика рекламных кампаний Wildberries» → период → организация «ТД АВТОПРОФИ» → «Статистика по карточкам товаров» → «Воронка» | «TDSheet» или первый; дата в колонке «Дата» | admin | `wb_daily_loader.py:load_wb_daily` → `wb_daily` | `wb_daily_sales`, `catalog_items`, `catalog_marketplace` | Заменяет min..max дат + `PRESERVE_COLS` |
+| R5 | Воронка | WB | С 03.11.2026 — Google Sheets владельца [Воронка ВБ - для дашборда](https://docs.google.com/spreadsheets/d/1KE_jFPdBLb4pSpPdLKgzTZwQ1p6gut9D9wtSBXyw_mc/edit?gid=1288509287) → скачать Excel (ссылка — в карточке загрузки). До 03.11 — 1С → «Статистика рекламных кампаний Wildberries» → «Статистика по карточкам товаров» → «Воронка» | «Воронка», иначе «TDSheet» (1С), иначе первый; дата в колонке «Дата» | admin | `wb_daily_loader.py:load_wb_daily` → `wb_daily` | `wb_daily_sales`, `catalog_items`, `catalog_marketplace` | Заменяет min..max дат + `PRESERVE_COLS` |
 | R6 | Рейтинг и отзывы (СПП) | WB | Раньше: тот же путь 1С, отчёт «Рейтинг товаров». 07.10 владелец сообщил о смене источника при прежней форме; с 22.10.2026 — Google Sheets владельца [Рейтинг и отзывы WB](https://docs.google.com/spreadsheets/d/1ue4fTXgJr3gFyc0RcpSask1AJ_NJta6c_YUXo6_989w/edit?gid=781930537) → скачать Excel (ссылка — в карточке загрузки; старая подсказка «Где взять: 1С …» убрана 22.10) | «TDSheet» или первый (текущий файл — лист «Рейтинг и отзывы»); дата в колонке «Дата» | admin | `wb_reviews_loader.py:load_wb_reviews` → `wb_reviews` | `wb_daily_sales` (`reviews_qty`, `spp_pct`) | Обновляет; заглушки только для отзывов |
 | R7 | Статистика рекламных кампаний | WB / 1С | 1С → тот же отчёт → период → организация → «Сформировать» → XLSX | «TDSheet» или первый; дата в «Дата статистики», можно несколько дат | admin | `wb_ads_loader.py:load_wb_ads` → `wb_ads` | `wb_daily_sales` (`ads_*`, `ctr_pct`) | UPSERT (дата, артикул) агрегатов по кампаниям |
 | R8 | Цены конкурентов PriceVA | WB | PriceVA; путь НЕ ЗНАЮ | Формат как R4; дата в форме | admin | `wb_priceva_loader.py:load_wb_priceva` → `wb_priceva` | `wb_daily_sales` (`comp_price_min/avg`) | UPSERT, только товары из `catalog_items` |
@@ -133,6 +133,12 @@
   остаются NULL. `PRESERVE_COLS`: `reviews_qty`, `ads_*`, `ctr_pct`, `stock_ap_qty`, `comp_price_*`,
   `price_index_pi`, `spp_pct`. После загрузки выполняется
   `recalc_spp_and_buyer_from("Wildberries", min_date)`.
+  Google-таблица (с 03.11.2026): листы «Лист1» (пустой), «Воронка» (данные), «_История воронки»
+  (дневные снимки рейтинга, позиции и остатка — из них таблица собирает эти колонки за прошлые дни).
+  Те же 16 колонок, что у 1С, без пустого столбца B; нет активности — 0, а не пусто. Сверка
+  31.10–02.11 с выгрузкой 1С: переходы, корзины, рейтинг совпали; заказы +0,1 %, выкупы больше
+  (файл свежее); **остаток 1С был одним снимком на все дни**, в таблице он дневной и следует за
+  продажами (PR-800 Case: 1С 391 все дни, таблица 329 → 169 → 99).
 - **R6 WB СПП.** Масштаб берётся из формата ячейки: Excel-процент — доля, число или текст
   с «%» — процентные пункты (исправлено 07.10.2026). Значение вне 0–100 % — ошибка. Пустая СПП
   не затирает сохранённую. СПП пишется только в существующие строки, заглушки создаются только

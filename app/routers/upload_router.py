@@ -655,7 +655,7 @@ def upload_ozon_ads(file: UploadFile = File(...),
 @router.post("/wb_daily")
 def upload_wb_daily(file: UploadFile = File(...),
                     user=Depends(auth.require("rnp.upload.wb_daily"))):
-    """Приём отчёта «Воронка» Wildberries (лист «TDSheet», 16 колонок)
+    """Приём отчёта «Воронка» Wildberries (лист «Воронка» или «TDSheet», 16 колонок)
     и запись в wb_daily_sales (перезапись диапазона дат из файла).
 
     Заказы/отмены/выкуп/переходы/корзина/конверсии/рейтинг/остаток WB.
