@@ -174,7 +174,7 @@ class SummaryV2Test(unittest.TestCase):
             self.assertAlmostEqual(res["mp"][mp]["2026-10"]["holds"], 0.4)   # без строки общих удержаний
             self.assertEqual(res["mp"][mp]["2026-09"]["payout"], 400.0)
             self.assertEqual(res["partial"][mp], {"2026-10": "2026-10-25"})
-            # «Юнит-экономика» ABC: части удержаний по отдельности (доли от продаж); нет показателя — None, а не 0
+            # «P&L» ABC: части удержаний по отдельности (доли от продаж); нет показателя — None, а не 0
             m9 = res["mp"][mp]["2026-09"]
             self.assertEqual((m9["mp_holds"], m9["noart"], m9["commission"], m9["logistics"], m9["fines"]),
                              (0.5, 0.02, 0.3, 0.1, 0.001))
@@ -198,8 +198,8 @@ class SummaryV2Test(unittest.TestCase):
             with self.assertRaises(abc.HTTPException) as e:
                 abc.summary(user=dict(wb_only, permissions=["abc.open"]))
             self.assertEqual(e.exception.status_code, 403)
-            # право вкладки «Юнит-экономика» (№127) открывает тот же ответ
-            self.assertEqual(list(abc.summary(user=dict(wb_only, permissions=["abc.open", "abc.tab.unit"]))["mp"]), ["vb"])
+            # право вкладки «P&L» (№127) открывает тот же ответ
+            self.assertEqual(list(abc.summary(user=dict(wb_only, permissions=["abc.open", "abc.tab.pnl"]))["mp"]), ["vb"])
 
 if __name__ == "__main__":
     unittest.main()

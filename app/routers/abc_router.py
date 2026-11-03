@@ -292,7 +292,7 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
 
 
-# «Сводная v2» и «Юнит-экономика» ABC: помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
+# «Сводная v2» и «P&L» ABC: помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
 # юнит-экономики (rnp_router.build_tree, period=month), без товаров и групп. Доли — от выручки месяца.
 # holds — удержания площадки по товарам + без разбивки (строка общих удержаний), как каскад до «К оплате»;
 # mp_holds и noart — те же части по отдельности, состав mp_holds — доли его строк (как в юнит-экономике).
@@ -306,11 +306,11 @@ def _pct(c, key):
 
 @router.get("/summary")
 def summary(user=Depends(auth.require("abc.open"))):
-    """Помесячные итоги ОЗОН и WB для «Сводной v2» и «Юнит-экономики» ABC:
+    """Помесячные итоги ОЗОН и WB для «Сводной v2» и «P&L» ABC:
     {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
 
     Только площадки роли (как вкладки юнит-экономики): площадки нет у роли — её нет в ответе."""
-    auth.check(user, "abc.tab.summary_v2", "abc.tab.unit")
+    auth.check(user, "abc.tab.summary_v2", "abc.tab.pnl")
     allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
     out, partial = {}, {}
     for key, mp in _SUMMARY_MP.items():

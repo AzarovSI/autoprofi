@@ -185,18 +185,18 @@ window.ABCDash = (function () {
     renderActions();
     fillRuleTexts();
     if (STATE.activeTab === 'summary2') renderSummary2();
-    if (STATE.activeTab === 'unit' && !(document.getElementById('tab-unit') || {}).firstChild) renderUnit();
+    if (STATE.activeTab === 'pnl' && !(document.getElementById('tab-pnl') || {}).firstChild) renderPnl();
   }
 
-  /* ============ «Юнит-экономика» (тест, право №127) — static/js/abc_unit.js ============ */
-  function renderUnit() {
-    const panel = document.getElementById('tab-unit');
-    if (!panel || !window.ABCUnit || !App.can(TAB_RIGHTS.unit)) return;
+  /* ============ «P&L» (тест, право №127) — static/js/abc_pnl.js ============ */
+  function renderPnl() {
+    const panel = document.getElementById('tab-pnl');
+    if (!panel || !window.ABCPnl || !App.can(TAB_RIGHTS.pnl)) return;
     if (!panel.firstChild) panel.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
     (window.API || API).abcSummary().then((summary) => {
-      if (panel.isConnected) window.ABCUnit.render(panel, summary);
+      if (panel.isConnected) window.ABCPnl.render(panel, summary);
     }).catch((e) => {
-      if (panel.isConnected) panel.innerHTML = '<div class="empty">Не удалось загрузить «Юнит-экономику»: ' + escapeHtml((e && e.message) || e) + '</div>';
+      if (panel.isConnected) panel.innerHTML = '<div class="empty">Не удалось загрузить P&L: ' + escapeHtml((e && e.message) || e) + '</div>';
     });
   }
 
@@ -2408,7 +2408,7 @@ window.ABCDash = (function () {
   // Вкладка → функция роли (app/permissions.py).
   const TAB_RIGHTS = {
     overview: 'abc.tab.overview', ozon: 'abc.tab.ozon', vb: 'abc.tab.wb', yandex: 'abc.tab.ya',
-    cross: 'abc.tab.compare', actions: 'abc.tab.actions', summary2: 'abc.tab.summary_v2', unit: 'abc.tab.unit',
+    cross: 'abc.tab.compare', actions: 'abc.tab.actions', summary2: 'abc.tab.summary_v2', pnl: 'abc.tab.pnl',
   };
   function bindSubNav() {
     const root = STATE.rootEl || document;
@@ -2424,7 +2424,7 @@ window.ABCDash = (function () {
       btn.addEventListener('click', () => {
         activate(btn.dataset.tab);
         if (btn.dataset.tab === 'summary2') renderSummary2();
-        if (btn.dataset.tab === 'unit') renderUnit();
+        if (btn.dataset.tab === 'pnl') renderPnl();
       });
     });
     // Вкладки — по правам роли; недоступная выбранная — первая доступная.
@@ -2451,7 +2451,7 @@ window.ABCDash = (function () {
     <nav class="abc-subnav tabs">
       <button class="tab active" data-tab="overview">Обзор</button>
       <button class="tab" data-tab="summary2">Сводная v2</button>
-      <button class="tab" data-tab="unit">Юнит-экономика</button>
+      <button class="tab" data-tab="pnl">P&amp;L</button>
       <button class="tab" data-tab="ozon">ОЗОН</button>
       <button class="tab" data-tab="vb">Wildberries</button>
       <button class="tab" data-tab="yandex">Яндекс</button>
@@ -2680,7 +2680,7 @@ window.ABCDash = (function () {
 
   <section id="tab-summary2" class="tab-panel"></section>
 
-  <section id="tab-unit" class="tab-panel"></section>
+  <section id="tab-pnl" class="tab-panel"></section>
 
   <section id="tab-ozon" class="tab-panel">
     <div class="page-intro">
