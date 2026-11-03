@@ -8,7 +8,9 @@
    (.rnp-card + .rnp-toolbar + .subtabs), шапка таблицы липнет под тулбаром
    (.rnp-head-sticky, --rnp-filters-h), колонка названий закреплена слева,
    строки окрашены оттенками площадки (--lvl-bg-*). У месяца две колонки:
-   сумма полностью в рублях и её доля от продаж.
+   сумма полностью в рублях и её доля от продаж. Под таблицей — дашборд
+   «Структура и динамика года» (плитки, каскад, рост к прошлому году,
+   статьи по месяцам в рублях и долях, изменение к прошлому месяцу).
    ================================================================ */
 window.PnlView = (function () {
   'use strict';
@@ -185,7 +187,158 @@ window.PnlView = (function () {
   }
   if (!window.__pnlResizeBound) { window.__pnlResizeBound = true; window.addEventListener('resize', () => { if (document.querySelector('.pnl-card')) syncToolbarH(); }); }
 
+
+  /* ============ Дашборд под таблицей: структура и динамика года (03.11.2026, макет v1 владельца) ============ */
+  // Рубли статей месяца/суммы: удержания площадки — с удержаниями без разбивки по товарам.
+  const DC = { rev: '#4A5561', holds: '#e0655a', ads: '#b98ae0', cogs: '#3a5fcf', payout: '#1E7D34', profit: '#2f9a5f' };
+  const DART = [['holds', 'Удержания площадки', 'neg'], ['ads', 'Продвижение', 'neg'], ['payout', 'К оплате на р/с', 'pos'],
+    ['cogs', 'Себестоимость', 'neg'], ['profit', 'Прибыль', 'pos']];
+  function rubs(c) {
+    if (!c) return null;
+    const r = c.rev;
+    const items = c.mp_holds == null ? null : c.mp_holds * r, noart = (c.noart || 0) * r;
+    return { rev: r, hold_items: items, hold_noart: noart, holds: items == null ? null : items + noart,
+      ads: c.ads == null ? null : c.ads * r, cogs: c.cogs == null ? null : c.cogs * r, payout: c.payout, profit: c.profit };
+  }
+  const growth = (a, b) => (a != null && b) ? (a / Math.abs(b) - 1) * 100 : null;
+  const fmtPct1 = (v) => (v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%');
+  const pp = (v) => Math.abs(v).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const CHARTS = [];
+  function destroyCharts() { CHARTS.splice(0).forEach((c) => { try { c.destroy(); } catch (_) {} }); }
+
+  function dashData() {
+    const y = S.year, ms = months(y).filter((m) => !isPartial(K(y, m)));
+    const comp = ms.filter((m) => comparable(y, m));
+    return {
+      y, ms, comp,
+      cur: ms.map((m) => rubs(cellOf(K(y, m)))),
+      tot: rubs(sum(ms.map((m) => cellOf(K(y, m))))),
+      totC: rubs(sum(comp.map((m) => cellOf(K(y, m))))),
+      totLy: rubs(sum(comp.map((m) => cellOf(K(y - 1, m))))),
+      // прошлый месяц января — декабрь прошлого года (если он полный)
+      prevJan: (ms[0] === 1 && !isPartial(K(y - 1, 12))) ? rubs(cellOf(K(y - 1, 12))) : null,
+    };
+  }
+
+  function dashHtml(t) {
+    const d = dashData();
+    if (!d.ms.length || !d.tot || !d.tot.rev) return '';
+    const shortM = (m) => ML[m - 1].slice(0, 3);
+    const rng = (l) => (l.length ? shortM(l[0]) + '–' + shortM(l[l.length - 1]) : '—');
+    const salesG = d.comp.length ? growth(d.totC.rev, d.totLy.rev) : null;
+    const tile = (f, l, pol, sub) => {
+      const v = d.tot[f], sh = f === 'rev' ? null : (v == null ? null : v / d.tot.rev * 100);
+      const g = d.comp.length ? growth(d.totC[f], d.totLy[f]) : null;
+      const good = (x) => (pol === 'neg' ? x <= 0 : x >= 0);
+      const arr = g == null ? '<span class="pnl-d-muted">—</span>' : `<span class="pnl-d-g ${good(g) ? 'good' : 'bad'}">${g > 0 ? '▲' : '▼'} ${pp(g)}%</span>`;
+      const vs = (f !== 'rev' && g != null && salesG != null) ? g - salesG : null;
+      const vsTxt = vs == null ? '' : `<div class="pnl-d-vs ${good(vs) ? 'good' : 'bad'}">${vs > 0 ? 'быстрее' : 'медленнее'} продаж на ${pp(vs)} п.п.</div>`;
+      return `<div class="pnl-d-tile"><div class="pnl-d-tl"><i style="background:${DC[f]}"></i>${l}</div>
+        <div class="pnl-d-tv">${fmt(v, 'rub')} <small>₽</small></div>
+        <div class="pnl-d-ts">${sh == null ? 'база — 100%' : fmt(sh / 100, 'pct') + ' продаж'} · к ${d.y - 1} ${arr}</div>${vsTxt}${sub || ''}</div>`;
+    };
+    const holdSub = `<div class="pnl-d-sub"><span>по товарам</span><b>${fmt(d.tot.hold_items, 'rub')}</b><span>без разбивки</span><b>${fmt(d.tot.hold_noart, 'rub')}</b></div>`;
+    const tiles = tile('rev', 'Продажи', 'pos') + tile('holds', 'Удержания площадки', 'neg', holdSub) + tile('ads', 'Продвижение', 'neg')
+      + tile('payout', 'К оплате на р/с', 'pos') + tile('cogs', 'Себестоимость', 'neg') + tile('profit', 'Прибыль', 'pos');
+    // темп к прошлому месяцу
+    let tb = '';
+    [['rev', 'Продажи', 'base']].concat(DART).forEach(([f, l, pol]) => {
+      tb += `<tr><td class="l"><i style="background:${DC[f]}"></i>${l}</td>`;
+      d.ms.forEach((m, i) => {
+        const a = d.cur[i], b = i ? (d.ms[i - 1] === m - 1 ? d.cur[i - 1] : null) : d.prevJan;
+        const g = b ? growth(a[f], b[f]) : null, sg = b ? growth(a.rev, b.rev) : null;
+        if (g == null) { tb += '<td class="na">—</td>'; return; }
+        let cls = '';
+        if (pol !== 'base' && sg != null && Math.abs(g - sg) >= 3) cls = (pol === 'neg' ? g < sg : g > sg) ? 'good' : 'bad';
+        tb += `<td class="${cls}">${fmtPct1(g)}</td>`;
+      });
+      tb += '</tr>';
+    });
+    const cmpNote = !d.comp.length ? `сравнения с ${d.y - 1} нет — прошлогодних данных за эти месяцы нет`
+      : `сравнение с ${d.y - 1} — по сопоставимым месяцам (${rng(d.comp)})`;
+    const lg = [['holds', 'Удержания площадки'], ['ads', 'Продвижение'], ['cogs', 'Себестоимость'], ['profit', 'Прибыль']]
+      .map(([f, l]) => `<span><i style="background:${DC[f]}"></i>${l}</span>`).join('');
+    return `<div class="card rnp-card mp-${t.cls} pnl-d-card">
+      <div class="pnl-d-h"><span class="rnp-card-title">Структура и динамика ${d.y}</span><span class="pnl-d-muted">закрытые месяцы ${rng(d.ms)} · ${cmpNote}</span></div>
+      <div class="pnl-d-tiles">${tiles}</div>
+      <div class="pnl-d-g2">
+        <div><div class="pnl-d-ct">Из чего складывается год<span>от продаж к прибыли, ₽ и % продаж</span></div><div class="pnl-d-ch"><canvas data-ch="wf"></canvas></div></div>
+        <div><div class="pnl-d-ct">Растут ли расходы вместе с продажами<span>рост к ${d.y - 1}; пунктир — рост продаж</span></div>
+          ${d.comp.length ? '<div class="pnl-d-ch"><canvas data-ch="yoy"></canvas></div>' : `<div class="pnl-d-empty">Нет данных за те же месяцы ${d.y - 1} года.</div>`}</div>
+      </div>
+      <div class="pnl-d-lg">${lg}</div>
+      <div class="pnl-d-g2">
+        <div><div class="pnl-d-ct">Продажи по месяцам<span>столбец — продажи месяца, разложенные на статьи, ₽</span></div><div class="pnl-d-ch"><canvas data-ch="abs"></canvas></div></div>
+        <div><div class="pnl-d-ct">Доли от продаж по месяцам<span>сколько процентов продаж уходит на каждую статью</span></div><div class="pnl-d-ch"><canvas data-ch="shr"></canvas></div></div>
+      </div>
+      <div class="pnl-d-ct">Изменение к прошлому месяцу<span>на сколько процентов статья выросла (+) или упала (−) против прошлого месяца</span></div>
+      <div class="pnl-d-key"><span><i class="good"></i>лучше продаж — расход вырос меньше продаж или упал сильнее; прибыль и «К оплате» выросли больше продаж</span>
+        <span><i class="bad"></i>хуже продаж — расход вырос больше продаж; прибыль и «К оплате» — меньше</span>
+        <span><i></i>без цвета — разница с продажами меньше 3 п.п.</span></div>
+      <table class="pnl-d-t"><thead><tr><th></th>${d.ms.map((m) => `<th>${MF[m - 1]}</th>`).join('')}</tr></thead><tbody>${tb}</tbody></table>
+      <p class="pnl-d-note">Пример: продажи +10%, продвижение +20% — красный (реклама растёт вдвое быстрее продаж); продажи +10%, удержания +2% — зелёный.
+        Удержания площадки — вместе с удержаниями без разбивки по товарам. Неполный месяц в дашборд не входит.</p>
+    </div>`;
+  }
+
+  function drawDash(root) {
+    if (!window.Chart) return;
+    const d = dashData();
+    if (!d.ms.length || !d.tot || !d.tot.rev) return;
+    const cv = (k) => root.querySelector(`.pnl-d-card canvas[data-ch="${k}"]`);
+    const tick = { font: { size: 10.5 }, color: '#5a6470' };
+    const mono = 'ui-monospace,SFMono-Regular,Menlo,monospace', sans = '-apple-system,system-ui,sans-serif';
+    const t = d.tot;
+    // каскад
+    const steps = [['Продажи', 0, t.rev, DC.rev], ['− Удержания', t.rev - t.holds, t.rev, DC.holds],
+      ['− Продвижение', t.rev - t.holds - t.ads, t.rev - t.holds, DC.ads], ['= К оплате', 0, t.payout, DC.payout],
+      ['− Себестоимость', t.payout - t.cogs, t.payout, DC.cogs], ['= Прибыль', 0, t.profit, DC.profit]];
+    if (cv('wf')) CHARTS.push(new Chart(cv('wf'), { type: 'bar',
+      data: { labels: steps.map((s) => s[0]), datasets: [{ data: steps.map((s) => [Math.min(s[1], s[2]), Math.max(s[1], s[2])]), backgroundColor: steps.map((s) => s[3]), borderRadius: 3, barPercentage: 0.72 }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { right: 150 } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false, min: Math.min(0, t.profit) }, y: { grid: { display: false }, ticks: { ...tick, font: { size: 11.5, weight: '600' } }, border: { display: false } } } },
+      plugins: [{ id: 'wl', afterDatasetsDraw(ch) { const c = ch.ctx; c.save(); c.textBaseline = 'middle';
+        ch.getDatasetMeta(0).data.forEach((b, i) => { const v = steps[i][2] - steps[i][1], x = Math.max(b.x, b.base) + 6;
+          c.font = '700 11.5px ' + mono; c.fillStyle = '#16191D'; c.fillText(fmt(v, 'rub'), x, b.y - 6);
+          c.font = '500 10.5px ' + sans; c.fillStyle = '#6b7480'; c.fillText(fmt(v / t.rev, 'pct') + ' продаж', x, b.y + 7); }); c.restore(); } }] }));
+    // рост к прошлому году
+    if (cv('yoy')) {
+      const yy = [['rev', 'Продажи']].concat(DART);
+      const gv = yy.map(([f]) => growth(d.totC[f], d.totLy[f]));
+      CHARTS.push(new Chart(cv('yoy'), { type: 'bar',
+        data: { labels: yy.map((a) => a[1]), datasets: [{ data: gv, backgroundColor: yy.map(([f]) => DC[f]), borderRadius: 3, barPercentage: 0.66 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { right: 70, left: 4 } },
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false, beginAtZero: true }, y: { grid: { display: false }, ticks: { ...tick, font: { size: 11.5, weight: '600' } }, border: { display: false } } } },
+        plugins: [{ id: 'yl', afterDatasetsDraw(ch) { const c = ch.ctx; c.save();
+          if (gv[0] != null) { const x0 = ch.scales.x.getPixelForValue(gv[0]); c.strokeStyle = '#4A5561'; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(x0, ch.chartArea.top); c.lineTo(x0, ch.chartArea.bottom); c.stroke(); c.setLineDash([]); }
+          c.textBaseline = 'middle'; c.font = '700 11.5px ' + mono; c.fillStyle = '#16191D';
+          ch.getDatasetMeta(0).data.forEach((b, i) => { const v = gv[i]; if (v == null) return; const right = v >= 0;
+            c.textAlign = right ? 'left' : 'right'; c.fillText(fmtPct1(v), right ? Math.max(b.x, b.base) + 6 : Math.min(b.x, b.base) - 6, b.y); }); c.restore(); } }] }));
+    }
+    // продажи по месяцам (рубли) и доли
+    const parts = [['holds', 'Удержания площадки'], ['ads', 'Продвижение'], ['cogs', 'Себестоимость'], ['profit', 'Прибыль']];
+    const labels = d.ms.map((m) => ML[m - 1].slice(0, 3));
+    if (cv('abs')) CHARTS.push(new Chart(cv('abs'), { type: 'bar',
+      data: { labels, datasets: parts.map(([f, l]) => ({ label: l, data: d.cur.map((c) => c[f]), backgroundColor: DC[f], borderColor: '#fff', borderWidth: { top: 1 }, borderSkipped: false, stack: 's', barPercentage: 0.78 })) },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { top: 84 } },
+        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false, callbacks: { label: (it) => it.dataset.label + ': ' + fmt(it.raw, 'rub') + ' ₽' } } },
+        scales: { x: { stacked: true, grid: { display: false }, ticks: tick }, y: { stacked: true, display: false } } },
+      plugins: [{ id: 'tl', afterDatasetsDraw(ch) { const c = ch.ctx; c.save(); c.font = '700 10.5px ' + mono; c.fillStyle = '#16191D'; c.textBaseline = 'middle';
+        ch.data.labels.forEach((_, i) => { let top = Infinity, x = 0; ch.data.datasets.forEach((ds, di) => { const el = ch.getDatasetMeta(di).data[i]; if (el && ds.data[i] > 0) { top = Math.min(top, el.y); x = el.x; } });
+          if (top === Infinity) return; c.save(); c.translate(x, top - 6); c.rotate(-Math.PI / 2); c.fillText(fmt(d.cur[i].rev, 'rub'), 0, 0); c.restore(); }); c.restore(); } }] }));
+    if (cv('shr')) CHARTS.push(new Chart(cv('shr'), { type: 'bar',
+      data: { labels, datasets: parts.map(([f, l]) => ({ label: l, data: d.cur.map((c) => (c[f] == null ? null : c[f] / c.rev * 100)), backgroundColor: DC[f], borderColor: '#fff', borderWidth: { top: 1.5 }, borderSkipped: false, stack: 's', barPercentage: 0.78 })) },
+      options: { responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false, callbacks: { label: (it) => it.dataset.label + ': ' + fmt(it.raw / 100, 'pct') } } },
+        scales: { x: { stacked: true, grid: { display: false }, ticks: tick }, y: { stacked: true, display: false, min: 0, max: 100 } } },
+      plugins: [{ id: 'sl', afterDatasetsDraw(ch) { const c = ch.ctx; c.save(); c.font = '600 10px ' + sans; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+        ch.data.datasets.forEach((ds, di) => ch.getDatasetMeta(di).data.forEach((b, i) => { const v = ds.data[i]; if (v != null && v >= 4.5) c.fillText(fmt(v / 100, 'pct').replace('%', ''), b.x, (b.y + b.base) / 2); })); c.restore(); } }] }));
+  }
+
   function draw(root) {
+    destroyCharts();
     const t = tabDef();
     const prev = root.querySelector('.pnl-bscroll'); if (prev) S.scroll = prev.scrollLeft;
     const ys = years();
@@ -206,8 +359,9 @@ window.PnlView = (function () {
           <div class="pnl-hscroll">${tb.head}</div>
         </div>
         <div class="pnl-bscroll">${tb.body}</div>
-      </div>`;
+      </div>${dashHtml(t)}`;
     subtabs(root);
+    drawDash(root);
     syncToolbarH();
     // Шапка прокручивается по горизонтали вместе с телом таблицы.
     const hs = root.querySelector('.pnl-hscroll'), bs = root.querySelector('.pnl-bscroll');
@@ -267,6 +421,7 @@ window.PnlView = (function () {
   }
   // Карточка без таблицы (нет данных / ошибка) — с подвкладками, чтобы можно было уйти на другую.
   function stub(root, msg) {
+    destroyCharts();
     root.innerHTML = `<div class="card rnp-card mp-${tabDef().cls} pnl-card"><div class="rnp-toolbar"><div class="subtabs" id="pnl-subtabs"></div></div><div class="empty">${U.esc(msg)}</div></div>`;
     subtabs(root);
   }

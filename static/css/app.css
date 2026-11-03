@@ -2472,3 +2472,38 @@ table.wh-hm thead tr.wh-hm-total-head th.wh-hm-name { background:#eceaef !import
 .pnl-t tr.pnl-r:hover td:not(.pnl-name) { box-shadow:inset 0 1px 0 rgba(235,20,20,.25), inset 0 -1px 0 rgba(235,20,20,.25); }
 .pnl-t tr.pnl-r:hover td.pnl-name { box-shadow:inset -1px 0 0 var(--border), 6px 0 8px -6px rgba(15,23,42,.18),
   inset 0 1px 0 rgba(235,20,20,.25), inset 0 -1px 0 rgba(235,20,20,.25); }
+/* «P&L»: дашборд «Структура и динамика года» под таблицей (static/js/pnl.js: dashHtml / drawDash) */
+.pnl-d-card { margin-top:18px; }
+.pnl-d-h { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+.pnl-d-h .rnp-card-title { margin:0; }
+.pnl-d-muted { font-size:12px; color:var(--text-mute); }
+.pnl-d-tiles { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; margin-bottom:18px; }
+.pnl-d-tile { border:1px solid var(--border-soft); border-radius:10px; padding:10px 12px; background:var(--bg-elev); }
+.pnl-d-tl { font-size:12px; font-weight:600; color:var(--text-dim); display:flex; align-items:center; gap:6px; }
+.pnl-d-tl i { width:9px; height:9px; border-radius:2px; display:inline-block; flex:none; }
+.pnl-d-tv { font-family:var(--mono); font-size:16px; font-weight:700; margin:4px 0 2px; white-space:nowrap; }
+.pnl-d-tv small { font-size:11px; color:var(--text-mute); }
+.pnl-d-ts { font-size:11px; color:var(--text-mute); }
+.pnl-d-g { font-weight:600; } .pnl-d-g.good { color:var(--good); } .pnl-d-g.bad { color:#d23b3b; }
+.pnl-d-vs { font-size:11px; margin-top:2px; font-weight:600; } .pnl-d-vs.good { color:var(--good); } .pnl-d-vs.bad { color:#d23b3b; }
+.pnl-d-sub { display:grid; grid-template-columns:auto 1fr; gap:1px 8px; font-size:11px; color:var(--text-mute); margin-top:5px;
+  border-top:1px solid var(--border-soft); padding-top:4px; }
+.pnl-d-sub b { text-align:right; font-family:var(--mono); font-weight:600; color:var(--text-dim); }
+.pnl-d-g2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; margin-bottom:18px; }
+.pnl-d-ct { font-size:13px; font-weight:700; margin-bottom:2px; }
+.pnl-d-ct span { font-weight:400; font-size:11.5px; color:var(--text-mute); margin-left:6px; }
+.pnl-d-ch { position:relative; height:260px; }
+.pnl-d-empty { height:260px; display:flex; align-items:center; justify-content:center; color:var(--text-mute); font-size:12.5px; }
+.pnl-d-lg { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin:2px 0 6px; }
+.pnl-d-lg i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+.pnl-d-key { display:flex; gap:16px; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin:4px 0 6px; }
+.pnl-d-key i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-2px; background:var(--bg-elev); border:1px solid var(--border); }
+.pnl-d-key i.good { background:#e3f4ea; border-color:#bfe3cc; } .pnl-d-key i.bad { background:#fbe3e1; border-color:#f3c3bf; }
+.pnl-d-t { width:100%; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
+.pnl-d-t th { font-size:11px; color:var(--text-mute); font-weight:600; text-align:right; padding:5px 8px; background:var(--bg-elev2); border-bottom:1px solid var(--border-soft); }
+.pnl-d-t td { text-align:right; padding:5px 8px; border-top:1px solid var(--border-soft); font-family:var(--mono); }
+.pnl-d-t td.l { text-align:left; font-family:var(--sans); font-weight:600; white-space:nowrap; }
+.pnl-d-t td.l i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; }
+.pnl-d-t td.good { background:#e3f4ea; color:#1b7a45; } .pnl-d-t td.bad { background:#fbe3e1; color:#b3261e; } .pnl-d-t td.na { color:#c5ccd3; }
+.pnl-d-note { font-size:11.5px; color:var(--text-mute); margin:6px 0 0; line-height:1.5; }
+@media (max-width:1280px) { .pnl-d-tiles { grid-template-columns:repeat(3,minmax(0,1fr)); } .pnl-d-g2 { grid-template-columns:1fr; } }
