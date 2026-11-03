@@ -292,9 +292,10 @@ def abc_data(user=Depends(auth.require("abc.open"))):
             "rules": abc_rules.load(), "rules_defaults": abc_rules.DEFAULTS}
 
 
-# «Сводная v2»: помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
+# «Сводная v2» и «Юнит-экономика» ABC: помесячные «Итоги» юнит-экономики ОЗОН и WB — тем же расчётом, что помесячный вид
 # юнит-экономики (rnp_router.build_tree, period=month), без товаров и групп. Доли — от выручки месяца.
-# Удержания площадки = по товарам + без разбивки (строка общих удержаний), как каскад до «К оплате».
+# holds — удержания площадки по товарам + без разбивки (строка общих удержаний), как каскад до «К оплате»;
+# mp_holds и noart — те же части по отдельности, состав mp_holds — доли его строк (как в юнит-экономике).
 _SUMMARY_MP = {"ozon": "Ozon", "vb": "Wildberries"}
 
 
@@ -305,10 +306,11 @@ def _pct(c, key):
 
 @router.get("/summary")
 def summary(user=Depends(auth.require("abc.open"))):
-    """Помесячные итоги ОЗОН и WB для «Сводной v2»: {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
+    """Помесячные итоги ОЗОН и WB для «Сводной v2» и «Юнит-экономики» ABC:
+    {mp: {"ГГГГ-ММ": {...}}, partial: {mp: {"ГГГГ-ММ": дата}}}.
 
     Только площадки роли (как вкладки юнит-экономики): площадки нет у роли — её нет в ответе."""
-    auth.check(user, "abc.tab.summary_v2")
+    auth.check(user, "abc.tab.summary_v2", "abc.tab.unit")
     allowed = permissions.MARKETPLACES if user.get("is_admin") else (user.get("marketplaces") or ())
     out, partial = {}, {}
     for key, mp in _SUMMARY_MP.items():
@@ -333,6 +335,14 @@ def summary(user=Depends(auth.require("abc.open"))):
                 "ads": _pct(c, "p_ads_paid_pct"),
                 "cogs": _pct(c, "p_cogs_pct"),
                 "buyout": _pct(c, "buyout_pct"),
+                "mp_holds": holds,
+                "noart": _pct(c, "noart_pay_pct"),
+                "commission": _pct(c, "p_commission_pct"),
+                "logistics": _pct(c, "p_logistics_pct"),
+                "acquiring": _pct(c, "p_acquiring_pct"),
+                "storage": _pct(c, "p_storage_pct"),
+                "acceptance": _pct(c, "p_acceptance_pct"),
+                "fines": _pct(c, "p_fines_pct"),
             }
             if w.get("partial_through"):
                 partial[key][ym] = w["partial_through"]

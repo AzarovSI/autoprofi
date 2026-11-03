@@ -160,6 +160,7 @@ class SummaryV2Test(unittest.TestCase):
                     "tree": {"cells": {
                         "2026-9": {"revenue": 1000.0, "profit": 150.0, "p_payout": 400.0, "orders_rub": 1200.0,
                                    "sales_qty": 5, "p_mp_holds_pct": 0.5, "noart_pay_pct": 0.02,
+                                   "p_commission_pct": 0.3, "p_logistics_pct": 0.1, "p_fines_pct": 0.001,
                                    "p_ads_paid_pct": 0.07, "p_cogs_pct": 0.25, "buyout_pct": 0.9},
                         "2026-10": {"revenue": 500.0, "profit": 50.0, "p_payout": 200.0,
                                     "p_mp_holds_pct": 0.4, "noart_pay_pct": None},
@@ -173,6 +174,12 @@ class SummaryV2Test(unittest.TestCase):
             self.assertAlmostEqual(res["mp"][mp]["2026-10"]["holds"], 0.4)   # без строки общих удержаний
             self.assertEqual(res["mp"][mp]["2026-09"]["payout"], 400.0)
             self.assertEqual(res["partial"][mp], {"2026-10": "2026-10-25"})
+            # «Юнит-экономика» ABC: части удержаний по отдельности (доли от продаж); нет показателя — None, а не 0
+            m9 = res["mp"][mp]["2026-09"]
+            self.assertEqual((m9["mp_holds"], m9["noart"], m9["commission"], m9["logistics"], m9["fines"]),
+                             (0.5, 0.02, 0.3, 0.1, 0.001))
+            self.assertIsNone(m9["acceptance"])
+            self.assertIsNone(res["mp"][mp]["2026-10"]["noart"])
 
     def test_only_marketplaces_of_role(self):
         """Роль только с WB получает только WB; без права №126 — 403."""
@@ -191,6 +198,8 @@ class SummaryV2Test(unittest.TestCase):
             with self.assertRaises(abc.HTTPException) as e:
                 abc.summary(user=dict(wb_only, permissions=["abc.open"]))
             self.assertEqual(e.exception.status_code, 403)
+            # право вкладки «Юнит-экономика» (№127) открывает тот же ответ
+            self.assertEqual(list(abc.summary(user=dict(wb_only, permissions=["abc.open", "abc.tab.unit"]))["mp"]), ["vb"])
 
 if __name__ == "__main__":
     unittest.main()
