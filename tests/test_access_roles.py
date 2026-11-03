@@ -131,6 +131,32 @@ class MigrationTest(unittest.TestCase):
             "SELECT 1 AS x FROM app_role_permissions WHERE role_id=%s", (role_id,)))
 
 
+class RetiredRightsMigrationTest(unittest.TestCase):
+    def setUp(self):
+        prepare_local_db()
+        reset_roles()
+        permissions.migrate()
+        db.execute("DELETE FROM app_schema_migrations WHERE name=%s", (permissions.RETIRED_MIGRATION,))
+
+    def tearDown(self):
+        db.execute("DELETE FROM app_schema_migrations WHERE name=%s", (permissions.RETIRED_MIGRATION,))
+        reset_roles()
+
+    def test_removes_only_retired_rights(self):
+        role_id = db.query_one("SELECT id FROM app_roles WHERE name = 'Маркетинг'")["id"]
+        for code in ("unit.tab.oz_old", "unit.tab.wb_old", "abc.tab.summary_v2", "rnp.anomalies.view"):
+            db.execute("INSERT INTO app_role_permissions (role_id, permission) VALUES (%s, %s) "
+                       "ON CONFLICT DO NOTHING", (role_id, code))
+        before = db.query_one("SELECT count(*) AS n FROM app_role_permissions")["n"]
+        permissions.migrate_retired()
+        permissions.migrate_retired()  # повторный запуск ничего не меняет
+        left = {r["permission"] for r in db.query_all(
+            "SELECT permission FROM app_role_permissions WHERE role_id=%s", (role_id,))}
+        self.assertFalse(left & {"unit.tab.oz_old", "unit.tab.wb_old", "abc.tab.summary_v2"})
+        self.assertIn("rnp.anomalies.view", left)   # №14–15 остаются (решение 26.10.2026)
+        self.assertEqual(db.query_one("SELECT count(*) AS n FROM app_role_permissions")["n"], before - 3)
+
+
 class AdsMigrationTest(unittest.TestCase):
     def setUp(self):
         prepare_local_db()

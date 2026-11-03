@@ -13,6 +13,7 @@ from . import db
 
 MIGRATION = "2026_10_12_access_roles"
 ADS_MIGRATION = "2026_10_27_ads_section"
+RETIRED_MIGRATION = "2026_11_03_retired_rights"
 
 MARKETPLACES = ("Wildberries", "Ozon", "Yandex")
 
@@ -297,7 +298,7 @@ CODES = frozenset(f[1] for f in FUNCTIONS)
 # Убранные функции (№ → код), номера не переиспользуются. №14–15 — из матрицы xlsx: миграция ролей 12.10.2026
 # их ещё выдаёт, строки остаются в app_role_permissions, но вне CODES сайт их не показывает и не проверяет
 # (решение владельца 26.10.2026). №102–103 — вкладки юнит-экономики «… (старый вид)», №126 — тестовая вкладка
-# ABC «Сводная v2» (обе убраны 03.11.2026).
+# ABC «Сводная v2» (обе убраны 03.11.2026); их строки в ролях удаляет RETIRED_MIGRATION (решение владельца 03.11.2026).
 REMOVED = {14: 'rnp.anomalies.view', 15: 'rnp.anomalies.rules', 102: 'unit.tab.oz_old', 103: 'unit.tab.wb_old',
            126: 'abc.tab.summary_v2'}
 
@@ -342,12 +343,22 @@ def migrate():
         tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (MIGRATION,))
 
 
+def _apply_once(name, lock):
+    """SQL-файл миграции `name` — один раз, после migrate()."""
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(%s, 0)", (lock,))
+        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (name,)):
+            return
+        path = Path(__file__).resolve().parent.parent / "migrations" / (name + ".sql")
+        tx.conn.execute(path.read_text(encoding="utf-8"))
+        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (name,))
+
+
 def migrate_ads():
     """Права раздела «Реклама» (№116–119) роли «Маркетинг»: один раз, после migrate()."""
-    with db.transaction() as tx:
-        tx.execute("SELECT pg_advisory_xact_lock(27102026, 0)")
-        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (ADS_MIGRATION,)):
-            return
-        path = Path(__file__).resolve().parent.parent / "migrations" / (ADS_MIGRATION + ".sql")
-        tx.conn.execute(path.read_text(encoding="utf-8"))
-        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s)", (ADS_MIGRATION,))
+    _apply_once(ADS_MIGRATION, 27102026)
+
+
+def migrate_retired():
+    """Строки ролей с правами, убранными 03.11.2026 (№102, 103, 126): удалить один раз, после migrate()."""
+    _apply_once(RETIRED_MIGRATION, 3112026)

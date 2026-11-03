@@ -55,6 +55,13 @@ def migrate_ads_rights():
 
 
 @app.on_event("startup")
+def migrate_retired_rights():
+    # После migrate_access_roles: строки ролей с убранными правами №102, 103, 126.
+    from .permissions import migrate_retired
+    migrate_retired()
+
+
+@app.on_event("startup")
 def migrate_wb_ads_stats():
     # После migrate_ads_rights: таблицы статистики рекламы WB и права загрузки «Маркетингу».
     from .routers.ads_router import migrate

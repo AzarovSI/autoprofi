@@ -73,7 +73,7 @@ window.PnlView = (function () {
     { lvl: 'ratio', f: 'nm', l: 'Маржинальность чистая, %', kind: 'pct', color: '1E7D34', tip: 'Прибыль ÷ К оплате на р/с' },
   ];
 
-  const S = { tab: null, year: null, open: { holds: true, noart: true }, scroll: 0 };
+  const S = { tab: null, year: null, open: { holds: false, noart: false }, scroll: 0 };
   let D = null;       // ответ API текущей вкладки
   let CROSS = null;   // ответ «Сводной» (ОЗОН + WB) — из него же вкладки площадок
   // Сброс кэша (новые загрузки отчётов): см. API.cacheClear('/api/pnl').
