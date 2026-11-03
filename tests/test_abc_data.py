@@ -145,5 +145,52 @@ class CategoriesTest(unittest.TestCase):
         self.assertEqual(cats, {"OZ-1": ["Продукция ECOM", "Компрессоры", "АГРЕССОР"], "WB-1": ["", "", ""]})
 
 
+
+class SummaryV2Test(unittest.TestCase):
+    """«Сводная v2» (`/api/abc/summary`): «Итоги» помесячной юнит-экономики ОЗОН и WB; удержания площадки —
+    по товарам плюс без разбивки; ключ месяца — «ГГГГ-ММ», как у месяцев ABC; пустые месяцы не отдаются."""
+
+    def test_root_cells_by_month(self):
+        def fake_tree(mp, monthly=False, mgr_sel=None):
+            self.assertTrue(monthly)
+            self.assertIsNone(mgr_sel)
+            return {"weeks": [{"key": "2026-9", "year": 2026, "week": 9},
+                              {"key": "2026-10", "year": 2026, "week": 10, "partial_through": "2026-10-25"},
+                              {"key": "2026-11", "year": 2026, "week": 11}],
+                    "tree": {"cells": {
+                        "2026-9": {"revenue": 1000.0, "profit": 150.0, "p_payout": 400.0, "orders_rub": 1200.0,
+                                   "sales_qty": 5, "p_mp_holds_pct": 0.5, "noart_pay_pct": 0.02,
+                                   "p_ads_paid_pct": 0.07, "p_cogs_pct": 0.25, "buyout_pct": 0.9},
+                        "2026-10": {"revenue": 500.0, "profit": 50.0, "p_payout": 200.0,
+                                    "p_mp_holds_pct": 0.4, "noart_pay_pct": None},
+                        "2026-11": {"revenue": 0.0}}}}
+
+        with patch.object(abc.rnp_router, "build_tree", side_effect=fake_tree):
+            res = abc.summary(user=ADMIN)
+        for mp in ("ozon", "vb"):
+            self.assertEqual(sorted(res["mp"][mp]), ["2026-09", "2026-10"])
+            self.assertAlmostEqual(res["mp"][mp]["2026-09"]["holds"], 0.52)
+            self.assertAlmostEqual(res["mp"][mp]["2026-10"]["holds"], 0.4)   # без строки общих удержаний
+            self.assertEqual(res["mp"][mp]["2026-09"]["payout"], 400.0)
+            self.assertEqual(res["partial"][mp], {"2026-10": "2026-10-25"})
+
+    def test_only_marketplaces_of_role(self):
+        """Роль только с WB получает только WB; без права №126 — 403."""
+        calls = []
+
+        def fake_tree(mp, monthly=False, mgr_sel=None):
+            calls.append(mp)
+            return {"weeks": [], "tree": {"cells": {}}}
+
+        wb_only = {"id": 2, "is_admin": False, "permissions": ["abc.open", "abc.tab.summary_v2"],
+                   "marketplaces": ["Wildberries"]}
+        with patch.object(abc.rnp_router, "build_tree", side_effect=fake_tree):
+            res = abc.summary(user=wb_only)
+            self.assertEqual(calls, ["Wildberries"])
+            self.assertEqual(list(res["mp"]), ["vb"])
+            with self.assertRaises(abc.HTTPException) as e:
+                abc.summary(user=dict(wb_only, permissions=["abc.open"]))
+            self.assertEqual(e.exception.status_code, 403)
+
 if __name__ == "__main__":
     unittest.main()

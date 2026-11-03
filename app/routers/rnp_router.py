@@ -612,6 +612,13 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
     monthly = (period == "month")
     if monthly:
         auth.check(user, "unit.month")
+    # Готовые байты (fastjson): ~7 МБ через jsonable_encoder FastAPI заметно медленнее.
+    return fastjson.json_response(build_tree(mp, monthly, mgr_sel))
+
+
+def build_tree(mp, monthly=False, mgr_sel=None):
+    """Дерево юнит-экономики без проверки прав (её делает вызывающий): mp — «Ozon» /
+    «Wildberries» / «Yandex». Отдельно от эндпоинта — для ABC «Сводная v2» (`abc_router.summary`)."""
     tbl, pc = ("fact_monthly", "month") if monthly else ("fact_weekly", "week")
 
     # 3 независимых запроса — последовательно на тёплом пуле: недели (колонки),
@@ -992,8 +999,7 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
     managers.discard(None); managers.discard("")
     statuses.discard(None); statuses.discard("")
 
-    # Готовые байты (fastjson): ~7 МБ через jsonable_encoder FastAPI заметно медленнее.
-    return fastjson.json_response({
+    return {
         "marketplace": mp,
         "weeks": weeks,
         "metrics": [
@@ -1008,7 +1014,7 @@ def rnp_tree(marketplace: str = Query("ozon"), period: str = Query("week"),
         "manager": mgr_sel,
         # доля менеджера в общих удержаниях по колонкам (только в режиме менеджера)
         "noart_share": ({wk: round(v, 6) for wk, v in noart_share.items()} if mgr_sel else None),
-    })
+    }
 
 
 # ---------------------------------------------------------------------------

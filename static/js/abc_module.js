@@ -184,6 +184,24 @@ window.ABCDash = (function () {
     renderCross();
     renderActions();
     fillRuleTexts();
+    if (STATE.activeTab === 'summary2') renderSummary2();
+  }
+
+  /* ============ «Сводная v2» (тест, право №126) — static/js/abc_summary2.js ============ */
+  function renderSummary2() {
+    const panel = document.getElementById('tab-summary2');
+    if (!panel || !window.ABCSummary2 || !App.can(TAB_RIGHTS.summary2) || !STATE.raw || !STATE.computed) return;
+    if (!panel.firstChild) panel.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
+    (window.API || API).abcSummary().then((summary) => {
+      if (!panel.isConnected) return;
+      const lbl = document.getElementById('abc-period-text');
+      window.ABCSummary2.render(panel, summary, {
+        raw: STATE.raw, computed: STATE.computed, monthMeta: STATE.monthMeta,
+        periodText: lbl ? lbl.textContent : '', recLabels: REC_LABELS,
+      });
+    }).catch((e) => {
+      if (panel.isConnected) panel.innerHTML = '<div class="empty">Не удалось загрузить «Сводную v2»: ' + escapeHtml((e && e.message) || e) + '</div>';
+    });
   }
 
   function computeAll(raw, months) {
@@ -2192,6 +2210,7 @@ window.ABCDash = (function () {
   }
 
   function destroyAllCharts() {
+    if (window.ABCSummary2) window.ABCSummary2.destroy();
     Object.keys(STATE.charts || {}).forEach((k) => {
       try { if (STATE.charts[k]) STATE.charts[k].destroy(); } catch (_) {}
       STATE.charts[k] = null;
@@ -2376,7 +2395,7 @@ window.ABCDash = (function () {
   // Вкладка → функция роли (app/permissions.py).
   const TAB_RIGHTS = {
     overview: 'abc.tab.overview', ozon: 'abc.tab.ozon', vb: 'abc.tab.wb', yandex: 'abc.tab.ya',
-    cross: 'abc.tab.compare', actions: 'abc.tab.actions',
+    cross: 'abc.tab.compare', actions: 'abc.tab.actions', summary2: 'abc.tab.summary_v2',
   };
   function bindSubNav() {
     const root = STATE.rootEl || document;
@@ -2389,7 +2408,10 @@ window.ABCDash = (function () {
       });
     };
     tabs.forEach((btn) => {
-      btn.addEventListener('click', () => activate(btn.dataset.tab));
+      btn.addEventListener('click', () => {
+        activate(btn.dataset.tab);
+        if (btn.dataset.tab === 'summary2') renderSummary2();
+      });
     });
     // Вкладки — по правам роли; недоступная выбранная — первая доступная.
     const allowed = Array.from(tabs).filter((b) => App.can(TAB_RIGHTS[b.dataset.tab]));
@@ -2414,6 +2436,7 @@ window.ABCDash = (function () {
   <div class="abc-toolbar">
     <nav class="abc-subnav tabs">
       <button class="tab active" data-tab="overview">Обзор</button>
+      <button class="tab" data-tab="summary2">Сводная v2</button>
       <button class="tab" data-tab="ozon">ОЗОН</button>
       <button class="tab" data-tab="vb">Wildberries</button>
       <button class="tab" data-tab="yandex">Яндекс</button>
@@ -2639,6 +2662,8 @@ window.ABCDash = (function () {
       <div class="chart-wrap tall"><canvas id="chart-recs"></canvas></div>
     </div>
   </section>
+
+  <section id="tab-summary2" class="tab-panel"></section>
 
   <section id="tab-ozon" class="tab-panel">
     <div class="page-intro">

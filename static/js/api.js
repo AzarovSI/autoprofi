@@ -155,6 +155,7 @@ const API = (() => {
     rnpTrend: (p) => cget('/api/rnp/trend' + qs(p)),
     // ABC (анализ товарной матрицы)
     abcData: () => cget('/api/abc/data'),
+    abcSummary: () => cget('/api/abc/summary'),
     abcRulesSave: (rules) => request('/api/abc/rules', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules }),
