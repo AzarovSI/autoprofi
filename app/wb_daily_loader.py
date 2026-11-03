@@ -8,6 +8,8 @@
 Формат: дневные данные (одна строка = день × артикул), 16 колонок, заголовки
 в строке 1, данные со 2-й строки. Колонки читаем ПО ИМЕНИ заголовка, а не по
 позиции (у 1С в шапке пустой столбец B, у Google-таблицы его нет).
+Правее «Остаток» (склады WB) в Google-таблице — остатки наших складов FBS:
+«г. Москва», «Краснодар», «г. Артём» → stock_fbs_msk / _krd / _art (FBS_MAP).
 
 Перезагрузка за уже загруженные даты = перезапись (WB иногда обновляет данные
 в прошлых периодах):
@@ -71,6 +73,19 @@ CR_MAP = [
     ("cr_order_pct", "КонверсияВЗаказ"),
 ]
 
+# Остатки на наших складах FBS (Google-таблица, с 03.11.2026): поле БД → город
+# в заголовке («г. Москва», «Краснодар», «г. Артём»; «г.» и «ё» не важны).
+# Колонки необязательные: в выгрузке 1С и старых файлах их нет → NULL.
+# Снимок на дату, как stock_wb_qty: пустая ячейка → NULL, не 0.
+FBS_MAP = [
+    ("stock_fbs_msk", "москва"),
+    ("stock_fbs_krd", "краснодар"),
+    ("stock_fbs_art", "артем"),
+]
+
+# Версионная миграция колонок FBS (migrations/<имя>.sql), применяется на старте.
+MIGRATION = "2026_11_03_wb_fbs_stock"
+
 # Поля-СЧЁТЧИКИ активности из отчёта «Воронка». КОНВЕНЦИЯ «как в Ozon»:
 # если СТРОКА за день СУЩЕСТВУЕТ (товар есть в файле за эту дату = была
 # активность), пустая ячейка счётчика = 0 (нулевое значение), НЕ NULL.
@@ -103,8 +118,33 @@ INSERT_COLS = (
     ["date", "seller_article", "nm_id", "item_name"]
     + [m[0] for m in METRIC_MAP]
     + [m[0] for m in CR_MAP]
+    + [m[0] for m in FBS_MAP]
     + ["upload_id"]
 )
+
+
+def migrate():
+    """Колонки остатков FBS в wb_daily_sales: один раз, под advisory lock."""
+    from pathlib import Path
+    from . import db
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(3112026, 0)")
+        tx.execute("""CREATE TABLE IF NOT EXISTS app_schema_migrations (
+            name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())""")
+        if tx.query_one("SELECT name FROM app_schema_migrations WHERE name=%s", (MIGRATION,)):
+            return
+        path = Path(__file__).resolve().parent.parent / "migrations" / (MIGRATION + ".sql")
+        tx.conn.execute(path.read_text(encoding="utf-8"))
+        tx.execute("INSERT INTO app_schema_migrations(name) VALUES (%s) ON CONFLICT DO NOTHING",
+                   (MIGRATION,))
+
+
+def _wh_key(header):
+    """«г. Артём» → «артем»: город склада FBS из заголовка колонки."""
+    s = str(header).strip().lower().replace("ё", "е")
+    if s.startswith("г."):
+        s = s[2:]
+    return s.strip()
 
 
 def _to_num(v):
@@ -216,6 +256,10 @@ def load_wb_daily(conn, path):
     c_date = idx["Дата"]
     c_art = idx["Артикул"]
     c_nm = idx.get("ИдентификаторТовара")
+    wh_idx = {_wh_key(h): c for h, c in idx.items()}
+    fbs_idx = {db_col: wh_idx.get(city) for db_col, city in FBS_MAP}
+    # Склада FBS нет в файле (выгрузка 1С, старый файл) → его остаток не затираем.
+    preserve_cols = PRESERVE_COLS + [c for c, i in fbs_idx.items() if i is None]
 
     rows = []
     dates = set()
@@ -255,6 +299,8 @@ def load_wb_daily(conn, path):
             c = idx.get(header)
             v = _to_num(cell(c)) if c is not None else None
             rec[db_col] = (v / 100.0) if v is not None else None
+        for db_col, c in fbs_idx.items():
+            rec[db_col] = _to_num(cell(c)) if c is not None else None
 
         # «Как в Ozon»: строка за день существует (товар в файле) → пустые
         # счётчики = 0 (нулевое значение), а не NULL. Снапшоты (rating,
@@ -324,10 +370,10 @@ def load_wb_daily(conn, path):
         rec["upload_id"] = upload_id
         tuples.append(tuple(rec[col] for col in INSERT_COLS))
 
-    # --- перезапись диапазона дат + вставка батчами (+ сохранение PRESERVE_COLS) ---
+    # --- перезапись диапазона дат + вставка батчами (+ сохранение preserve_cols) ---
     try:
         with conn.cursor() as cur:
-            preserve_sql = ",".join(PRESERVE_COLS)
+            preserve_sql = ",".join(preserve_cols)
             cur.execute(
                 f"SELECT date, seller_article, {preserve_sql} "
                 "FROM wb_daily_sales WHERE date BETWEEN %s AND %s",
@@ -335,7 +381,7 @@ def load_wb_daily(conn, path):
             preserved = {}
             for row in cur.fetchall():
                 d_key, art_key = row[0], row[1]
-                vals = dict(zip(PRESERVE_COLS, row[2:]))
+                vals = dict(zip(preserve_cols, row[2:]))
                 if any(v is not None for v in vals.values()):
                     preserved[(d_key, art_key)] = vals
 
@@ -364,7 +410,7 @@ def load_wb_daily(conn, path):
                     if (d_key, art_key) in new_keys
                 ]
                 if upd_rows:
-                    n_pc = len(PRESERVE_COLS)
+                    n_pc = len(preserve_cols)
                     first_tmpl = ("(%s::date, %s::text, "
                                   + ",".join(["%s::numeric"] * n_pc) + ")")
                     rest_tmpl = "(" + ",".join(["%s"] * (2 + n_pc)) + ")"
@@ -373,9 +419,9 @@ def load_wb_daily(conn, path):
                         vals_parts.append(first_tmpl if i == 0 else rest_tmpl)
                         flat.append(d_key)
                         flat.append(art_key)
-                        flat.extend(vals[c] for c in PRESERVE_COLS)
-                    set_sql = ",".join(f"{c}=v.{c}" for c in PRESERVE_COLS)
-                    cols_list = "d, sa, " + ", ".join(PRESERVE_COLS)
+                        flat.extend(vals[c] for c in preserve_cols)
+                    set_sql = ",".join(f"{c}=v.{c}" for c in preserve_cols)
+                    cols_list = "d, sa, " + ", ".join(preserve_cols)
                     cur.execute(
                         f"UPDATE wb_daily_sales AS t SET {set_sql} "
                         f"FROM (VALUES {','.join(vals_parts)}) "
@@ -386,12 +432,12 @@ def load_wb_daily(conn, path):
                 # Отдельно загруженные показатели не исчезают, если товар
                 # отсутствует в повторном файле воронки. Заказы остаются NULL.
                 stub_rows = [
-                    (d_key, art_key, *(vals[c] for c in PRESERVE_COLS))
+                    (d_key, art_key, *(vals[c] for c in preserve_cols))
                     for (d_key, art_key), vals in preserved.items()
                     if (d_key, art_key) not in new_keys
                 ]
                 if stub_rows:
-                    cols = ["date", "seller_article", *PRESERVE_COLS]
+                    cols = ["date", "seller_article", *preserve_cols]
                     cur.executemany(
                         f"INSERT INTO wb_daily_sales ({','.join(cols)}) "
                         f"VALUES ({','.join(['%s'] * len(cols))})",

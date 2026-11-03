@@ -80,6 +80,13 @@ def migrate_fact_schema():
 
 
 @app.on_event("startup")
+def migrate_wb_fbs_stock():
+    # Колонки остатков складов FBS в wb_daily_sales (Воронка WB из Google-таблицы).
+    from .wb_daily_loader import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def migrate_rnp_comments():
     from .routers.rnp_comments_router import migrate
     migrate()

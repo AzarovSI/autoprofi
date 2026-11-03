@@ -421,6 +421,20 @@ class LoaderTests(unittest.TestCase):
                 result = oz.load_ozon_daily(self.conn, f.name)
         self.assertTrue(result["ok"], result)
 
+    def test_wb_fbs_stock_columns_by_city_name(self):
+        headers = wb.WB_VORONKA_REQUIRED + ["Краснодар", "г. Артём", "г. Москва"]
+        values = [DAY, 123, "SKU-1", 2, 2000, 20, 50, 8, "", 0]
+        with patch.object(wb, "_read_sheet", return_value=([headers, values], "Воронка")):
+            self.assertTrue(wb.load_wb_daily(self.conn, "local.xlsx")["ok"])
+        value = self.conn.execute(
+            "SELECT stock_fbs_msk, stock_fbs_krd, stock_fbs_art, stock_wb_qty FROM wb_daily_sales").fetchone()
+        self.assertEqual(value, (0, 8, None, 50))
+        # Повторный файл без колонок FBS (выгрузка 1С) не затирает остатки складов.
+        self.daily_import(wb, "SKU-1")
+        value = self.conn.execute(
+            "SELECT stock_fbs_msk, stock_fbs_krd, stock_fbs_art FROM wb_daily_sales").fetchone()
+        self.assertEqual(value, (0, 8, None))
+
     def test_reviews_before_orders_upsert_canonical_and_repeat(self):
         self.review_import()
         self.review_import(4.9, 43)

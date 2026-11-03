@@ -3151,7 +3151,7 @@ const Views = (() => {
   // st — это rnpState (юнитка) или rnpSalesState (заказы); оба имеют .uiSnap.
   function _rnpUiFields(st) {
     // Поля раскрытия, которые надо запоминать (те, что есть у данного state).
-    return ['expanded', 'metricsOpen', 'monthsOpen', 'pricesOpen', 'piOpen']
+    return ['expanded', 'metricsOpen', 'monthsOpen', 'pricesOpen', 'piOpen', 'fbsOpen']
       .filter(k => st[k] && typeof st[k] === 'object');
   }
   // Сохранить текущее состояние раскрытия+scroll в снимок МП `mp`.
@@ -5293,7 +5293,7 @@ const Views = (() => {
   function rnpsFutureSave(on) { if (window.APStore) window.APStore.set(RNPS_FUTURE_KEY, on ? '1' : '0'); }
 
   const rnpSalesState = {
-    mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, piOpen: {}, uiSnap: {},
+    mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, piOpen: {}, fbsOpen: {}, uiSnap: {},
     // Активная вложенная вкладка внутри подтаба «Загрузка данных»: 'ozon' | 'wb' | 'common'.
     uploadTab: 'ozon',
     data: null, loading: false, error: '',
@@ -5612,10 +5612,12 @@ const Views = (() => {
       // Вложенные метрики подгруппы «Цены» (sub===2) — только когда раскрыта.
       if (sub === 2 && !rnpSalesState.pricesOpen[node.key]) return;
       if (sub === 4 && !rnpSalesState.piOpen[node.key]) return;
+      // WB: склады FBS под «Остатком на складе WB» (sub 5 → 6).
+      if (sub === 6 && !rnpSalesState.fbsOpen[node.key]) return;
       let nameSt = '';
       if (mt.color) nameSt += `color:#${mt.color};`;
       if (mt.bold) nameSt += 'font-weight:700;';
-      const pad = (sub === 2 || sub === 4) ? 18 : 0;
+      const pad = (sub === 2 || sub === 4 || sub === 6) ? 18 : 0;
       let nameInner;
       if (sub === 1) {
         const tri = rnpSalesState.pricesOpen[node.key] ? '▾' : '▸';
@@ -5623,12 +5625,16 @@ const Views = (() => {
       } else if (sub === 3) {
         const open = !!rnpSalesState.piOpen[node.key];
         nameInner = `<button class="rnp-exp-btn rnps-pi-toggle" data-pkey="${U.esc(node.key)}" aria-expanded="${open}" aria-label="Показать/скрыть индексы цен" title="Показать/скрыть индексы цен">${open ? '▾' : '▸'}</button>${U.esc(mt.label)}`;
+      } else if (sub === 5) {
+        const open = !!rnpSalesState.fbsOpen[node.key];
+        nameInner = `<button class="rnp-exp-btn rnps-fbs-toggle" data-pkey="${U.esc(node.key)}" aria-expanded="${open}" aria-label="Показать/скрыть склады FBS" title="Показать/скрыть склады FBS">${open ? '▾' : '▸'}</button>${U.esc(mt.label)}`;
       } else {
         nameInner = U.esc(mt.label);
       }
-      const headCls = sub === 1 ? ' rnps-prices-head is-clickable' : sub === 3 ? ' rnps-pi-head is-clickable' : '';
+      const headCls = sub === 1 ? ' rnps-prices-head is-clickable' : sub === 3 ? ' rnps-pi-head is-clickable'
+        : sub === 5 ? ' rnps-fbs-head is-clickable' : '';
       let row = `<div class="rnps-m-row">`
-        + `<span class="rnps-m-name rnp-fixleft${headCls}" title="${U.esc(mt.label)}" data-pkey="${(sub === 1 || sub === 3) ? U.esc(node.key) : ''}" style="${nameSt}padding-left:${pad}px">${nameInner}</span>`
+        + `<span class="rnps-m-name rnp-fixleft${headCls}" title="${U.esc(mt.label)}" data-pkey="${(sub === 1 || sub === 3 || sub === 5) ? U.esc(node.key) : ''}" style="${nameSt}padding-left:${pad}px">${nameInner}</span>`
         + `<span class="rnps-m-status rnp-fixleft"></span>`
         + `<span class="rnps-m-mbtn rnp-fixleft"></span>`
         + `<span class="rnp-wk-scroll" data-rnp-scroll><span class="rnps-m-vals" style="${nameSt}">`;
@@ -5912,6 +5918,7 @@ const Views = (() => {
       _snap.monthsOpen = rnpSalesState.monthsOpen;
       _snap.pricesOpenBool = rnpSalesState.pricesOpen;
       _snap.piOpen = rnpSalesState.piOpen;
+      _snap.fbsOpen = rnpSalesState.fbsOpen;
     }
   }
 
@@ -6022,6 +6029,15 @@ const Views = (() => {
         const key = el.getAttribute('data-pkey');
         if (!key) return;
         rnpSalesState.piOpen[key] = !rnpSalesState.piOpen[key];
+        rerender();
+      });
+    });
+    host.querySelectorAll('.rnps-fbs-toggle, .rnps-fbs-head').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = el.getAttribute('data-pkey');
+        if (!key) return;
+        rnpSalesState.fbsOpen[key] = !rnpSalesState.fbsOpen[key];
         rerender();
       });
     });

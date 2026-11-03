@@ -130,7 +130,9 @@ AVG_COLS = ["cr_cart_pct", "cr_order_pct", "avg_position", "ctr_pct",
 # Snapshot — считаются отдельно (не сумма/среднее по дням, а значение «на дату»).
 # delivery_time_hours переиспользован под «Количество отзывов» (накопительное
 # число на карточке) → тоже snapshot, а не среднее по дням.
-SNAP_COLS = ["rating", "delivery_time_hours", "stock_ozon_qty", "stock_ap_qty"]
+# Остатки складов FBS (только WB, wb_daily_sales.stock_fbs_*) — под «Остатком на складе WB».
+FBS_COLS = ["stock_fbs_msk", "stock_fbs_krd", "stock_fbs_art"]
+SNAP_COLS = ["rating", "delivery_time_hours", "stock_ozon_qty", "stock_ap_qty"] + FBS_COLS
 # Две РАЗНЫЕ политики месячного snapshot:
 #  • SNAP_LAST_NONEMPTY — последнее НЕПУСТОЕ значение (rating/отзывы грузятся
 #    отдельным отчётом и на последней дате могут быть пустыми — тогда нельзя
@@ -139,7 +141,7 @@ SNAP_COLS = ["rating", "delivery_time_hours", "stock_ozon_qty", "stock_ap_qty"]
 #    складов: если на последний день выгрузки остатка нет, в итоге месяца
 #    должен быть прочерк «—», а не «зависшее» последнее ненулевое значение).
 SNAP_LAST_NONEMPTY = ["rating", "delivery_time_hours"]
-SNAP_LAST_DAY = ["stock_ozon_qty", "stock_ap_qty"]
+SNAP_LAST_DAY = ["stock_ozon_qty", "stock_ap_qty"] + FBS_COLS
 
 
 def _f(v):
@@ -201,6 +203,11 @@ def _cell_from_agg(agg, snap_override=None):
         for c in SNAP_COLS:
             s, n = agg.snap[c]
             out[c] = (s if n else None)
+    # FBS есть только у WB: пустые ключи не отдаём (фронт покажет «—»), чтобы
+    # не раздувать дерево Ozon/Яндекса.
+    for c in FBS_COLS:
+        if out[c] is None:
+            del out[c]
     # Расчётные.
     orders = out.get("orders_qty")
     cancels = out.get("cancels_qty")
@@ -221,6 +228,12 @@ def _cell_from_agg(agg, snap_override=None):
 # Метрика «Показы, общие» (только Яндекс) — вставляется ПЕРЕД «Переходы
 # в карточку». Формат как у card_visits (qty). Ключ shows_qty — SUM_COL.
 _YA_SHOWS_PRODUCT = ("shows_qty", "Показы, общие", "qty", "000000", False, 0)
+# Вложенные строки «Остатка на складе WB» (sub=6; заголовок — sub=5).
+_WB_FBS_PRODUCT = [
+    ("stock_fbs_msk", "Склад FBS Москва"),
+    ("stock_fbs_krd", "Склад FBS Краснодар"),
+    ("stock_fbs_art", "Склад FBS Артём"),
+]
 
 
 def _metric_payload(defs, product=False, is_wb=False, is_ya=False):
@@ -249,6 +262,11 @@ def _metric_payload(defs, product=False, is_wb=False, is_ya=False):
                             "color": scolor, "bold": sbold, "sub": ssub})
             out.append({"key": k, "label": lbl, "kind": kind,
                         "color": color, "bold": bold, "sub": sub})
+            # WB: «Остаток на складе WB» раскрывается в остатки наших складов FBS.
+            if k == "stock_ozon_qty" and is_wb:
+                out[-1]["sub"] = 5
+                out.extend({"key": fk, "label": fl, "kind": "qty", "color": "333333",
+                            "bold": False, "sub": 6} for fk, fl in _WB_FBS_PRODUCT)
             if k == "price_index_pi" and not is_ya:
                 out[-1]["sub"] = 3
                 out.extend([
@@ -296,7 +314,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v8|" + "|".join([
+    ck = "rnps_tree|v9|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -435,6 +453,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
                    NULL::numeric AS avg_upload_price, NULL::numeric AS price_for_buyer,
                    ods.comp_price_avg, ods.comp_price_min,
                    ods.rating, ods.stock_wb_qty AS stock_ozon_qty,
+                   ods.stock_fbs_msk, ods.stock_fbs_krd, ods.stock_fbs_art,
                    sd.qty AS stock_ap_qty
             FROM wb_daily_sales ods
             LEFT JOIN catalog_items ci
