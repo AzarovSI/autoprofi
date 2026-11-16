@@ -1513,6 +1513,7 @@ const Views = (() => {
         try {
           const r = await API.catalogImport(f, { marketplace: catMpName() });
           if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/metrics/by_category'); API.cacheClear('/api/trend/category_matrix'); }
+          pricesInvalidate();
           catState.tree = await API.catalogTree({ marketplace: catMpName() });
           if (impRes) {
             const errBlock = (r.error_count && r.errors && r.errors.length)
@@ -1601,6 +1602,7 @@ const Views = (() => {
       try {
         await API.catalogUpdate(art, body);
         if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/metrics/by_category'); API.cacheClear('/api/trend/category_matrix'); API.cacheClear('/api/rnp'); API.cacheClear('/api/sales'); API.cacheClear('/api/abc'); }
+        pricesInvalidate();
         // новый товар/статус влияет на дашборд ABC — сбросить его памятный кэш
         if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
         catState.tree = await API.catalogTree({ marketplace: catMpName() });
@@ -1720,6 +1722,7 @@ const Views = (() => {
           await API.catalogUpdate(tr.dataset.sa, body);
           // изменили категории/статус — сброс кэша справочника и категорий
           if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/metrics/by_category'); API.cacheClear('/api/trend/category_matrix'); API.cacheClear('/api/abc'); }
+          pricesInvalidate();
           // статус/категории влияют на дашборд ABC — сбросить его памятный кэш
           if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
           if ('status' in body) stEl.dataset.st = stEl.value;
@@ -5222,6 +5225,7 @@ const Views = (() => {
             API.cacheClear('/api/rnp/tree');
             API.cacheClear('/api/abc');
           }
+          pricesInvalidate();
           // статус влияет на дашборд ABC (в т.ч. «Сравнение МП») — сбросить его памятный кэш
           if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
           App.toast('Статус обновлён: ' + sa + ' → ' + newVal, 'ok');
@@ -6076,6 +6080,7 @@ const Views = (() => {
           // Обновляем исходное дерево, а не дерево новой вкладки.
           rnpsSetLeafStatus(rnpsStatusTree, sa, stToApi(newVal));
           if (API.cacheClear) { API.cacheClear('/api/catalog'); API.cacheClear('/api/rnp_sales/tree'); API.cacheClear('/api/abc'); }
+          pricesInvalidate();
           // статус влияет на дашборд ABC (в т.ч. «Сравнение МП») — сбросить его памятный кэш
           if (window.ABCDash && window.ABCDash.invalidate) window.ABCDash.invalidate();
           App.toast('Статус обновлён: ' + sa + ' → ' + newVal, 'ok');
@@ -9661,6 +9666,12 @@ const Views = (() => {
     modelOnlySig: false,        // галочка «только требующие корректировки»
     idxShowCat: false,          // «Индекс цен»: галочка «цена категории» — колонки цены категории
   };
+  // Справочник товаров поменялся (новинка, группы, статус, менеджер) — состав
+  // прайс-листа тоже: при следующем входе в «Цены» перечитать его с сервера.
+  function pricesInvalidate() {
+    pricesState.data = null;
+    if (API.cacheClear) API.cacheClear('/api/prices/pricelist');
+  }
 
   // ===== Компонент выбора периода прайс-листа (клон bindRnpsPeriod) =====
   // Работает с диапазоном pricesState.from/to (ISO 'YYYY-MM-DD'). Использует

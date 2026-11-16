@@ -12,6 +12,8 @@ ALTER TABLE app_users ALTER COLUMN id SET DEFAULT nextval('app_users_test_id_seq
 CREATE TABLE IF NOT EXISTS catalog_marketplace (
   seller_article text, marketplace text, status text
 );
+-- Менеджер по МП (как в рабочей БД): нужен правилу «распределённого» товара (util.UNDISTRIBUTED_SQL).
+ALTER TABLE catalog_marketplace ADD COLUMN IF NOT EXISTS manager text;
 CREATE TABLE IF NOT EXISTS catalog_items (
   seller_article text PRIMARY KEY, sample_name text,
   category_l1 text, category_l2 text, category_l3 text

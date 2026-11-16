@@ -8,9 +8,9 @@
         (period_start..period_end) пересекается с [date_from..date_to];
       – по этому пересечению есть движение (revenue/sales_qty/orders_qty/
         returns_qty/profit/holds_total > 0).
-      – правило статуса «−» из РНП: если catalog_marketplace.status = '-' и в
-        периоде движений нет — SKU в списке не показываем (даже если он есть
-        в catalog_marketplace); «?» и прочие статусы не скрываем.
+      – плюс товары справочника без движения (новинки): по Ozon или WB
+        распределены по К1–К3, заполнены статус и менеджер, статус не «−»
+        (16.11.2026). Статус «−» без движения — не показываем.
   • Иерархия L1/L2/L3 — общая, из catalog_items. Товары без L1 показываются
     в специальной секции «Не распределены по группам».
   • Цены (base_price) — берутся из catalog_base_prices с фильтром
@@ -66,8 +66,9 @@ def pricelist(
     Правило универсума («как в РНП заказы»):
       • Если задан период [date_from..date_to] — универсум = SKU, у которых в
         этом периоде было движение по Ozon/Wildberries в fact_weekly (неделя
-        пересекается с периодом и суммарные метрики > 0). Статус «−» без
-        движения = скрыть.
+        пересекается с периодом и суммарные метрики > 0), плюс распределённые
+        товары справочника Ozon/WB (К1–К3, статус, менеджер) со статусом не «−»,
+        даже без движения. Статус «−» без движения = скрыть.
       • Если период пуст — универсум = все SKU из catalog_marketplace для
         Ozon/Wildberries (обратная совместимость), правило статуса «−» не
         применяется (нет периода для проверки движений).
@@ -87,11 +88,12 @@ def pricelist(
         df, dt = dt, df
 
     if df and dt:
-        # Универсум по периоду: SKU с движением в fact_weekly.
+        # Универсум по периоду: SKU с движением в fact_weekly + распределённые
+        # новинки справочника (статус не '-').
         # Пересечение недели [period_start..period_end] с [df..dt] считаем через
         # НЕ ПУСТОЕ пересечение: period_end >= df AND period_start <= dt.
         rows = db.query_all(
-            """
+            f"""
             WITH moved AS (
                 SELECT f.seller_article
                   FROM fact_weekly f
@@ -120,13 +122,17 @@ def pricelist(
                 -- Активные в периоде.
                 SELECT seller_article FROM moved
                 UNION
-                -- И плюс те, что есть в каталоге и НЕ имеют статуса '-' по всем МП:
-                -- они могут не иметь движения, но не должны исчезать (не '-' и
-                -- активность мы не проверяли; правило РНП скрывает ТОЛЬКО '-').
-                -- В нашем случае «неактивные без движения» = SKU НЕ в moved.
-                -- По ТЗ пользователя (аналог РНП заказы) прайс-лист показывает
-                -- ТОЛЬКО активных в периоде → берём только moved.
-                SELECT NULL::text WHERE false
+                -- Плюс товары справочника без движения (новинки до первых продаж):
+                -- по Ozon или WB распределены по К1–К3, заполнены статус и менеджер,
+                -- статус не '-'. Базовую цену, ДРР и маржу задают до продаж
+                -- (решение владельца 16.11.2026).
+                SELECT cm.seller_article
+                  FROM catalog_marketplace cm
+                  JOIN catalog_items ci ON ci.seller_article = cm.seller_article
+                 WHERE cm.marketplace IN ('Ozon','Wildberries')
+                   AND cm.seller_article IS NOT NULL AND cm.seller_article <> ''
+                   AND NOT {util.UNDISTRIBUTED_SQL}
+                   AND btrim(cm.status) <> '-'
             )
             SELECT u.seller_article,
                    ci.sample_name,
