@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Загрузчик «Дашборд - рекламная статистика» Wildberries → раздел «Реклама».
+"""Загрузчик «Дашборд - рекламная статистика» Wildberries → раздел «Реклама» и реклама в РНП WB.
 
 Файл владельца со статистикой рекламных кампаний WB за последние дни (обычно 5). Листы — по имени:
   • «Статистика кампаний»  → wb_ads_campaign_daily (день × кампания × артикул WB) — обязательный;
@@ -15,6 +15,14 @@ General; CTR сверен с клики / показы, конверсии — �
 Пустой «Артикул продавца» берётся из справочника этого файла, затем из wb_ads_items, затем
 из wb_daily_sales.nm_id. Дубли ключа на листе отклоняют всю загрузку.
 
+РНП WB (с 17.11.2026 вместо отчёта 1С «Статистика рекламных кампаний»): за дни листа «Статистика
+кампаний» рекламные поля wb_daily_sales (RNP_COLS) сначала очищаются у всех товаров, затем пишутся
+суммы по (дата, артикул продавца) — только товары справочника; строки нет — создаётся заглушка.
+Расход = Σ «Затраты», CTR = Σ «Клики» / Σ «Показы» (доля; нет показов — NULL), CPC = Σ затрат / Σ кликов.
+Берутся только строки рекламируемого товара («Товар в кампании» = «Да»): «Нет, связанный заказ» —
+заказ другого товара через чужую кампанию, без затрат, показов и кликов (как в разделе «Реклама»).
+Дни до первого файла остаются из 1С.
+
 Фиксируется в report_uploads (marketplace='Wildberries', period_kind='wb_ads_stats').
 """
 import os
@@ -23,7 +31,6 @@ import datetime
 from python_calamine import CalamineWorkbook
 
 from .util import canon_article
-from .wb_ads_loader import _to_num, _to_date, _build_colidx
 
 MP_NAME = "Wildberries"
 PERIOD_KIND = "wb_ads_stats"
@@ -72,6 +79,49 @@ FUNNEL_COLS = [
     ("currency", "Валюта", "t"), ("source_updated_at", "Обновлено", "ts"),
 ]
 PAGE = 500
+
+# Реклама в РНП WB: колонка wb_daily_sales → поле листа «Статистика кампаний» для суммы по артикулу за день.
+RNP_SUMS = [("ads_expense_rub", "spend"), ("ads_views", "views"), ("ads_clicks", "clicks"),
+            ("ads_atbs", "atbs"), ("ads_orders", "orders"), ("ads_shks", "ordered_qty"),
+            ("ads_sum_price", "orders_sum")]
+RNP_COLS = [c for c, _ in RNP_SUMS] + ["ctr_pct", "ads_avg_cpc"]
+
+
+def _to_num(v):
+    if v is None or v == "" or v == "-":
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip().replace("\xa0", "").replace(" ", "").replace(",", ".").replace("%", "")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _to_date(v):
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _build_colidx(header_row):
+    """Заголовок → номер колонки (первое вхождение)."""
+    idx = {}
+    for c, v in enumerate(header_row):
+        if v is not None and str(v).strip():
+            idx.setdefault(str(v).strip(), c)
+    return idx
 
 
 def _to_ts(v):
@@ -147,13 +197,40 @@ def _parse(data, key_cols, cols, ids=("ID кампании", "Артикул WB"
     return rows, skipped, dups
 
 
-def _insert(cur, table, columns, rows):
-    """Пакетная вставка: один INSERT … VALUES на PAGE строк."""
+def _insert(cur, table, columns, rows, suffix=""):
+    """Пакетная вставка: один INSERT … VALUES на PAGE строк; suffix — например, ON CONFLICT …"""
     tmpl = "(" + ",".join(["%s"] * len(columns)) + ")"
     sql = f"INSERT INTO {table} ({','.join(columns)}) VALUES "
     for i in range(0, len(rows), PAGE):
         batch = rows[i:i + PAGE]
-        cur.execute(sql + ",".join([tmpl] * len(batch)), [v for r in batch for v in r])
+        cur.execute(sql + ",".join([tmpl] * len(batch)) + suffix, [v for r in batch for v in r])
+
+
+def _write_rnp(cur, camps, dates, upload_id):
+    """Реклама в РНП WB за дни `dates`: очистить рекламные поля и записать суммы по товарам справочника.
+    Возвращает (строк записано, артикулов вне справочника)."""
+    cur.execute("SELECT seller_article FROM catalog_items")
+    catalog = {canon_article(a) for (a,) in cur.fetchall()}
+    agg = {}
+    for (d, _cid, _nm), v in camps.items():
+        art = v["seller_article"]
+        if art and (v.get("in_campaign_text") or "").lower() == "да":
+            a = agg.setdefault((d, art), dict.fromkeys((f for _, f in RNP_SUMS), 0.0))
+            for _, f in RNP_SUMS:
+                a[f] += v.get(f) or 0
+    rows, outside = [], set()
+    for (d, art), a in sorted(agg.items()):
+        if art not in catalog:
+            outside.add(art)
+            continue
+        ctr = a["clicks"] / a["views"] if a["views"] > 0 else None
+        cpc = a["spend"] / a["clicks"] if a["clicks"] > 0 else None
+        rows.append([d, art] + [a[f] for _, f in RNP_SUMS] + [ctr, cpc, upload_id])
+    cur.execute(f"UPDATE wb_daily_sales SET {', '.join(c + '=NULL' for c in RNP_COLS)} WHERE date = ANY(%s)",
+                (dates,))
+    _insert(cur, "wb_daily_sales", ["date", "seller_article"] + RNP_COLS + ["upload_id"], rows,
+            " ON CONFLICT (date, seller_article) DO UPDATE SET " + ", ".join(f"{c}=EXCLUDED.{c}" for c in RNP_COLS))
+    return len(rows), len(outside)
 
 
 def _journal_error(conn, path, msg):
@@ -283,8 +360,13 @@ def load_wb_ads_stats(conn, path):
                         [[d, nm, v["seller_article"], upload_id] + [v.get(c) for c in fcols]
                          for (d, nm), v in funnel.items()])
 
+            rnp_rows, rnp_outside = _write_rnp(cur, camps, camp_dates, upload_id)
+
             msg = (f"Даты {period_text}; кампании: {len(camps)} строк за {len(camp_dates)} дн.; "
-                   f"кластеры: {len(clusters)} строк; воронка: {len(funnel)} строк; справочник: {len(items)} товаров")
+                   f"кластеры: {len(clusters)} строк; воронка: {len(funnel)} строк; справочник: {len(items)} товаров; "
+                   f"РНП WB: {rnp_rows} строк (дата, артикул)")
+            if rnp_outside:
+                msg += f"; вне справочника (в РНП не попали): {rnp_outside}"
             if camp_skipped or cl_skipped or fn_skipped:
                 msg += f"; пропущено строк без даты/кампании/артикула: {camp_skipped + cl_skipped + fn_skipped}"
             if no_article:
@@ -316,6 +398,8 @@ def load_wb_ads_stats(conn, path):
         "cluster_rows": len(clusters),
         "funnel_rows": len(funnel),
         "items": len(items),
+        "rnp_rows": rnp_rows,
+        "rnp_outside": rnp_outside,
         "dates": [d.isoformat() for d in camp_dates],
         "period_text": period_text,
         "skipped": camp_skipped + cl_skipped + fn_skipped,

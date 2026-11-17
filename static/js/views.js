@@ -2258,7 +2258,7 @@ const Views = (() => {
     }
   }
 
-  // Реклама WB (эндпоинт /api/upload/wb_ads). Дата из файла.
+  // Статистика рекламы WB (эндпоинт /api/upload/wb_ads): РНП WB и раздел «Реклама». Даты из файла.
   function setupWbAdsZone(root) {
     const zone = root.querySelector('#uz-wbads');
     if (!zone) return;
@@ -2266,6 +2266,10 @@ const Views = (() => {
     const pick = root.querySelector('#pick-wbads');
     if (pick) pick.addEventListener('click', (e) => { e.preventDefault(); input.click(); });
     input.addEventListener('change', () => { if (input.files[0]) doUploadWbAds(input.files[0], zone); });
+    // Зона живёт между загрузками (меняется только её содержимое) — перетаскивание вешаем один раз,
+    // иначе после каждой загрузки один брошенный файл запускал бы несколько загрузок разом.
+    if (zone.dataset.dndBound) return;
+    zone.dataset.dndBound = '1';
     ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
     ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
     zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) doUploadWbAds(f, zone); });
@@ -2279,13 +2283,12 @@ const Views = (() => {
     try {
       const res = await API.uploadWbAds(file);
       const period = res.period_text || '';
-      const updated = (res.updated || 0) + (res.inserted || 0);
-      App.toast('✓ WB реклама · обновлено строк: ' + U.fmtNum(updated) + (period ? ' · ' + period : ''), 'ok');
-      const skipped = res.skipped_not_in_catalog || 0;
-      if (skipped) {
-        warnHtml = '<div class="up-warn">⚠ Артикулов без строки продаж за эту дату: ' + U.fmtNum(skipped) + '. Сначала загрузите Воронку WB за ту же дату, затем повторите загрузку рекламы.</div>';
-      }
-      if (API.cacheClear) { API.cacheClear('/api/rnp_sales'); }
+      App.toast('✓ WB реклама · ' + period + ' · РНП: ' + U.fmtNum(res.rnp_rows || 0) + ' строк · кампании: ' + U.fmtNum(res.campaign_rows || 0), 'ok');
+      const notes = [];
+      if (res.rnp_outside) notes.push('Артикулов вне справочника (в РНП не попали): ' + U.fmtNum(res.rnp_outside) + '.');
+      if ((res.no_article || []).length) notes.push('Без артикула продавца (артикулы WB): ' + U.esc(res.no_article.join(', ')) + '. Такие строки не попадут в отчёты по товарам.');
+      if (notes.length) warnHtml = '<div class="up-warn">⚠ ' + notes.join(' ') + '</div>';
+      if (API.cacheClear) { API.cacheClear('/api/rnp_sales'); API.cacheClear('/api/ads/wb/'); }
     } catch (e) {
       App.toast('Ошибка загрузки: ' + e.message, 'err');
       errHtml = '<div class="note err" style="margin-top:10px;padding:9px 12px;font-size:12.5px;line-height:1.4">✖ Файл не загружен. ' + U.esc(e.message) + '</div>';
@@ -2490,7 +2493,7 @@ const Views = (() => {
     // Остатки Ozon по складам (раздел «Склады → OZON») — загрузчик ozon_wh_stock_loader.py
     // пишет period_kind='ozon_stock' (константа PERIOD_KIND) — маппим на ту же метку, что и wb_stock.
     if (kind === 'ozon_stock') return '<span class="kind-pill kind-week">Остатки</span>';
-    // Статистика рекламы WB для раздела «Реклама» (wb_ads_stats_loader.py).
+    // Статистика рекламы WB: раздел «Реклама» и, с 17.11.2026, реклама РНП WB (wb_ads_stats_loader.py).
     if (kind === 'wb_ads_stats') return '<span class="kind-pill kind-week">Реклама WB</span>';
     return '<span class="kind-pill kind-na">—</span>';
   }
@@ -7266,15 +7269,18 @@ const Views = (() => {
             </div>
           </div>
           <div class="card">
-            <h3>Wildberries — отчёт рекламы (Статистика РК)</h3>
+            <h3>Wildberries — статистика рекламы</h3>
             <div class="upload-zone" id="uz-wbads">
               <div style="font-size:28px;">⬆️</div>
               <div>Перетащите Excel сюда или <a href="#" id="pick-wbads">выберите файл</a></div>
-              <div class="muted" style="font-size:12px;margin-top:6px;">Отчёт «Статистика рекламных кампаний» WB, .xlsx · Расход и CTR</div>
+              <div class="muted" style="font-size:12px;margin-top:6px;">«Дашборд - рекламная статистика», .xlsx · расход и CTR для РНП, кампании, воронка и поисковые кластеры для раздела «Реклама»</div>
               <input type="file" id="file-wbads" accept=".xlsx,.xls" class="hidden">
             </div>
-            <div class="muted fact-date-hint">Где взять: 1С → отчёт «Статистика рекламных кампаний Wildberries» → период (со вчерашнего дня и два предыдущих) → организация «ТД АВТОПРОФИ» → кнопка «Сформировать» в поле отчёта → сохранить отчёт в XLSX.</div>
-            <div class="muted fact-date-hint">Дата берётся из файла. Несколько кампаний по одному артикулу суммируются. Расход и CTR дописываются к дневным продажам за эту дату. Сначала загрузите Воронку за ту же дату. ДРР рассчитывается автоматически.</div>
+            <div class="muted fact-date-hint">Даты берутся из файла (обычно последние 5 дней) и перезаписываются целиком: WB дописывает заказы и отмены за прошлые дни. Несколько кампаний по одному артикулу суммируются, ДРР рассчитывается автоматически. Дни раньше первого такого файла остаются из отчёта 1С.</div>
+            <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
+              Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1UM58THnOuTdJfom7ii4qbjLPTJ20vYV7lT918Dee6rU/edit?gid=2144630957#gid=2144630957" target="_blank" rel="noopener noreferrer"
+                title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">Дашборд - рекламная статистика</a>
+            </div>
           </div>
           <div class="card">
             <h3>Мониторинг цен конкурентов Wildberries</h3>
@@ -12343,63 +12349,14 @@ const Views = (() => {
       <div class="card rnp-card mp-cross">
         <div class="rnp-toolbar"><div class="subtabs" id="ads-subtabs"></div></div>
       </div>
-      <div class="grid-3">
-        <div class="card">
-          <h3>Wildberries — статистика рекламы</h3>
-          <div class="upload-zone" id="uz-adswb">
-            <div style="font-size:28px;">⬆️</div>
-            <div>Перетащите Excel сюда или <a href="#" id="pick-adswb">выберите файл</a></div>
-            <div class="muted" style="font-size:12px;margin-top:6px;">«Дашборд - рекламная статистика», .xlsx · кампании, воронка карточек, поисковые кластеры, справочник товаров</div>
-            <input type="file" id="file-adswb" accept=".xlsx,.xls" class="hidden">
-          </div>
-          <div class="muted fact-date-hint">Даты берутся из файла. Дни из файла перезаписываются целиком: WB дописывает заказы и отмены за прошлые дни, поэтому каждая новая выгрузка уточняет уже загруженные дни. Реклама в РНП по-прежнему берётся из отчёта 1С.</div>
-          <div class="pl-data-source" style="margin-top:10px;font-size:12px;line-height:1.5;">
-            Где взять данные: <a href="https://docs.google.com/spreadsheets/d/1UM58THnOuTdJfom7ii4qbjLPTJ20vYV7lT918Dee6rU/edit?gid=2144630957#gid=2144630957" target="_blank" rel="noopener noreferrer"
-              title="Открыть в новой вкладке. Скачайте таблицу в формате Excel (.xlsx) и загрузите сюда.">Дашборд - рекламная статистика</a>
-          </div>
-        </div>
-      </div>
       <div class="card">
         <h3 style="margin:0 0 10px;">Журнал загрузок</h3>
+        <div class="muted fact-date-hint" style="margin:0 0 10px;">Статистика рекламы WB загружается в «РНП → Загрузка данных → Wildberries» и сразу попадает и в РНП, и сюда.</div>
         <div id="uphist-adswb"><div class="loader"><span class="spinner"></span></div></div>
       </div>`;
     adsSubtabs(root.querySelector('#ads-subtabs'));
-    applyUploadRights(root, { 'uz-adswb': 'ads.upload.wb' }, 'ads.uploads.log');
-    const zone = root.querySelector('#uz-adswb');
-    const input = root.querySelector('#file-adswb');
-    root.querySelector('#pick-adswb').addEventListener('click', (e) => { e.preventDefault(); input.click(); });
-    input.addEventListener('change', () => { if (input.files[0]) doUploadAdsWb(input.files[0], zone, root); });
-    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
-    ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
-    zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) doUploadAdsWb(f, zone, root); });
+    applyUploadRights(root, {}, 'ads.uploads.log');
     if (App.can('ads.uploads.log')) loadOneUploadHistory('uphist-adswb', 'ads_wb');
-  }
-
-  async function doUploadAdsWb(file, zone, root) {
-    const card = zone.closest('.card');
-    card.querySelectorAll('.up-warn, .note.err').forEach(el => el.remove());
-    const orig = zone.innerHTML;
-    let note = '';
-    zone.innerHTML = '<div class="loader"><span class="spinner"></span><div style="margin-top:8px">Загрузка ' + U.esc(file.name) + '…</div></div>';
-    try {
-      const res = await API.uploadWbAdsStats(file);
-      App.toast('✓ Реклама WB · ' + (res.period_text || '') + ' · кампании: ' + U.fmtNum(res.campaign_rows) + ', кластеры: ' + U.fmtNum(res.cluster_rows), 'ok');
-      if ((res.no_article || []).length) {
-        note = '<div class="up-warn">⚠ Без артикула продавца (артикулы WB): ' + U.esc(res.no_article.join(', ')) + '. Такие строки не попадут в отчёт по товарам.</div>';
-      }
-      if (API.cacheClear) API.cacheClear('/api/ads/wb/');   // дерево и «связанные заказы»
-    } catch (e) {
-      App.toast('Ошибка загрузки: ' + e.message, 'err');
-      note = '<div class="note err" style="margin-top:10px;padding:9px 12px;font-size:12.5px;line-height:1.4">✖ Файл не загружен. ' + U.esc(e.message) + '</div>';
-    } finally {
-      zone.innerHTML = orig;
-      // Разметка зоны пересоздана — заново привязываем выбор файла.
-      const input = zone.querySelector('#file-adswb');
-      zone.querySelector('#pick-adswb').addEventListener('click', (ev) => { ev.preventDefault(); input.click(); });
-      input.addEventListener('change', () => { if (input.files[0]) doUploadAdsWb(input.files[0], zone, root); });
-      if (note) zone.insertAdjacentHTML('afterend', note);
-      if (App.can('ads.uploads.log')) await loadOneUploadHistory('uphist-adswb', 'ads_wb');
-    }
   }
 
   // Раздел «P&L» — static/js/pnl.js (window.PnlView).

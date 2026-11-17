@@ -13,7 +13,7 @@ seller_article).
 
 Особенность: WB/1С-выгрузки часто пишут служебные имена в zip с иным
 регистром (SharedStrings.xml). openpyxl на таких падает — читаем через
-python_calamine (как wb_daily_loader / wb_ads_loader).
+python_calamine (как wb_daily_loader / wb_ads_stats_loader).
 
 Сопоставление артикулов — util.canon_article (trim + схлоп пробелов +
 гомоглифы + UPPER). Пишем себестоимость ТОЛЬКО по товарам, которые есть

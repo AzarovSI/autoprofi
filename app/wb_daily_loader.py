@@ -102,7 +102,7 @@ ZERO_FILL_COLS = [
 # Поля wb_daily_sales, которые наполняют ДРУГИЕ загрузчики. При перезаписи дат
 # (DELETE+INSERT) сохраняем их по ключу (date, seller_article):
 #   • reviews_qty                        — отчёт «Рейтинг» (wb_reviews_loader)
-#   • ads_expense_rub, ctr_pct, ads_*    — отчёт рекламы (wb_ads_loader)
+#   • ads_expense_rub, ctr_pct, ads_*    — статистика рекламы (wb_ads_stats_loader)
 #   • stock_ap_qty                       — остатки ТД АВТОПРОФИ (ozon_stock_loader)
 #   • comp_price_avg, comp_price_min     — цены конкурентов PriceVA (wb_priceva_loader)
 PRESERVE_COLS = [

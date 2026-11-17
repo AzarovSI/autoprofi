@@ -30,14 +30,13 @@ from .. import ozon_reviews_loader
 from .. import ozon_priceva_loader
 from .. import wb_daily_loader
 from .. import wb_reviews_loader
-from .. import wb_ads_loader
 from .. import wb_priceva_loader
 from .. import wb_pi_loader
 from .. import wb_stock_loader
 from .. import ya_daily_loader
 from .. import ya_stock_loader          # ежедневные остатки склада Яндекс (FBY) -> ya_daily_sales.stock_ya_qty
 from .. import cost_loader
-from .. import wb_ads_stats_loader      # статистика рекламы WB -> раздел «Реклама»
+from .. import wb_ads_stats_loader      # статистика рекламы WB -> раздел «Реклама» и реклама РНП WB
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
@@ -93,21 +92,22 @@ def history(kind: str = "all", user=Depends(auth.get_current_user)):
     Групповые наборы для трёх блоков «Загрузка данных» (РНП заказы):
           | 'rnps_ozon'   — отчёты для РНП заказы Ozon (daily, ads, reviews, competitors)
           | 'rnps_common' — общие отчёты (stock — остатки АВТОПРОФИ, общие по Ozon и WB)
-          | 'rnps_wb'     — отчёты для РНП заказы Wildberries (wb_daily, wb_ads, wb_reviews, wb_stock, wb_pi)
+          | 'rnps_wb'     — отчёты для РНП заказы Wildberries (wb_daily, wb_ads_stats, wb_reviews, wb_pi;
+                            wb_ads — старые загрузки рекламы из 1С)
           | 'rnps'        — старый объединённый набор (оставлен для совместимости)."""
     # Право на журнал — по разделу, к которому относится набор (docs/access_roles.md).
     # Неизвестный набор и 'all' (все загрузки) — нужны журналы всех трёх разделов.
     log_codes = _HISTORY_CODES.get(kind)
-    # Журнал рекламы (с 28.10.2026) в «все загрузки» не требуется: без права на него
-    # загрузки рекламы WB просто не показываются.
+    # Журнал рекламы в «все загрузки» не требуется: загрузки рекламы WB с 17.11.2026 — и загрузки РНП.
     for code in (log_codes,) if log_codes else set(_HISTORY_CODES.values()) - {"ads.uploads.log"}:
         auth.check(user, code)
-    where = "" if log_codes or auth.can(user, "ads.uploads.log") else "WHERE period_kind <> 'wb_ads_stats'"
+    where = ""
     params = ()
     # Набор period_kind для РНП заказы WB (Воронка/Реклама/Рейтинг/Pi).
     # wb_stock (остатки по складам) относится к разделу «Склады» и в журнал
     # РНП заказы НЕ входит — у него отдельный фильтр kind='wb_stock'.
-    WB_KINDS = ('wb_daily', 'wb_ads', 'wb_reviews', 'wb_pi')
+    # wb_ads_stats — статистика рекламы WB (с 17.11.2026 и для РНП), wb_ads — прежние загрузки из 1С.
+    WB_KINDS = ('wb_daily', 'wb_ads', 'wb_ads_stats', 'wb_reviews', 'wb_pi')
     # Набор period_kind для РНП заказы Яндекс (пока только «Аналитика продаж»).
     YA_KINDS = ('ya_daily', 'ya_stock')
     if kind == "weekly":
@@ -750,53 +750,11 @@ def upload_wb_reviews(file: UploadFile = File(...),
 @router.post("/wb_ads")
 def upload_wb_ads(file: UploadFile = File(...),
                   user=Depends(auth.require("rnp.upload.wb_ads"))):
-    """Приём отчёта «Статистика рекламных кампаний» Wildberries.
+    """Приём «Дашборд - рекламная статистика» Wildberries (с 17.11.2026 вместо отчёта 1С).
 
-    Несколько строк на (дата+артикул) = разные кампании; агрегируем по дню:
-    ads_expense_rub = ΣЗатраты; ctr_pct = Σclicks/Σviews (ДОЛЯ 0..1; ПЕРЕСЧЁТ, не сумма).
-    Обновляет строки wb_daily_sales по (date, seller_article).
-    """
-    suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(file.file.read())
-        conn = psycopg.connect(db.DB_DSN, connect_timeout=15)
-        try:
-            _set_uploader(conn, user)
-            res = wb_ads_loader.load_wb_ads(conn, tmp_path)
-        finally:
-            conn.close()
-        if not res.get("ok"):
-            detail = res.get("error") or "Ошибка формата отчёта рекламы WB"
-            raise HTTPException(status_code=422, detail=detail)
-        cache.bump(RNP_TREE_CACHE_NS_WB)  # расходы/CTR обновились → сброс кэша WB
-        return {
-            "ok": True,
-            "marketplace": res.get("marketplace"),
-            "rows_loaded": res.get("rows_loaded"),
-            "updated": res.get("updated"),
-            "inserted": res.get("inserted"),
-            "sku_total": res.get("sku_total"),
-            "skipped_not_in_catalog": res.get("skipped_not_in_catalog"),
-            "dates": res.get("dates"),
-            "period_text": res.get("period_text"),
-            "upload_id": res.get("upload_id"),
-        }
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-
-
-@router.post("/wb_ads_stats")
-def upload_wb_ads_stats(file: UploadFile = File(...),
-                        user=Depends(auth.require("ads.upload.wb"))):
-    """Приём «Дашборд - рекламная статистика» Wildberries для раздела «Реклама».
-
-    Дни из файла перезаписываются целиком (кампании и кластеры), справочник — UPSERT.
-    РНП не меняется: реклама в РНП по-прежнему из отчёта 1С (wb_ads).
+    Одна загрузка — раздел «Реклама» (кампании, кластеры, воронка, справочник; дни файла
+    перезаписываются целиком) и реклама РНП WB за те же дни: расход = Σ затрат,
+    ctr_pct = Σ кликов / Σ показов (доля). Журнал — period_kind 'wb_ads_stats'.
     """
     suffix = os.path.splitext(file.filename or "")[1] or ".xlsx"
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
@@ -811,6 +769,7 @@ def upload_wb_ads_stats(file: UploadFile = File(...),
             conn.close()
         if not res.get("ok"):
             raise HTTPException(status_code=422, detail=res.get("error") or "Ошибка формата файла рекламы WB")
+        cache.bump(RNP_TREE_CACHE_NS_WB)  # расход и CTR обновились → сброс кэша дерева WB
         return res
     finally:
         try:

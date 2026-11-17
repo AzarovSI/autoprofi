@@ -283,17 +283,11 @@ const API = (() => {
       fd.append('file', file);
       return request('/api/upload/wb_reviews', { method: 'POST', body: fd });
     },
-    // «Статистика рекламных кампаний» WB: Расход и CTR. Дата берётся из файла.
+    // «Дашборд - рекламная статистика» WB → реклама РНП WB и раздел «Реклама». Даты — из файла.
     uploadWbAds: (file) => {
       const fd = new FormData();
       fd.append('file', file);
       return request('/api/upload/wb_ads', { method: 'POST', body: fd });
-    },
-    // «Дашборд - рекламная статистика» WB → раздел «Реклама». Даты — из файла.
-    uploadWbAdsStats: (file) => {
-      const fd = new FormData();
-      fd.append('file', file);
-      return request('/api/upload/wb_ads_stats', { method: 'POST', body: fd });
     },
     // Дерево отчёта «Реклама → Wildberries».
     adsWbTree: (p) => cget('/api/ads/wb/tree' + qs(p)),

@@ -37,7 +37,7 @@
     Масштаб берётся из формата ячейки, не из величины. `app/wb_reviews_loader.py:_to_spp`, `_read_sheet`. Тест: `tests/test_wb_reviews_percent.py`.
   - Прямые ценовые отчёты WB/Ozon: текст с `%` или число > 1 делятся на 100, число ≤ 1 считается долей; 0/пусто = нет СПП.
     `app/price_upload.py:_wb_spp`. Тест: `tests/test_wb_prices.py` (test_blank_first_sheet_and_real_percent).
-  - WB «Воронка»: конверсии приходят процентами и делятся на 100; CTR рекламы = Σклики / Σпоказы (не сумма и не среднее готовых процентов). `app/wb_daily_loader.py`, `app/wb_ads_loader.py`. Тестов нет.
+  - WB «Воронка»: конверсии приходят процентами и делятся на 100; CTR рекламы = Σклики / Σпоказы (не сумма и не среднее готовых процентов). `app/wb_daily_loader.py`, `app/wb_ads_stats_loader.py` (с 17.11.2026; тест `tests/test_ads_wb.py`).
 - **NULL ≠ 0.** Прочерк — нет данных, 0 — реальный ноль.
   - Дневные счётчики WB (заказы, отмены, переходы, корзины, CR) при существующей строке дня пустую ячейку пишут как 0 (`app/wb_daily_loader.py`, ZERO_FILL_COLS); снимки (рейтинг, позиция, остаток WB) остаются NULL.
   - Нет строки товара за день → в ячейке прочерк. Вчерашнее значение на пустой сегодняшний день не переносится. Тест: `tests/test_rnp_partial_days.py` (test_no_carry_from_yesterday, test_today_without_orders_keeps_values_and_dashes).

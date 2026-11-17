@@ -39,7 +39,7 @@ from .rnp_sales_router import TURN_BLUE, TURN_RED, TURN_WINDOW_DAYS, _today
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
-MIGRATIONS = ["2026_10_28_wb_ads_stats", "2026_10_29_wb_ads_funnel"]
+MIGRATIONS = ["2026_10_28_wb_ads_stats", "2026_10_29_wb_ads_funnel", "2026_11_17_wb_ads_rnp"]
 UNDISTRIBUTED = "Не распределены"
 FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "cancels", "linked",
           "f_visits", "f_carts", "f_orders", "f_orders_a", "f_rub_a", "orders_f", "spend_f")

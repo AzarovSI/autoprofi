@@ -70,7 +70,6 @@ CASES = [
     ("GET", "/api/upload/history?kind=all", {},
      ["rnp.uploads.log", "unit.uploads.log", "stock.uploads.log"], []),
     ("GET", "/api/upload/history?kind=ads_wb", {}, ["ads.uploads.log"], []),
-    up("/api/upload/wb_ads_stats", "ads.upload.wb"),
     ("GET", "/api/ads/wb/tree", {}, ["ads.open", tab("ads", WB)], [WB]),
     # Юнит-экономика
     *[("GET", f"/api/rnp/tree?marketplace={p}", {}, ["unit.open", tab("unit", mp)], [mp])

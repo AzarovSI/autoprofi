@@ -70,13 +70,20 @@ class AdsWbTest(unittest.TestCase):
             # В тестовой схеме у этих таблиц только часть колонок рабочей БД.
             conn.execute("""ALTER TABLE wb_daily_sales ADD COLUMN IF NOT EXISTS nm_id bigint,
                             ADD COLUMN IF NOT EXISTS avg_search_position numeric,
-                            ADD COLUMN IF NOT EXISTS stock_wb_qty numeric""")
+                            ADD COLUMN IF NOT EXISTS stock_wb_qty numeric,
+                            ADD COLUMN IF NOT EXISTS upload_id bigint""")
+            conn.execute("ALTER TABLE wb_daily_sales " + ", ".join(
+                f"ADD COLUMN IF NOT EXISTS {c} numeric" for c in loader.RNP_COLS))
+            # Ключ строки РНП, как UNIQUE (date, seller_article) в рабочей БД; снимается в tearDown.
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS test_wb_daily_sales_key "
+                         "ON wb_daily_sales (date, seller_article)")
             conn.execute("DELETE FROM wb_daily_sales WHERE seller_article LIKE 'SKU-%'")
             conn.execute("ALTER TABLE catalog_marketplace ADD COLUMN IF NOT EXISTS manager text, "
                          "ADD COLUMN IF NOT EXISTS product_url text")
             conn.execute("""CREATE TABLE report_uploads (id bigserial PRIMARY KEY, marketplace text, year int,
                 period_text text, period_start date, period_end date, source_file text, rows_loaded int,
-                status text, message text, period_kind text)""")
+                status text, message text, period_kind text, week int, month int,
+                uploaded_at timestamptz DEFAULT now(), uploaded_by_user_id int)""")
             conn.execute("DELETE FROM price_model_hist WHERE seller_article LIKE 'SKU-%'")
         ids = {r["name"]: r["id"] for r in db.query_all("SELECT id, name FROM app_roles")}
         db.execute("INSERT INTO app_users (id, email, display_name, role, role_id) VALUES "
@@ -88,6 +95,7 @@ class AdsWbTest(unittest.TestCase):
     def tearDown(self):
         db.execute("DELETE FROM price_model_hist WHERE seller_article LIKE %s", ("SKU-%",))
         db.execute("DELETE FROM wb_daily_sales WHERE seller_article LIKE %s", ("SKU-%",))
+        db.execute("DROP INDEX IF EXISTS test_wb_daily_sales_key")
         reset_ads()
         db.execute("DELETE FROM app_users WHERE id >= 100")
         reset_roles()
@@ -106,8 +114,25 @@ class AdsWbTest(unittest.TestCase):
     def test_rights_only_for_marketing(self):
         rows = db.query_all("SELECT r.name, p.permission FROM app_role_permissions p JOIN app_roles r "
                             "ON r.id = p.role_id WHERE p.permission IN ('ads.upload.wb', 'ads.uploads.log')")
-        self.assertEqual({(r["name"], r["permission"]) for r in rows},
-                         {("Маркетинг", "ads.upload.wb"), ("Маркетинг", "ads.uploads.log")})
+        # №120 убрано 17.11.2026: файл грузится в РНП по праву №23, его теперь есть и у «Маркетинга».
+        self.assertEqual({(r["name"], r["permission"]) for r in rows}, {("Маркетинг", "ads.uploads.log")})
+        upload = {r["name"] for r in db.query_all(
+            "SELECT r.name FROM app_role_permissions p JOIN app_roles r ON r.id = p.role_id "
+            "WHERE p.permission = 'rnp.upload.wb_ads'")}
+        self.assertIn("Маркетинг", upload)
+        self.assertIn("РОП", upload)          # у прежних ролей право осталось
+
+    def test_rights_migration_moves_copied_roles(self):
+        """Роль с правом №120 (например, копия «Маркетинга») получает №23, №120 удаляется."""
+        rop = db.query_one("SELECT id FROM app_roles WHERE name='РОП'")["id"]
+        db.execute("DELETE FROM app_role_permissions WHERE role_id=%s AND permission='rnp.upload.wb_ads'", (rop,))
+        db.execute("INSERT INTO app_role_permissions (role_id, permission) VALUES (%s, 'ads.upload.wb')", (rop,))
+        db.execute("DELETE FROM app_schema_migrations WHERE name='2026_11_17_wb_ads_rnp'")
+        ads_router.migrate()
+        left = {r["permission"] for r in db.query_all(
+            "SELECT permission FROM app_role_permissions WHERE role_id=%s", (rop,))}
+        self.assertIn("rnp.upload.wb_ads", left)
+        self.assertNotIn("ads.upload.wb", left)
         self.assertEqual(self.tree(uid=103).status_code, 403)
         self.assertEqual(self.get("/api/ads/wb/linked", 103, campaign_id=1, date_from="2026-10-22",
                                   date_to="2026-10-22").status_code, 403)
@@ -149,6 +174,45 @@ class AdsWbTest(unittest.TestCase):
         self.assertEqual([r["status"] for r in db.query_all("SELECT status FROM report_uploads ORDER BY id")],
                          ["OK", "OK"])
 
+    def test_rnp_ads_from_file_days(self):
+        """Реклама РНП WB (17.11.2026): дни файла очищаются и заполняются суммами по товарам справочника."""
+        d0, d1, d2 = D(2026, 11, 11), D(2026, 11, 12), D(2026, 11, 13)
+        db.execute("INSERT INTO wb_daily_sales (date, seller_article, ads_expense_rub, ctr_pct, ads_views) VALUES "
+                   "(%s, 'SKU-1', 500, .1, 1000), (%s, 'SKU-1', 999, .2, 10), (%s, 'SKU-2', 300, .3, 20)",
+                   (d0, d1, d1))
+        data = book([camp(d1, 1, "Поиск", 11, "SKU-1", True, 100, 5, 50.0, 1, 1000),
+                     camp(d1, 2, "Поиск", 11, "SKU-1", True, 300, 15, 150.0, 2, 3000),
+                     camp(d1, 3, "Поиск", 11, "SKU-1", False, 0, 0, 0.0, 1, 900),   # связанный заказ — не в РНП
+                     camp(d1, 1, "Поиск", 19, "SKU-9", True, 100, 1, 20.0, 0, 0),   # нет в справочнике
+                     camp(d2, 1, "Поиск", 12, "SKU-2", False, 0, 0, 0.0, 1, 700),   # только связанный заказ
+                     camp(d2, 4, "Поиск", 12, "SKU-2", True, 0, 0, 0.0, 0, 0)],      # кампания без показов
+                    funnel_rows=[])
+        with patch.object(loader, "_read_book", return_value=data):
+            token = auth.create_token({"id": 102, "email": ""})   # «Маркетинг»
+            r = self.client.post("/api/upload/wb_ads", files={"file": ("ads.xlsx", b"x")},
+                                 headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["rnp_rows"], r.json()["rnp_outside"]), (2, 1))
+        got = {(x["date"], x["seller_article"]): x for x in db.query_all(
+            "SELECT * FROM wb_daily_sales WHERE seller_article LIKE %s", ("SKU-%",))}
+        self.assertEqual(set(got), {(d0, "SKU-1"), (d1, "SKU-1"), (d1, "SKU-2"), (d2, "SKU-2")})
+        self.assertEqual(float(got[d0, "SKU-1"]["ads_expense_rub"]), 500)    # день до файла — как был (1С)
+        a = got[d1, "SKU-1"]
+        self.assertEqual([float(a[c]) for c in ("ads_expense_rub", "ads_views", "ads_clicks", "ads_orders",
+                                                "ads_sum_price")], [200, 400, 20, 3, 4000])
+        self.assertAlmostEqual(float(a["ctr_pct"]), .05)                     # Σ кликов / Σ показов — доля
+        self.assertAlmostEqual(float(a["ads_avg_cpc"]), 10)
+        self.assertTrue(all(got[d1, "SKU-2"][c] is None for c in loader.RNP_COLS))   # пропал из файла
+        b = got[d2, "SKU-2"]                                                 # заглушка: реклама без показов
+        self.assertEqual((float(b["ads_expense_rub"]), float(b["ads_orders"]), b["ctr_pct"], b["ads_avg_cpc"]),
+                         (0, 0, None, None))
+        # Журнал РНП WB показывает загрузку.
+        token = auth.create_token({"id": 103, "email": ""})                  # РОП
+        hist = self.client.get("/api/upload/history", params={"kind": "rnps_wb"},
+                               headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(hist.status_code, 200, hist.text)
+        self.assertEqual([h["period_kind"] for h in hist.json()], ["wb_ads_stats"])
+
     def test_loader_rejects_duplicates_and_missing_columns(self):
         d = D(2026, 10, 22)
         row = camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 5, 50.0, 1, 1000)
@@ -189,14 +253,15 @@ class AdsWbTest(unittest.TestCase):
     def test_stock_days_like_rnp(self):
         """Запас в днях — как в РНП (node_turnover): общая опорная дата, окно 30 дней, остаток строго на опорную дату."""
         d1, d2 = D(2026, 10, 22), D(2026, 10, 23)
-        self.assertTrue(self.load(book([
-            camp(d2, i, "Поиск", 10 + i, f"SKU-{i}", True, 100, 10, 100.0, 1, 1000) for i in (1, 2, 3, 4)
-        ], funnel_rows=[]))["ok"])
+        # Строки РНП — до загрузки рекламы: загрузка дописывает к ним расход и CTR.
         db.execute("INSERT INTO wb_daily_sales (seller_article, date, orders_qty, stock_wb_qty) VALUES "
                    "('SKU-1', '2026-10-22', 10, 90), ('SKU-1', '2026-10-23', 10, 100), "  # 100 / (20 / 2 дня) = 10
                    "('SKU-2', '2026-10-23', 5, 0), "                                      # нет остатка → 0
                    "('SKU-3', '2026-10-22', 10, 100), "                                   # на опорную дату строки нет → нет
                    "('SKU-4', '2026-10-23', 0, 50)")                                      # остаток без заказов → ∞
+        self.assertTrue(self.load(book([
+            camp(d2, i, "Поиск", 10 + i, f"SKU-{i}", True, 100, 10, 100.0, 1, 1000) for i in (1, 2, 3, 4)
+        ], funnel_rows=[]))["ok"])
         data = self.tree(date_from="2026-10-01", date_to="2026-10-31").json()
         prods = {}
 
@@ -219,13 +284,13 @@ class AdsWbTest(unittest.TestCase):
     def test_search_position_from_rnp(self):
         """Средняя позиция в поиске — из РНП, только у товара, за дни отчёта; месяц — среднее по дням > 0 (02.11.2026)."""
         d1, d2, d3 = D(2026, 10, 22), D(2026, 10, 23), D(2026, 10, 24)
-        self.assertTrue(self.load(book([
-            camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000) for d in (d1, d2, d3)
-        ], funnel_rows=[]))["ok"])
         # 22.10 — 10, 23.10 — 0 (не позиция), 24.10 — 20, 25.10 — 40, но рекламы за этот день нет.
         db.execute("INSERT INTO wb_daily_sales (seller_article, date, avg_search_position) VALUES "
                    "('SKU-1', '2026-10-22', 10), ('SKU-1', '2026-10-23', 0), ('SKU-1', '2026-10-24', 20), "
                    "('SKU-1', '2026-10-25', 40)")
+        self.assertTrue(self.load(book([
+            camp(d, 1, "Поиск", 11, "SKU-1", True, 100, 10, 100.0, 1, 1000) for d in (d1, d2, d3)
+        ], funnel_rows=[]))["ok"])
         data = self.tree(date_from="2026-10-01", date_to="2026-10-31").json()
         l3 = data["tree"]["children"][0]["children"][0]["children"][0]
         prod = l3["children"][0]
