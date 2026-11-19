@@ -5357,12 +5357,6 @@ const Views = (() => {
       + RNPS_MARKS.map(m => `<button type="button" class="rnps-mk-chip rnps-mk-${m.k}${on.has(m.k) ? ' on' : ''}" data-mk="${m.k}"><i></i>${m.label}</button>`).join('')
       + '</div>';
   }
-  // Подсказка у заголовка «Рекламы WB»: что значат уголок и точки (в РНП убрана 19.11.2026 по решению владельца).
-  function rnpsMarkKeyHtml() {
-    if (!App.can('rnp.comments.view')) return '';
-    return '<span class="rnps-mk-key"><span><b class="rnps-mk-corner"></b>Комментарий</span>'
-      + RNPS_MARKS.map(m => `<span class="rnps-mk-${m.k}"><i></i>${m.label}</span>`).join('') + '</span>';
-  }
   // Выбранные отметки в контейнере с кнопками.
   function rnpsMarkPicked(box) {
     return box ? Array.from(box.querySelectorAll('.rnps-mk-chip.on')).map(b => b.getAttribute('data-mk')) : [];
@@ -12474,7 +12468,7 @@ const Views = (() => {
           </div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">Реклама по дням Wildberries${rnpsMarkKeyHtml()}</div>
+          <div class="rnp-card-title">Реклама по дням Wildberries</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             <span class="rnp-status-leg rnp-fixleft">Статус</span>
