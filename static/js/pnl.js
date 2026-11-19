@@ -108,12 +108,11 @@ window.PnlView = (function () {
   const lastDay = (k) => { const [y, m] = k.split('-').map(Number); return K(y, m) + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'); };
   // Неполный месяц: «факт по» раньше последнего дня месяца хоть у одной площадки вкладки.
   const isPartial = (k, keys = tabDef().keys) => keys.some((s) => { const d = ((D.partial || {})[s] || {})[k]; return d && d < lastDay(k); });
-  // Сопоставимый месяц: каждая площадка вкладки, что есть в этом году, была и год назад
-  // (иначе рост сводной — это просто подключение второй площадки).
-  function comparable(y, m) {
-    const cur = tabDef().keys.filter((s) => raw(s, K(y, m)));
-    return cur.length > 0 && cur.every((s) => raw(s, K(y - 1, m)) && !isPartial(K(y - 1, m), [s]));
-  }
+  // Период сравнения с прошлым годом — те же закрытые месяцы, что прошли в этом году (янв–окт
+  // против янв–окт), какие бы площадки и за какие месяцы ни были год назад (решение владельца
+  // 19.11.2026; до него месяц брали, только если год назад была каждая площадка вкладки).
+  // Нет прошлогодних данных ни за один из этих месяцев — сравнения нет.
+  const compMonths = (y, closed) => (closed.some((m) => cellOf(K(y - 1, m))) ? closed : []);
   const val = (c, r) => (c == null ? null : (r.calc ? r.calc(c) : c[r.f]));
   function years() {
     const ys = new Set();
@@ -142,7 +141,7 @@ window.PnlView = (function () {
     const y = S.year, ms = months(y);
     const part = (m) => isPartial(K(y, m));
     const closed = ms.filter((m) => !part(m));
-    const comp = closed.filter((m) => comparable(y, m));
+    const comp = compMonths(y, closed);
     const cols = ms.map((m) => cellOf(K(y, m)));
     const tot = sum(closed.map((m) => cellOf(K(y, m))));
     const ly = sum(comp.map((m) => cellOf(K(y - 1, m))));
@@ -208,7 +207,7 @@ window.PnlView = (function () {
 
   function dashData() {
     const y = S.year, ms = months(y).filter((m) => !isPartial(K(y, m)));
-    const comp = ms.filter((m) => comparable(y, m));
+    const comp = compMonths(y, ms);
     return {
       y, ms, comp,
       cur: ms.map((m) => rubs(cellOf(K(y, m)))),
@@ -255,7 +254,7 @@ window.PnlView = (function () {
       tb += '</tr>';
     });
     const cmpNote = !d.comp.length ? `сравнения с ${d.y - 1} нет — прошлогодних данных за эти месяцы нет`
-      : `сравнение с ${d.y - 1} — по сопоставимым месяцам (${rng(d.comp)})`;
+      : `сравнение с ${d.y - 1} — за те же месяцы (${rng(d.comp)})`;
     const lg = [['holds', 'Удержания площадки'], ['ads', 'Продвижение'], ['cogs', 'Себестоимость'], ['profit', 'Прибыль']]
       .map(([f, l]) => `<span><i style="background:${DC[f]}"></i>${l}</span>`).join('');
     return `<div class="card rnp-card mp-${t.cls} pnl-d-card">
