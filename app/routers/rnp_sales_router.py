@@ -36,7 +36,7 @@ from fastapi.responses import Response
 from .. import db, auth, fastjson
 from .. import cache
 from .. import daily_pi
-from ..util import l1_sort_key, cat_sort_key, is_undistributed
+from ..util import l1_sort_key, cat_sort_key, is_undistributed, canon_article
 from . import rnp_router
 
 router = APIRouter(prefix="/api/rnp_sales", tags=["rnp_sales"])
@@ -153,6 +153,49 @@ def _f(v):
 
 def _div(a, b):
     return (a / b) if b else None
+
+
+# Рупор «реклама включена» (19.11.2026, решение владельца): дневная таблица площадки с расходом на рекламу.
+ADS_TABLES = {"Ozon": "ozon_daily_sales", "Wildberries": "wb_daily_sales", "Yandex": "ya_daily_sales"}
+
+
+def ads_flags(mp):
+    """Признаки рупора по товарам площадки: (последний день рекламы, {артикул: {"on", "over"}}).
+
+    Последний загруженный день рекламы — последняя дата не позже сегодня, где у любого товара расход > 0.
+    on — у товара в этот день расход > 0 (рупор в РНП). over — средний ДРР месяца этого дня (расходы /
+    сумма заказов с 1-го числа по этот день, как «ДРР, общая» РНП) выше планового ДРР «Ценовой модели»,
+    действующего на этот день. Нет плана, расходов или заказов — over = False. Артикулы — canon_article.
+    Общий для РНП и «Рекламы WB», чтобы рупор краснел в обоих отчётах одинаково."""
+    table = ADS_TABLES.get(mp)
+    if not table:
+        return None, {}
+    row = db.query_one(f"SELECT max(date) AS d FROM {table} WHERE ads_expense_rub > 0 AND date <= %s", (_today(),))
+    day = row["d"] if row else None
+    if not day:
+        return None, {}
+    plans = {}                                          # по дате: последняя запись артикула (canon) побеждает
+    for r in db.query_all(
+            """SELECT seller_article, value FROM price_model_hist
+               WHERE marketplace = %s AND param = 'drr_pct' AND date <= %s ORDER BY date""", (mp, day)):
+        art = canon_article(r["seller_article"])
+        if r["value"] is None:                          # NULL — план удалён с этой даты
+            plans.pop(art, None)
+        else:
+            plans[art] = float(r["value"])
+    out = {}
+    for r in db.query_all(
+            f"""SELECT seller_article AS a, sum(ads_expense_rub) AS ads, sum(orders_rub) AS rub,
+                       sum(ads_expense_rub) FILTER (WHERE date = %s) AS ads_day
+                FROM {table} WHERE date BETWEEN %s AND %s GROUP BY 1""", (day, day.replace(day=1), day)):
+        art = canon_article(r["a"])
+        if not art:
+            continue
+        drr = float(r["ads"]) / float(r["rub"]) if r["ads"] is not None and r["rub"] and r["rub"] > 0 else None
+        plan = plans.get(art)
+        out[art] = {"on": bool(r["ads_day"] and r["ads_day"] > 0),
+                    "over": drr is not None and plan is not None and drr > plan}
+    return day, out
 
 
 class Agg:
@@ -314,7 +357,7 @@ def rnp_sales_tree(
     # 2026-09-11). Инкремент версии обесценивает старые записи кэша, иначе
     # после деплоя отдавался бы прежний порядок до истечения TTL.
     pi_revision = _price_revision() if mp_norm != "Yandex" else ""
-    ck = "rnps_tree|v9|" + "|".join([
+    ck = "rnps_tree|v10|" + "|".join([
         mp_norm,
         _today().isoformat(),
         pi_revision,
@@ -1029,6 +1072,13 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             "SELECT seller_article, stock_fbs_msk FROM wb_daily_sales WHERE date = %s AND stock_fbs_msk > 0",
             (fbs_day,))}
 
+    # Рупор: реклама шла в последний загруженный день; красный — ДРР месяца выше планового (ads_flags).
+    # Как FBS — о текущем состоянии, не о периоде отчёта. Ключи только у товаров с рупором.
+    try:
+        ads_day, ads = ads_flags(mp)
+    except Exception:
+        ads_day, ads = None, {}
+
     def _mark_neg(node):
         li = node.get("leaf_info")
         if li:
@@ -1036,6 +1086,11 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
             li["ue_neg"] = bool(art) and art in neg_margin_arts
             if art in fbs_msk:
                 li["fbs_msk"] = fbs_msk[art]
+            af = ads.get(canon_article(art))
+            if af and af["on"]:
+                li["ads_on"] = True
+                if af["over"]:
+                    li["ads_over"] = True
         for ch in node.get("children", []):
             _mark_neg(ch)
 
@@ -1067,6 +1122,7 @@ def _build_rnp_sales_tree(marketplace, date_from, date_to, status, manager, futu
         "tree": tree,
         "today": today.isoformat(),
         **({"fbs_day": fbs_day.isoformat()} if is_wb else {}),
+        "ads_day": ads_day.isoformat() if ads_day else None,
         "undistributed": {"count": len(undist_list), "articles": undist_list,
                           "orders_rub": round(sum(u["orders_rub"] for u in undist_list), 2),
                           "total_orders_rub": round(total_orders_rub, 2)},

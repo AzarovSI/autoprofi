@@ -11,7 +11,7 @@ from test_wb_prices import prepare_local_db
 from test_access_roles import reset_roles
 from app import auth, db, permissions, price_model, wb_ads_stats_loader as loader
 from app.main import app
-from app.routers import ads_router
+from app.routers import ads_router, rnp_sales_router
 
 D = datetime.date
 CAMP_HEAD = ["Дата", "ID кампании", "Название кампании", "Место показа", "Статус", "Тип оплаты", "Тип ставки",
@@ -377,6 +377,57 @@ class AdsWbTest(unittest.TestCase):
         one = self.get("/api/ads/wb/linked", campaign_id=1, date_from="2026-10-22", date_to="2026-10-31").json()
         self.assertEqual([x["seller_article"] for x in one["items"]], ["SKU-2"])
         self.assertNotIn("placements", data)                                   # фильтра места показа нет (02.11.2026)
+
+    def test_megaphone_flags_and_weeks(self):
+        """Рупор (19.11.2026): реклама в последний загруженный день; красный — ДРР месяца выше планового;
+        окно «Реклама по неделям» — три полные недели (пн–вс) до последнего дня рекламы."""
+        db.execute("INSERT INTO wb_daily_sales (date, seller_article, ads_expense_rub, orders_rub) VALUES "
+                   "('2026-10-31', 'SKU-1', 5000, 1000), "                 # прошлый месяц — не в ДРР ноября
+                   "('2026-11-02', 'SKU-1', 100, 1000), ('2026-11-03', 'SKU-1', 50, 500), "   # ДРР 10 %
+                   "('2026-11-02', 'SKU-2', 10, 1000), ('2026-11-03', 'SKU-2', 0, 1000), "    # вчера без рекламы
+                   "('2026-11-04', 'SKU-3', NULL, 700)")                   # нет расхода — не день рекламы
+        db.execute("INSERT INTO price_model_hist (seller_article, marketplace, param, date, value) VALUES "
+                   "('SKU-1', 'Wildberries', 'drr_pct', '2026-10-01', 0.08), "
+                   "('SKU-2', 'Wildberries', 'drr_pct', '2026-10-01', 0.01), "
+                   "('SKU-2', 'Wildberries', 'drr_pct', '2026-11-03', NULL)")   # план удалён
+        with patch.object(rnp_sales_router, "_today", return_value=D(2026, 11, 5)):
+            day, flags = rnp_sales_router.ads_flags("Wildberries")
+            self.assertEqual(day, D(2026, 11, 3))
+            self.assertEqual(flags["SKU-1"], {"on": True, "over": True})
+            self.assertEqual(flags["SKU-2"], {"on": False, "over": False})
+
+        # Окно по неделям: последний день рекламы — чт 19.11 → недели 26.10–01.11, 02–08.11, 09–15.11.
+        rows = [camp(D(2026, 11, 3), 1, "Поиск", 11, "SKU-1", True, 1000, 50, 200.0, 4, 4000, carts=10),
+                camp(D(2026, 11, 10), 1, "Поиск", 11, "SKU-1", True, 2000, 80, 300.0, 5, 5000, carts=12),
+                camp(D(2026, 11, 19), 1, "Поиск", 11, "SKU-1", True, 900, 9, 90.0, 1, 1000)]
+        self.assertTrue(self.load(book(rows, funnel_rows=[funnel(D(2026, 11, 10), 11, "SKU-1", 100, 20, 10, 20000)]))["ok"])
+        db.execute("INSERT INTO price_model_hist (seller_article, marketplace, param, date, value) VALUES "
+                   "('SKU-1', 'Wildberries', 'drr_pct', '2026-11-12', 0.01)")
+        db.execute("UPDATE wb_daily_sales SET avg_search_position = 12 WHERE seller_article = 'SKU-1' AND date = '2026-11-03'")
+        r = self.get("/api/ads/wb/weeks", article="sku-1")
+        self.assertEqual(r.status_code, 200, r.text)
+        w = r.json()
+        self.assertEqual([(x["from"], x["to"]) for x in w["weeks"]],
+                         [("2026-10-26", "2026-11-01"), ("2026-11-02", "2026-11-08"), ("2026-11-09", "2026-11-15")])
+        self.assertEqual(w["weeks"][2]["label"], "46 нед.")
+        self.assertEqual(w["partial"], {"from": "2026-11-16", "to": "2026-11-19"})
+        m0, m1, m2 = (x["m"] for x in w["weeks"])
+        self.assertIsNone(m0["spend"])                                     # нет рекламы ≠ 0
+        self.assertEqual((m1["spend"], m1["views"], m1["clicks"], m1["orders"]), (200, 1000, 50, 4))
+        self.assertAlmostEqual(m1["ctr"], 0.05)
+        self.assertAlmostEqual(m1["drr_ad"], 0.05)
+        self.assertIsNone(m1["drr"])                                       # воронки за неделю нет
+        self.assertEqual((m1["pos"], m1["drr_plan"]), (12, 0.08))
+        self.assertAlmostEqual(m2["drr"], 300 / 20000)                      # ДРР общий — по воронке карточки
+        self.assertAlmostEqual(m2["share"], 0.5)                            # 5 рекламных из 10 заказов карточки
+        self.assertEqual(m2["drr_plan"], 0.01)                              # план на конец недели
+        self.assertEqual(self.get("/api/ads/wb/weeks", uid=103, article="SKU-1").status_code, 403)
+        # Рупор в дереве «Рекламы WB» — тот же признак, что в РНП.
+        with patch.object(rnp_sales_router, "_today", return_value=D(2026, 11, 5)):
+            data = self.tree(date_from="2026-11-01", date_to="2026-11-30").json()
+        prod = data["tree"]["children"][0]["children"][0]["children"][0]["children"][0]
+        self.assertEqual(prod["name"], "SKU-1")
+        self.assertTrue(prod.get("drr_over"))
 
 
 if __name__ == "__main__":

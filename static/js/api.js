@@ -300,6 +300,8 @@ const API = (() => {
     },
     // Поисковые запросы кампании за период (строки под кампанией, при её раскрытии).
     adsWbClusters: (id, from, to) => cget('/api/ads/wb/clusters' + qs({ campaign_id: id, date_from: from, date_to: to })),
+    // Окно рупора в «Рекламе WB»: три полные недели товара (19.11.2026).
+    adsWbWeeks: (article) => cget('/api/ads/wb/weeks' + qs({ article })),
     // Загрузка отчёта мониторинга цен конкурентов Ozon (PriceVA, .xlsx).
     // Даты в файле нет — передаём отдельно (дата мониторинга).
     uploadOzonPriceva: (file, reportDate) => {

@@ -24,6 +24,9 @@ NULL ≠ 0: нет строк — null; 0 из файла — 0.
   GET /api/ads/wb/tree?date_from=&date_to=&manager=
   GET /api/ads/wb/linked?campaign_id=…&campaign_id=…&date_from=&date_to=   — связанные заказы списком
   GET /api/ads/wb/clusters?campaign_id=&date_from=&date_to=                 — поисковые запросы кампании
+  GET /api/ads/wb/weeks?article=                                             — окно рупора: 3 полные недели товара
+Рупор у каждого товара (19.11.2026): `drr_over` — средний ДРР месяца выше планового (rnp_sales_router.ads_flags,
+как в РНП), по клику — окно «Реклама по неделям» (`wb_weeks`).
 """
 import calendar
 import datetime
@@ -35,7 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .. import auth, db
 from ..util import canon_article, cat_sort_key, l1_sort_key
-from .rnp_sales_router import TURN_BLUE, TURN_RED, TURN_WINDOW_DAYS, _today
+from .rnp_sales_router import TURN_BLUE, TURN_RED, TURN_WINDOW_DAYS, _today, ads_flags
 
 router = APIRouter(prefix="/api/ads", tags=["ads"])
 
@@ -361,6 +364,16 @@ def wb_tree(date_from: Optional[str] = None, date_to: Optional[str] = None,
             fill_plans(ch)
     fill_plans(root)
 
+    # Рупор: красный — средний ДРР месяца последнего дня рекламы выше планового (тот же расчёт, что в РНП).
+    # Здесь рупор у каждого товара, поэтому красный и без расхода в последний день; в РНП рупора тогда нет.
+    try:
+        _, aflags = ads_flags("Wildberries")
+    except Exception:
+        aflags = {}
+    for art, prod in products.items():
+        if (aflags.get(art) or {}).get("over"):
+            prod.extra["drr_over"] = True
+
     # Запас в днях — у товара, показывается в итоге последнего месяца отчёта (как в РНП).
     stock_days, stock_anchor = _stock_days(list(products), d0, d1, whole_month=not date_to)
     for art, prod in products.items():
@@ -439,3 +452,83 @@ def wb_clusters(campaign_id: int, date_from: str = Query(...), date_to: str = Qu
             _month_avg(node.extra["adpos"])
     items = sorted(nodes.values(), key=lambda n: (-n.spend(), n.name)) + [rest]
     return {"items": [n.out() for n in items]}
+
+
+WEEK_FIELDS = ("views", "clicks", "carts", "orders", "ad_sum", "spend", "f_orders_a", "f_rub_a", "orders_f", "spend_f")
+
+
+def _wdiv(a, b):
+    return a / b if a is not None and b else None
+
+
+@router.get("/wb/weeks")
+def wb_weeks(article: str = Query(...), user=Depends(auth.require_tabs("ads", "Wildberries"))):
+    """Окно «Реклама по неделям» по клику на рупор товара (19.11.2026, решение владельца).
+
+    Три последние полные недели (пн–вс) до последнего загруженного дня рекламы; неделя с этим днём, если она
+    неполная, не входит. Суммы и формулы — как в строке товара отчёта (wb_tree, views.js:ADS_F): кампании товара,
+    доля рекламы в заказах и ДРР общий — только за дни, где есть и реклама, и воронка карточки. ДРР плановый — на
+    последний день недели. Позиция в поиске — среднее по дням недели со значением > 0 (wb_daily_sales, как в РНП)."""
+    art = canon_article(article)
+    row = db.query_one("SELECT max(date) AS d FROM wb_ads_campaign_daily")
+    last = row["d"] if row else None
+    if not art or not last:
+        return {"article": art, "weeks": []}
+    end = last if last.weekday() == 6 else last - datetime.timedelta(days=last.weekday() + 1)
+    start = end - datetime.timedelta(days=20)
+    spans = [(start + datetime.timedelta(days=7 * i), start + datetime.timedelta(days=7 * i + 6)) for i in range(3)]
+
+    ad_dates = {r["date"] for r in db.query_all(
+        "SELECT DISTINCT date FROM wb_ads_campaign_daily WHERE date BETWEEN %s AND %s", (start, end))}
+    # Артикулы в таблицах рекламы уже канонические (wb_ads_stats_loader пишет canon_article).
+    ads = {r["date"]: r for r in db.query_all(
+        """SELECT date, sum(views) views, sum(clicks) clicks, sum(atbs) carts, sum(orders) orders,
+                  sum(orders_sum) ad_sum, sum(spend) spend
+           FROM wb_ads_campaign_daily WHERE in_campaign AND seller_article = %s AND date BETWEEN %s AND %s
+           GROUP BY 1""", (art, start, end))}
+    funnel = {r["date"]: r for r in db.query_all(
+        "SELECT date, sum(orders) orders, sum(orders_sum) orders_sum FROM wb_ads_funnel_daily "
+        "WHERE seller_article = %s AND date BETWEEN %s AND %s GROUP BY 1", (art, start, end))}
+    hist = [(r["date"], _num(r["value"])) for r in db.query_all(
+        "SELECT seller_article, date, value FROM price_model_hist WHERE marketplace = 'Wildberries' "
+        "AND param = 'drr_pct' AND date <= %s ORDER BY date", (end,)) if canon_article(r["seller_article"]) == art]
+    pos = {r["date"]: float(r["v"]) for r in db.query_all(
+        "SELECT date, avg_search_position AS v FROM wb_daily_sales WHERE seller_article = %s "
+        "AND date BETWEEN %s AND %s AND avg_search_position > 0", (art, start, end))}
+
+    weeks = []
+    for w0, w1 in spans:
+        s = dict.fromkeys(WEEK_FIELDS)
+
+        def add(f, v):
+            if v is not None:
+                s[f] = (s[f] or 0.0) + float(v)
+        d = w0
+        while d <= w1:
+            r, fd = ads.get(d), funnel.get(d) or {}
+            if r:
+                for f in ("views", "clicks", "carts", "orders", "ad_sum", "spend"):
+                    add(f, r[f])
+                if fd.get("orders") is not None:
+                    add("orders_f", r["orders"])
+                if fd.get("orders_sum") is not None:
+                    add("spend_f", r["spend"])
+            if fd and d in ad_dates:
+                add("f_orders_a", fd.get("orders"))
+                add("f_rub_a", fd.get("orders_sum"))
+            d += datetime.timedelta(days=1)
+        wpos = [v for dd, v in pos.items() if w0 <= dd <= w1]
+        weeks.append({
+            "label": f"{w0.isocalendar()[1]} нед.", "from": w0.isoformat(), "to": w1.isoformat(),
+            "m": {
+                "spend": s["spend"], "views": s["views"], "ctr": _wdiv(s["clicks"], s["views"]),
+                "clicks": s["clicks"], "cpc": _wdiv(s["spend"], s["clicks"]), "carts": s["carts"],
+                "orders": s["orders"], "share": _wdiv(s["orders_f"], s["f_orders_a"]),
+                "cpo": _wdiv(s["spend"], s["orders"]), "drr_ad": _wdiv(s["spend"], s["ad_sum"]),
+                "drr": _wdiv(s["spend_f"], s["f_rub_a"]), "drr_plan": _plan_on(hist, w1),
+                "pos": round(sum(wpos) / len(wpos), 2) if wpos else None,
+            },
+        })
+    partial = ({"from": (end + datetime.timedelta(days=1)).isoformat(), "to": last.isoformat()}
+               if last > end else None)
+    return {"article": art, "weeks": weeks, "partial": partial}

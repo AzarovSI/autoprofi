@@ -1635,6 +1635,41 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 .rnp-card.rnps-fbs-on.rnps-promos-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 74px); }
 .rnps-fbs-tag { flex:0 0 auto; margin-left:-7px; padding:0 2px; font-size:8px; font-weight:600; line-height:11px;
   letter-spacing:.02em; color:#4A5561; border:1px solid rgba(74,85,97,.3); border-radius:3px; cursor:default; }
+/* РНП: рупор (19.11.2026) — порядок монеты → рупор → ракета → FBS, у каждого значка своё место.
+   Рупор серый, как монетки; красный — ДРР месяца выше планового. Между монетками и рупором 4px вместо 10px. */
+.rnps-ads-ico { flex:0 0 auto; display:inline-flex; width:16px; height:22px; align-items:center; justify-content:center;
+  margin-right:2px; color:var(--text-mute); }
+.rnps-ads-ico svg { display:block; }
+.rnps-ads-ico--over { color:var(--bad); }
+.rnps-ads-on .rnp-node-mbtn .rnp-uebtn, .rnps-ads-on .rnp-node-mbtn .rnp-mbtn,
+.rnps-ads-on .rnp-node-mbtn .rnp-mbtn-spacer { margin-right:4px; }
+.rnps-ads-on .rnp-node-mbtn .rnps-fbs-tag { margin-left:0; }
+.rnp-card.rnps-ads-on .rnp-node-mbtn, .rnp-card.rnps-ads-on .rnp-legend-mspacer, .rnp-card.rnps-ads-on .rnps-m-mbtn { width:50px; }
+.rnp-card.rnps-ads-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 50px); }
+.rnp-card.rnps-ads-on.rnps-promos-on .rnp-node-mbtn, .rnp-card.rnps-ads-on.rnps-promos-on .rnp-legend-mspacer,
+.rnp-card.rnps-ads-on.rnps-promos-on .rnps-m-mbtn { width:68px; }
+.rnp-card.rnps-ads-on.rnps-promos-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 68px); }
+.rnp-card.rnps-ads-on.rnps-fbs-on .rnp-node-mbtn, .rnp-card.rnps-ads-on.rnps-fbs-on .rnp-legend-mspacer,
+.rnp-card.rnps-ads-on.rnps-fbs-on .rnps-m-mbtn { width:74px; }
+.rnp-card.rnps-ads-on.rnps-fbs-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 74px); }
+.rnp-card.rnps-ads-on.rnps-fbs-on.rnps-promos-on .rnp-node-mbtn, .rnp-card.rnps-ads-on.rnps-fbs-on.rnps-promos-on .rnp-legend-mspacer,
+.rnp-card.rnps-ads-on.rnps-fbs-on.rnps-promos-on .rnps-m-mbtn { width:92px; }
+.rnp-card.rnps-ads-on.rnps-fbs-on.rnps-promos-on { --rnp-mname-w:calc(var(--rnp-name-w) + var(--rnp-status-w) + 92px); }
+/* «Реклама → Wildberries»: рупор у каждого товара — кнопка окна «Реклама по неделям». */
+.ads-mega-btn { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; width:18px; height:22px;
+  padding:0; margin-right:2px; color:var(--text-mute); background:transparent; border:1px solid transparent; border-radius:5px;
+  cursor:pointer; transition:all .12s; }
+.ads-mega-btn svg { display:block; }
+.ads-mega-btn:hover { color:var(--accent); background:var(--accent-bg); border-color:var(--accent); }
+.ads-mega-btn--over { color:var(--bad); }
+.ads-wk-modal .rnp-ue-title .ads-wk-ico { color:var(--text-mute); vertical-align:-2px; margin-right:6px; display:inline-flex; }
+.ads-wk-modal .rnp-ue-title .ads-wk-ico.over { color:var(--bad); }
+.ads-wk-tbl .rnp-ue-d { min-width:50px; }
+.ads-wk-key .rnp-ue-mname, .ads-wk-key .rnp-ue-v { font-weight:700; }
+.ads-wk-aux .rnp-ue-mname, .ads-wk-aux .rnp-ue-v { color:var(--text-mute); }
+.ads-wk-drr .rnp-ue-mname, .ads-wk-drr .rnp-ue-v { color:#674EA7; }
+.ads-wk-tbl .ads-wk-bad .rnp-ue-v { color:var(--bad); font-weight:700; }
+.ads-wk-tbl .ads-wk-ok .rnp-ue-v { color:var(--good); font-weight:700; }
 
 .rnps-pop-tabs { display:flex; gap:16px; padding:0 12px; border-bottom:1px solid var(--border-soft); }
 .rnps-pop-tab { border:none; background:transparent; padding:8px 0 7px; font-size:12px; font-weight:600;

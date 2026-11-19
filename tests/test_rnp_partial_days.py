@@ -113,6 +113,21 @@ class TreeTests(unittest.TestCase):
         self.assertEqual(days[:4], ["2026-09-21", "2026-09-22", "2026-09-23", DAY.isoformat()])
         self.assertEqual([d.get("future", False) for d in late["months"][0]["days"][:3]], [False, True, True])
 
+    def test_megaphone_marks_in_leaf_info(self):
+        """Рупор (19.11.2026): ads_on — реклама в последний загруженный день, ads_over — ДРР месяца выше плана;
+        без рекламы вчера ключей нет, красного рупора без рупора не бывает."""
+        flags = {"SKU-1": {"on": True, "over": True}, "SKU-2": {"on": False, "over": True}}
+        with patch.object(rnp, "ads_flags", return_value=(PREV, flags)):
+            result = tree("wb", [row(orders_qty=10), row(art="SKU-2", orders_qty=3)])
+        products = {n["leaf_info"]["seller_article"]: n["leaf_info"] for n in leaves(result["tree"])}
+        self.assertEqual((products["SKU-1"].get("ads_on"), products["SKU-1"].get("ads_over")), (True, True))
+        self.assertNotIn("ads_on", products["SKU-2"])
+        self.assertNotIn("ads_over", products["SKU-2"])
+        self.assertEqual(result["ads_day"], PREV.isoformat())
+        with patch.object(rnp, "ads_flags", side_effect=RuntimeError("нет таблицы")):
+            safe = tree("ozon", [row(orders_qty=10)])                     # сбой признаков не ломает РНП
+        self.assertIsNone(safe["ads_day"])
+
     def test_wb_reviews_only_day_keeps_turnover_but_not_daily_stock(self):
         result = tree("wb", [row(PREV, orders_qty=10, stock_ozon_qty=100),
                              row(delivery_time_hours=42, spp_pct=.31)])

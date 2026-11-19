@@ -9,7 +9,7 @@
 import math
 from pathlib import Path
 
-from . import db
+from . import cache, db
 
 # По порядку: 2026_10_21_price_category удаляет лист 13.10 и создаёт price_category_hist,
 # 2026_10_21_price_model_params переносит её строки в общую price_model_hist,
@@ -196,6 +196,14 @@ def write_values(entries, user_id, today):
                         updated_at = now(),
                         updated_by_user_id = EXCLUDED.updated_by_user_id""",
                 upsert, template="(%s,%s,%s,%s,%s,now(),%s)")
+    # Плановый ДРР красит рупор в РНП (rnp_sales_router.ads_flags) — сбросить кэш дерева РНП этой площадки.
+    drr_mps = {k[1] for k in drop if k[2] == "drr_pct"} | {u[1] for u in upsert if u[2] == "drr_pct"}
+    if drr_mps:
+        from .routers.rnp_sales_router import CACHE_NS, CACHE_NS_WB, CACHE_NS_YA
+        ns_by_mp = {"Ozon": CACHE_NS, "Wildberries": CACHE_NS_WB, "Yandex": CACHE_NS_YA}
+        for mp in drr_mps:
+            if mp in ns_by_mp:
+                cache.bump(ns_by_mp[mp])
     return {"set": n_set, "cleared": n_cleared}
 
 

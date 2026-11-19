@@ -5415,6 +5415,9 @@ const Views = (() => {
   function rnpsPromoTitle(p) {
     return `Акция «${p.name}» · ${rnpsDM(p.date_from)} — ${p.date_to_fact ? rnpsDM(p.date_to_fact) + ' (завершена раньше)' : 'до ' + rnpsDM(p.date_to_plan)}`;
   }
+  // Рупор (19.11.2026) — тот же контур, что у пункта меню «Реклама».
+  const RNPS_MEGA_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" '
+    + 'stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4h3l7 5V5l-7 5H3Zm13-1a4 4 0 0 1 0 6m2.5-8.5a7.5 7.5 0 0 1 0 11"/></svg>';
   // Контурная ракета — в стиле иконки-монеток.
   const RNPS_ROCKET_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" '
     + 'stroke-linecap="round" stroke-linejoin="round"><path d="M9.6 2.6C11.8 1.4 14.5 1.5 14.5 1.5s.1 2.7-1.1 4.9L8.6 11.2 4.8 7.4z"/>'
@@ -5745,6 +5748,12 @@ const Views = (() => {
     // ue_neg — флаг с бэкенда: у товара ОТРИЦАТЕЛЬНАЯ маржинальность (%)
     // по последней подгруженной неделе → монетки красим в красный (--bad).
     const ueNeg = !!(node.leaf_info || {}).ue_neg;
+    // Порядок значков (19.11.2026): монеты (у групп — столбики) → рупор → ракета → FBS; у каждого своё место.
+    // Рупор — реклама шла в последний загруженный день; красный — ДРР месяца выше планового. Без подсказки.
+    const li = node.leaf_info || {};
+    const adsIco = isItem && li.ads_on
+      ? `<span class="rnps-ads-ico${li.ads_over ? ' rnps-ads-ico--over' : ''}">${RNPS_MEGA_SVG}</span>`
+      : '<span class="rnps-ads-ico"></span>';
     // Акции: колонка шире на ракету (у всех строк — для выравнивания); ракета — у товара в акции сегодня.
     let promoIco = '';
     if (App.can('rnp.promos.view')) {
@@ -5754,13 +5763,13 @@ const Views = (() => {
         ? `<span class="rnps-promo-ico" title="${U.esc(rnpsPromoTitle(pNow))}">${RNPS_ROCKET_SVG}</span>`
         : '<span class="rnps-promo-ico"></span>';
     }
-    const mBtn = promoIco + (isItem
-      ? (!App.can('rnp.unit_popup') ? '' : `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
+    const mBtn = (isItem
+      ? (!App.can('rnp.unit_popup') ? '<span class="rnp-mbtn-spacer"></span>' : `<button class="rnp-uebtn${ueNeg ? ' rnp-uebtn--neg' : ''}" data-ue-sa="${U.esc((node.leaf_info || {}).seller_article || '')}" title="Юнит-экономика артикула за 3 недели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v3c0 1.1 2.24 2 5 2s5-.9 5-2V4"/><path d="M3 7.5v3c0 1.1 2.24 2 5 2s5-.9 5-2v-3"/></svg>`
-        + `</button>`) + rnpsFbsTag(node)
+        + `</button>`)
       : `<button class="rnp-mbtn ${metricsOpen ? 'on' : ''}" data-mkey="${U.esc(node.key)}" title="Показать/скрыть показатели">`
         + `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="13" x2="3" y2="8"/><line x1="8" y1="13" x2="8" y2="4"/><line x1="13" y1="13" x2="13" y2="9"/></svg>`
-        + `</button>`);
+        + `</button>`) + adsIco + promoIco + (isItem ? rnpsFbsTag(node) : '');
 
     // Светофор считается по мин/макс «Заказы, шт» ИМЕННО этой строки.
     const heatRange = rnpsNodeHeatRange(node, cols);
@@ -7512,7 +7521,7 @@ const Views = (() => {
 
     root.innerHTML = `
       ${undistHtml}
-      <div class="card rnp-card ${mpCls}${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}${isWb ? ' rnps-fbs-on' : ''}">
+      <div class="card rnp-card rnps-ads-on ${mpCls}${App.can('rnp.promos.view') ? ' rnps-promos-on' : ''}${isWb ? ' rnps-fbs-on' : ''}">
         <div class="rnp-toolbar">
           <div class="subtabs" id="rnps-subtabs"></div>
           <div class="rnp-filters-host">
@@ -11996,6 +12005,11 @@ const Views = (() => {
       const pNow = node.kind === 'product' && adsNotes.promoToday ? rnpsPromoAt(node.name, adsNotes.promoToday, adsNotes) : null;
       promoIco = pNow ? `<span class="rnps-promo-ico" title="${U.esc(rnpsPromoTitle(pNow))}">${RNPS_ROCKET_SVG}</span>` : '<span class="rnps-promo-ico"></span>';
     }
+    // Рупор (19.11.2026) — у каждого товара, перед ракетой; красный — ДРР месяца выше планового (как в РНП);
+    // по клику — окно «Реклама по неделям» (adsOpenWeeks).
+    if (node.kind === 'product') {
+      promoIco = `<button class="ads-mega-btn${node.drr_over ? ' ads-mega-btn--over' : ''}" type="button" data-adwk="${U.esc(node.name)}" data-adwk-over="${node.drr_over ? 1 : ''}" title="Реклама по неделям">${RNPS_MEGA_SVG}</button>` + promoIco;
+    }
     const note = adsNoteFn(node);
     const isCl = node.kind === 'cluster' || node.kind === 'cluster_rest';
     return `<div class="rnp-node lvl-${Math.min(depth, 4)}${open ? ' open' : ''}${isCamp ? ' ads-camp-node' : ''}${isCl ? ' ads-cl-node' : ''}">
@@ -12122,7 +12136,100 @@ const Views = (() => {
     }
   }
 
+  // Окно «Реклама по неделям» по клику на рупор товара (19.11.2026, вариант 1 макета): три последние полные недели,
+  // динамика к предыдущей неделе. ДРР общий — красный выше планового на конец недели, зелёный — в плане.
+  const ADS_WK_ROWS = [
+    { k: 'spend', l: 'Расход, ₽', kind: 'rub', pol: 0, cls: 'ads-wk-key' },
+    { k: 'views', l: 'Показы', kind: 'qty', pol: 1 },
+    { k: 'ctr', l: 'CTR', kind: 'pct', pol: 1, cls: 'ads-wk-aux' },
+    { k: 'clicks', l: 'Клики', kind: 'qty', pol: 1 },
+    { k: 'cpc', l: 'CPC, ₽', kind: 'num1', pol: -1, cls: 'ads-wk-aux' },
+    { k: 'carts', l: 'Корзины', kind: 'qty', pol: 1 },
+    { k: 'orders', l: 'Заказы с рекламы, шт', kind: 'qty', pol: 1, cls: 'ads-wk-key' },
+    { k: 'share', l: 'Доля рекламы в заказах', kind: 'pct0', pol: 0, cls: 'ads-wk-aux' },
+    { k: 'cpo', l: 'CPO, ₽', kind: 'rub', pol: -1 },
+    { k: 'drr_ad', l: 'ДРР рекламный', kind: 'pct', pol: -1, cls: 'ads-wk-drr ads-wk-key' },
+    { k: 'drr', l: 'ДРР общий', kind: 'pct', pol: -1, cls: 'ads-wk-drr' },
+    { k: 'drr_plan', l: 'ДРР плановый', kind: 'pct', pol: 0, cls: 'ads-wk-aux', noDelta: true },
+    { k: 'pos', l: 'Позиция в поиске', kind: 'num1', pol: -1, cls: 'ads-wk-aux' },
+  ];
+  function adsWkFmt(v, kind) {
+    if (v == null || isNaN(v)) return '—';
+    if (kind === 'pct') return U.fmtNum(v * 100, 1) + '%';
+    if (kind === 'pct0') return U.fmtNum(v * 100, 0) + '%';
+    if (kind === 'num1') return U.fmtNum(v, 1);
+    return U.fmtNum(v, 0);
+  }
+  // Динамика: числа — в % к прошлой неделе, доли — в п.п.; pol 1 — рост лучше, −1 — хуже, 0 — серым.
+  function adsWkDelta(cur, prev, r) {
+    if (r.noDelta || cur == null || prev == null) return '<span class="rnp-ue-d flat"></span>';
+    const pp = r.kind === 'pct' || r.kind === 'pct0';
+    if (!pp && !prev) return '<span class="rnp-ue-d flat"></span>';
+    const d = pp ? (cur - prev) * 100 : (cur - prev) / prev * 100;
+    const txt = (d > 0 ? '+' : (d < 0 ? '−' : '')) + U.fmtNum(Math.abs(d), pp ? 1 : 0) + (pp ? ' п.п.' : '%');
+    const dir = Math.abs(d) < 0.05 || !r.pol ? 'flat' : ((d > 0) === (r.pol > 0) ? 'up' : 'down');
+    return `<span class="rnp-ue-d ${dir}">${txt}</span>`;
+  }
+  async function adsOpenWeeks(sa, over) {
+    let ov = document.getElementById('ads-wk-overlay');
+    if (ov) ov.remove();
+    ov = document.createElement('div');
+    ov.id = 'ads-wk-overlay';
+    ov.className = 'rnp-ue-overlay';
+    ov.innerHTML = `
+      <div class="rnp-ue-modal ads-wk-modal">
+        <div class="rnp-ue-head">
+          <span class="rnp-ue-title"><span class="ads-wk-ico${over ? ' over' : ''}">${RNPS_MEGA_SVG}</span>Реклама по неделям · <b>${U.esc(sa)}</b></span>
+          <button class="rnp-th-x" id="ads-wk-x" type="button" title="Закрыть">✕</button>
+        </div>
+        <div class="rnp-ue-body"><div class="empty" style="padding:26px 12px;">Загрузка…</div></div>
+      </div>`;
+    document.body.appendChild(ov);
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onEsc); };
+    const onEsc = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onEsc);
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+    ov.querySelector('#ads-wk-x').addEventListener('click', close);
+    let res;
+    try {
+      res = await API.adsWbWeeks(sa);
+    } catch (err) {
+      const b = ov.querySelector('.rnp-ue-body');
+      if (b) b.innerHTML = '<div class="empty" style="padding:26px 12px; color:#b00;">Не удалось загрузить данные.</div>';
+      return;
+    }
+    const body = ov.querySelector('.rnp-ue-body');
+    if (!body) return;
+    const weeks = res.weeks || [];
+    if (!weeks.length) {
+      body.innerHTML = '<div class="empty" style="padding:26px 12px;">Нет данных по рекламе.</div>';
+      return;
+    }
+    const dm = iso => iso.slice(8, 10) + '.' + iso.slice(5, 7);
+    const per = w => w.from.slice(5, 7) === w.to.slice(5, 7) ? `${w.from.slice(8, 10)}–${dm(w.to)}` : `${dm(w.from)}–${dm(w.to)}`;
+    let head = '<th class="rnp-ue-mcol">Метрика</th>';
+    weeks.forEach(w => { head += `<th class="rnp-ue-wcol"><span class="rnp-ue-wlbl">${U.esc(w.label)}</span><span class="rnp-ue-wper">${per(w)}</span></th>`; });
+    let rows = '';
+    ADS_WK_ROWS.forEach(r => {
+      let tds = `<td class="rnp-ue-mname">${r.l}</td>`;
+      weeks.forEach((w, i) => {
+        const cur = w.m[r.k];
+        let tint = '';
+        if (r.k === 'drr' && cur != null && w.m.drr_plan != null) tint = cur > w.m.drr_plan ? ' ads-wk-bad' : ' ads-wk-ok';
+        const dl = i > 0 ? adsWkDelta(cur, weeks[i - 1].m[r.k], r) : '<span class="rnp-ue-d flat"></span>';
+        tds += `<td class="rnp-ue-cell${tint}"><span class="rnp-ue-v">${adsWkFmt(cur, r.kind)}</span>${dl}</td>`;
+      });
+      rows += `<tr class="${r.cls || ''}">${tds}</tr>`;
+    });
+    const part = res.partial ? ` Текущая неделя (${per(res.partial)}) не входит — она неполная.` : '';
+    body.innerHTML = `<table class="rnp-ue-tbl ads-wk-tbl"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
+      <div class="rnp-ue-foot">Динамика — к предыдущей неделе.${part}</div>`;
+  }
+
   function adsBindToggles(host) {
+    host.querySelectorAll('[data-adwk]').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); adsOpenWeeks(el.getAttribute('data-adwk'), !!el.getAttribute('data-adwk-over')); });
+    });
     // Клик по дню товара или группы третьего уровня → то же окно «Комментарии | Акция», что в РНП WB.
     host.querySelectorAll('.rnps-node-vals .rnps-cell-cmt').forEach(cell => {
       cell.addEventListener('click', (e) => {
