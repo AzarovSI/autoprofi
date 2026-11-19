@@ -5294,6 +5294,10 @@ const Views = (() => {
   const RNPS_FUTURE_KEY = 'rnp_future_dates';
   function rnpsFutureSaved() { return !!(window.APStore && window.APStore.get(RNPS_FUTURE_KEY) === '1'); }
   function rnpsFutureSave(on) { if (window.APStore) window.APStore.set(RNPS_FUTURE_KEY, on ? '1' : '0'); }
+  // Галочка «OOS» (19.11.2026): так же запоминается на компьютере сотрудника, одна для всех площадок.
+  const RNPS_OOS_KEY = 'rnp_oos';
+  function rnpsOosSaved() { return !!(window.APStore && window.APStore.get(RNPS_OOS_KEY) === '1'); }
+  function rnpsOosSave(on) { if (window.APStore) window.APStore.set(RNPS_OOS_KEY, on ? '1' : '0'); }
 
   const rnpSalesState = {
     mp: 'ozon', expanded: {}, metricsOpen: {}, monthsOpen: {}, pricesOpen: false, piOpen: {}, fbsOpen: {}, uiSnap: {},
@@ -5309,6 +5313,8 @@ const Views = (() => {
     filterExpandSig: '',
     // Галочка «Будущие даты» (01.11.2026): запоминается на компьютере сотрудника, одна для всех площадок.
     futureOn: rnpsFutureSaved(), tailOpen: {},
+    // Галочка «OOS»: oos — ответ /api/rnp_sales/oos (склад АВТОПРОФИ), грузится только при включённой галочке.
+    oosOn: rnpsOosSaved(), oos: null,
     // Комментарии к дневным ячейкам текущего МП: Map по ключу `sa|date` → массив комментов (новые сверху).
     comments: new Map(),
     // Акции товаров текущего МП: Map артикул → акции по дате входа; promoToday — «сегодня» сервера (МСК).
@@ -5605,8 +5611,11 @@ const Views = (() => {
     // сумма штук — справа; между ними разрыв (space-between). Только
     // артикул + итог последнего месяца.
     const turnBadge = rnpsTurnBadge(node, col, isItem);
-    if (turnBadge) cls += ' rnps-has-turn';
-    return `<span class="rnps-col${cls}"${style}${cmtAttrs}>${cmtMark}${turnBadge}${text}</span>`;
+    // Галочка «OOS»: метка сразу за пилюлей запаса (без пилюли — одна метка слева).
+    const oosTag = rnpsOosTag(node, col, isItem);
+    const lead = oosTag ? `<span class="rnps-turn-lead">${turnBadge}${oosTag}</span>` : turnBadge;
+    if (lead) cls += ' rnps-has-turn';
+    return `<span class="rnps-col${cls}"${style}${cmtAttrs}>${cmtMark}${lead}${text}</span>`;
   }
 
   // Колонка-хвост «Будущих дат»: свёрнутые дни не видны, поэтому на ней — уголок, если в них есть
@@ -5954,7 +5963,7 @@ const Views = (() => {
     if (legHost) legHost.innerHTML = rnpsLegend(months);
     if (!months.length) {
       host.innerHTML = '<div class="empty" style="padding:24px 12px;">За выбранный период нет данных.</div>';
-      syncRnpHScroll(); syncRnpFiltersHeight();
+      rnpsOosCount(null); syncRnpHScroll(); syncRnpFiltersHeight();
       return;
     }
     let viewTree = data.tree;
@@ -5967,13 +5976,14 @@ const Views = (() => {
       }
       if (!viewTree.children || !viewTree.children.length) {
         host.innerHTML = '<div class="empty" style="padding:24px 12px;">Ничего не найдено по заданным фильтрам.</div>';
-        syncRnpHScroll(); syncRnpFiltersHeight();
+        rnpsOosCount(null); syncRnpHScroll(); syncRnpFiltersHeight();
         return;
       }
     } else {
       rnpSalesState.filterExpandSig = '';
     }
     host.innerHTML = rnpsNodeBlock(viewTree, cols);
+    rnpsOosCount(viewTree);
     rnpsBindToggles(host);
     syncRnpHScroll(); syncRnpFiltersHeight();
     // Синхронизируем снимок раскрытия текущего МП (без scroll — он пишется
@@ -6692,7 +6702,7 @@ const Views = (() => {
         rnpsExpandAll(data.tree);
       }
       // Комментарии и акции — отдельными запросами за видимый диапазон дат, только этого МП.
-      await Promise.all([rnpsLoadComments(myMp, isStale), rnpsLoadPromos(myMp, isStale)]);
+      await Promise.all([rnpsLoadComments(myMp, isStale), rnpsLoadPromos(myMp, isStale), rnpsLoadOos()]);
       if (isStale()) return false;
     } catch (err) {
       if (isStale()) return false;
@@ -6761,6 +6771,64 @@ const Views = (() => {
       if (isStale()) return;
       rnpSalesState.promos = new Map();
     }
+  }
+
+  // Галочка «OOS»: склад АВТОПРОФИ одинаков для всех площадок — ответ общий, грузится только при включённой галочке.
+  // Ошибка не ломает матрицу: без ответа меток нет.
+  async function rnpsLoadOos() {
+    if (!rnpSalesState.oosOn) return;
+    // Права — по вкладке текущей площадки; при ошибке остаётся прежний ответ (склад общий для всех площадок).
+    try { rnpSalesState.oos = await API.rnpSalesOos(rnpSalesState.mp); }
+    catch (err) { /* метки некритичны */ }
+  }
+
+  // Метка «OOS» товара: null — метки нет; иначе текст подсказки. Всё, что не в ok, — OOS (решение владельца):
+  // остаток 0, нет в загрузке склада 1С, склад не загружался больше 3 дней.
+  function rnpsOosTitle(node) {
+    const o = rnpSalesState.oos;
+    if (!rnpSalesState.oosOn || !o || !node || node.level !== 4 || !node.leaf_info) return null;
+    if (!o._ok) { o._ok = new Set(o.ok || []); o._zero = new Set(o.zero || []); }
+    // Артикулы канонизируются при записи (util.canon_article); здесь — регистр и пробелы на всякий случай.
+    const art = String(node.leaf_info.seller_article || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!art || o._ok.has(art)) return null;
+    const dd = o.stock_day ? `${o.stock_day.slice(8, 10)}.${o.stock_day.slice(5, 7)}` : '';
+    if (o.stale) return dd ? `Склад АВТОПРОФИ: нет данных с ${dd} — остатки 1С не загружены` : 'Склад АВТОПРОФИ: остатки 1С не загружались';
+    const low = (o.low || {})[art];
+    if (low) {
+      const days = low.days < 1 ? 'меньше 1 дня' : `≈ ${Math.floor(low.days)} дн.`;
+      return `Склад АВТОПРОФИ на ${dd}: ${U.fmtNum(low.qty, 0)} шт — ${days} продаж (все площадки ${U.fmtNum(low.per_day, 1)} шт/день)`;
+    }
+    if (o._zero.has(art)) return `Склад АВТОПРОФИ на ${dd}: 0 шт`;
+    return `Склад АВТОПРОФИ: товара нет в загрузке остатков 1С за ${dd}`;
+  }
+
+  function rnpsOosTag(node, col, isItem) {
+    if (!isItem || col.type !== 'total') return '';
+    const data = rnpSalesState.data || {};
+    if (!data.last_month || col.mk !== data.last_month) return '';
+    const title = rnpsOosTitle(node);
+    return title ? `<span class="rnps-oos" title="${U.esc(title + '\nOOS — меньше чем на 7 дней продаж всех площадок')}">OOS</span>` : '';
+  }
+
+  // Счётчик у галочки «OOS»: товары с меткой в показанном дереве (с фильтрами) — по группам верхнего уровня.
+  function rnpsOosCount(viewTree) {
+    const el = document.getElementById('rnps-oos-count');
+    if (!el) return;
+    const lastMonth = (rnpSalesState.data || {}).last_month;   // как в rnpsOosTag: метка — только в итоге последнего месяца
+    if (!rnpSalesState.oosOn || !rnpSalesState.oos || !viewTree || !lastMonth) { el.textContent = ''; el.title = ''; return; }
+    const walk = (n) => n.level === 4 ? (rnpsOosTitle(n) ? 1 : 0)
+      : (n.children || []).reduce((a, ch) => a + walk(ch), 0);
+    // Короткие подписи групп первого уровня (как util.L1_FIXED_ORDER — по подстроке): «ECOM», «ТД АВТОПРОФИ».
+    const short = (name) => {
+      const u = String(name || '').toUpperCase();
+      if (u.includes('ECOM')) return 'ECOM';
+      if (u.includes('АВТОПРОФИ')) return 'ТД АВТОПРОФИ';
+      return String(name || '').replace(/^(Продукция|Товары)\s+/i, '');
+    };
+    const parts = (viewTree.children || []).map(g => ({ name: short(g.name), n: walk(g) }));
+    const total = parts.reduce((a, p) => a + p.n, 0);
+    el.textContent = parts.length > 1 ? parts.map(p => `${p.name} ${p.n}`).join(' · ') : String(total);
+    el.title = `Товаров с OOS в отчёте: ${total}`;
   }
 
   // ===== Компонент выбора периода Ozon (аналог bindRnpPeriod) =====
@@ -7536,6 +7604,7 @@ const Views = (() => {
             <button class="btn-sm" id="rnps-expand">Развернуть всё</button>
             <button class="btn-sm" id="rnps-collapse">Свернуть всё</button>
             <label class="sp-fc-check rnps-future-check" title="Показать дни до конца месяца и следующий месяц с планом: можно оставлять комментарии и открывать акции заранее. Видна неделя вперёд, остальные дни месяца свёрнуты в одну колонку"><input type="checkbox" id="rnps-future"${rnpSalesState.futureOn ? ' checked' : ''}> Будущие даты</label>
+            <label class="sp-fc-check rnps-future-check" title="Показать OOS: на складе АВТОПРОФИ меньше чем на 7 дней продаж всех площадок, остаток 0 или нет свежих данных склада 1С. Рядом — сколько таких товаров в отчёте"><input type="checkbox" id="rnps-oos"${rnpSalesState.oosOn ? ' checked' : ''}> OOS <span class="rnps-oos-count" id="rnps-oos-count"></span></label>
             <div class="rnp-period" id="rnps-period">
               <button class="rnp-period-field" id="rnps-period-field" type="button" title="Выбрать период (показываются дни в выбранном диапазоне)">
                 <svg class="rnp-period-ico" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
@@ -7606,6 +7675,14 @@ const Views = (() => {
       rnpSalesState.futureOn = futEl.checked;
       rnpsFutureSave(futEl.checked);
       reload();
+    });
+    const oosEl = root.querySelector('#rnps-oos');
+    if (oosEl) oosEl.addEventListener('change', async () => {
+      rnpSalesState.oosOn = oosEl.checked;
+      rnpsOosSave(oosEl.checked);
+      // Дерево не перезапрашиваем: метки — отдельный лёгкий ответ, свежий при каждом включении.
+      if (oosEl.checked) await rnpsLoadOos();
+      rnpsRenderMatrix();
     });
     const expEl = root.querySelector('#rnps-expand');
     if (expEl) expEl.addEventListener('click', () => { if (rnpSalesState.data && rnpSalesState.data.tree) rnpsExpandAll(rnpSalesState.data.tree); rnpsRenderMatrix(); });

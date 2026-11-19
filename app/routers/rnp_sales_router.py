@@ -198,6 +198,76 @@ def ads_flags(mp):
     return day, out
 
 
+# OOS (19.11.2026, решение владельца по макету `Макет РНП галочка OOS.png`): склад АВТОПРОФИ (1С, общий для
+# всех площадок) — меньше чем на OOS_DAYS дней продаж всех площадок. Склад старше OOS_STALE_DAYS — «нет данных».
+OOS_DAYS = 7.0
+OOS_STALE_DAYS = 3
+OOS_CACHE_NS = "rnp_oos"
+_OOS_SALES = (("ozon_daily_sales", True), ("wb_daily_sales", True), ("ya_daily_sales", False))
+
+
+def oos_flags():
+    """Признак OOS склада АВТОПРОФИ — для галочки «OOS» в РНП (все три вкладки, одинаково).
+
+    Остаток — `stock_daily` на последнюю загрузку не позже сегодня (день перезаписывается целиком).
+    Среднедневные заказы — сумма по площадкам: окно — последние 30 календарных дней по сегодня, делитель — дни окна,
+    где у площадки есть заказы (Яндекс — любые данные). Окно от сегодня, а не от последней даты площадки: давно не
+    загружавшаяся площадка не добавляет старый спрос; задержка отчёта на пару дней лишь уменьшает делитель.
+    Ответ: `ok` — артикулы БЕЗ OOS (остаток > 0 и заказов нет либо запас ≥ 7 дней); `low` — артикулы с остатком
+    > 0, но меньше 7 дней, и `zero` — остаток ≤ 0 (для подсказки); всё прочее — OOS: нет в загрузке, склад устарел
+    (`stale`) или не загружался вовсе. Артикулы — canon_article."""
+    today = _today()
+    row = db.query_one("SELECT max(date) AS d FROM stock_daily WHERE date <= %s", (today,))
+    stock_day = row["d"] if row else None
+    out = {"stock_day": stock_day.isoformat() if stock_day else None, "days": OOS_DAYS,
+           "stale": stock_day is None or (today - stock_day).days > OOS_STALE_DAYS, "ok": [], "low": {}, "zero": []}
+    if out["stale"]:
+        return out
+    per_day = {}
+    anchor = today
+    start = anchor - datetime.timedelta(days=TURN_WINDOW_DAYS - 1)
+    for table, orders_only in _OOS_SALES:
+        cond = "orders_qty IS NOT NULL AND " if orders_only else ""
+        r = db.query_one(f"SELECT count(DISTINCT date) AS n FROM {table} WHERE {cond}date BETWEEN %s AND %s",
+                         (start, anchor))
+        days_n = r["n"] if r else 0
+        if not days_n:
+            continue
+        for s in db.query_all(f"""SELECT seller_article AS a, sum(orders_qty) AS q FROM {table}
+                                  WHERE date BETWEEN %s AND %s GROUP BY 1""", (start, anchor)):
+            art = canon_article(s["a"])
+            if art and s["q"]:
+                per_day[art] = per_day.get(art, 0.0) + _f(s["q"]) / days_n
+    stock = {}                                          # по canon_article: разные написания одного артикула — сумма
+    for s in db.query_all("SELECT seller_article AS a, qty FROM stock_daily WHERE date = %s", (stock_day,)):
+        art = canon_article(s["a"])
+        if art:
+            stock[art] = stock.get(art, 0.0) + (_f(s["qty"]) if s["qty"] is not None else 0.0)
+    for art, qty in stock.items():
+        if qty <= 0:
+            out["zero"].append(art)
+            continue
+        pd = per_day.get(art, 0.0)
+        if pd <= 0 or qty / pd >= OOS_DAYS:
+            out["ok"].append(art)
+        else:
+            out["low"][art] = {"qty": qty, "per_day": round(pd, 1), "days": round(qty / pd, 1)}
+    return out
+
+
+@router.get("/oos")
+def rnp_sales_oos(user=Depends(auth.require_tab("rnp", restrict_mp=False))):
+    """Галочка «OOS» в РНП: считается только по запросу, дерево РНП не утяжеляет. Кэш — до любой загрузки
+    отчётов площадок или склада 1С (они сбрасывают пространства имён деревьев) и до смены даты.
+    Права — как у дерева: вкладка РНП площадки из параметра `marketplace`; ответ от площадки не зависит."""
+    ck = "|".join([_today().isoformat()] + [str(cache.version(ns)) for ns in (CACHE_NS, CACHE_NS_WB, CACHE_NS_YA)])
+    res = cache.get(OOS_CACHE_NS, ck)
+    if res is None:
+        res = oos_flags()
+        cache.set(OOS_CACHE_NS, ck, res, ttl=CACHE_TTL)
+    return res
+
+
 class Agg:
     """Аккумулятор метрик одной ячейки (узел × колонка)."""
     __slots__ = ("s", "sc", "av", "snap")

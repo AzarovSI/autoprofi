@@ -147,7 +147,7 @@ PG=/Applications/Postgres.app/Contents/Versions/latest/bin
 $PG/pg_ctl -D ~/.local/share/autoprofi-pgdata -o "-c listen_addresses=127.0.0.1 -p 5432" \
   -l ~/.local/share/autoprofi-pgdata/server.log -w start
 
-# Тесты (эталон 19.11.2026: 308 passed, 4 skipped)
+# Тесты (эталон 20.11.2026: 312 passed, 4 skipped)
 DB_DSN="postgresql://wb_test:local-test-only@127.0.0.1:5432/wb_price_test" \
   SECRET_KEY=local-test-secret-key-0123456789abcdef PYTHONPATH=.:tests .venv/bin/python -m pytest -q tests
 

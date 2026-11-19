@@ -220,6 +220,8 @@ const API = (() => {
     },
     // РНП продажи → Ozon (дерево дневных продаж по месяцам)
     rnpSalesTree: (p) => cget('/api/rnp_sales/tree' + qs(p)),
+    // Галочка «OOS» РНП: склад АВТОПРОФИ меньше чем на 7 дней продаж всех площадок. Без кэша вкладки — сервер кэширует сам.
+    rnpSalesOos: (mp) => request('/api/rnp_sales/oos' + qs({ marketplace: mp })),
     // Лёгкая юнит-экономика ОДНОГО артикула за N последних недель (popup в РНП заказы).
     rnpProductUe: (p) => cget('/api/rnp/product_ue' + qs(p)),
     // Загрузка дневного API-файла Ozon (лист «Данные»)
