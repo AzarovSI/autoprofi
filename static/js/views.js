@@ -5357,7 +5357,7 @@ const Views = (() => {
       + RNPS_MARKS.map(m => `<button type="button" class="rnps-mk-chip rnps-mk-${m.k}${on.has(m.k) ? ' on' : ''}" data-mk="${m.k}"><i></i>${m.label}</button>`).join('')
       + '</div>';
   }
-  // Подсказка у заголовка РНП и «Рекламы WB»: что значат уголок и точки.
+  // Подсказка у заголовка «Рекламы WB»: что значат уголок и точки (в РНП убрана 19.11.2026 по решению владельца).
   function rnpsMarkKeyHtml() {
     if (!App.can('rnp.comments.view')) return '';
     return '<span class="rnps-mk-key"><span><b class="rnps-mk-corner"></b>Комментарий</span>'
@@ -5693,6 +5693,16 @@ const Views = (() => {
     return rows;
   }
 
+  // Подсказка рупора РНП: день расхода из ads_day ответа дерева, месяц ДРР — месяц этого дня.
+  const RNPS_MONTHS_LC = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+  function rnpsAdsTitle(over) {
+    const day = (rnpSalesState.data || {}).ads_day || '';
+    const base = day ? `Реклама включена: есть расход за ${day.slice(8, 10)}.${day.slice(5, 7)}` : 'Реклама включена';
+    if (!over) return base;
+    const month = day ? RNPS_MONTHS_LC[Number(day.slice(5, 7)) - 1] : 'месяц';
+    return `${base}\nКрасный — ДРР за ${month} выше планового («Цены → Ценовая модель»)`;
+  }
+
   // WB: надпись «FBS» справа от монеток — вчера был остаток на складе FBS Москва (03.11.2026).
   function rnpsFbsTag(node) {
     const qty = (node.leaf_info || {}).fbs_msk;
@@ -5749,10 +5759,11 @@ const Views = (() => {
     // по последней подгруженной неделе → монетки красим в красный (--bad).
     const ueNeg = !!(node.leaf_info || {}).ue_neg;
     // Порядок значков (19.11.2026): монеты (у групп — столбики) → рупор → ракета → FBS; у каждого своё место.
-    // Рупор — реклама шла в последний загруженный день; красный — ДРР месяца выше планового. Без подсказки.
+    // Рупор — реклама шла в последний загруженный день; красный — ДРР месяца выше планового.
+    // Подсказка — как у монеток (title): что значит и почему красный (владелец 19.11.2026).
     const li = node.leaf_info || {};
     const adsIco = isItem && li.ads_on
-      ? `<span class="rnps-ads-ico${li.ads_over ? ' rnps-ads-ico--over' : ''}">${RNPS_MEGA_SVG}</span>`
+      ? `<span class="rnps-ads-ico${li.ads_over ? ' rnps-ads-ico--over' : ''}" title="${U.esc(rnpsAdsTitle(li.ads_over))}">${RNPS_MEGA_SVG}</span>`
       : '<span class="rnps-ads-ico"></span>';
     // Акции: колонка шире на ракету (у всех строк — для выравнивания); ракета — у товара в акции сегодня.
     let promoIco = '';
@@ -7541,7 +7552,7 @@ const Views = (() => {
           </div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">${mpTitle}${rnpsMarkKeyHtml()}</div>
+          <div class="rnp-card-title">${mpTitle}</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             <span class="rnp-status-leg rnp-fixleft">Статус</span>
@@ -12008,7 +12019,7 @@ const Views = (() => {
     // Рупор (19.11.2026) — у каждого товара, перед ракетой; красный — ДРР месяца выше планового (как в РНП);
     // по клику — окно «Реклама по неделям» (adsOpenWeeks).
     if (node.kind === 'product') {
-      promoIco = `<button class="ads-mega-btn${node.drr_over ? ' ads-mega-btn--over' : ''}" type="button" data-adwk="${U.esc(node.name)}" data-adwk-over="${node.drr_over ? 1 : ''}" title="Реклама по неделям">${RNPS_MEGA_SVG}</button>` + promoIco;
+      promoIco = `<button class="ads-mega-btn${node.drr_over ? ' ads-mega-btn--over' : ''}" type="button" data-adwk="${U.esc(node.name)}" data-adwk-over="${node.drr_over ? 1 : ''}" title="${node.drr_over ? 'Реклама по неделям\nКрасный — ДРР за текущий месяц выше планового («Цены → Ценовая модель»)' : 'Реклама по неделям'}">${RNPS_MEGA_SVG}</button>` + promoIco;
     }
     const note = adsNoteFn(node);
     const isCl = node.kind === 'cluster' || node.kind === 'cluster_rest';
