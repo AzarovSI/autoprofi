@@ -7,6 +7,8 @@ seller_article, категория третьего уровня — category_ke
 показывался в РНП всех площадок).
 Аналог комментариев к ячейкам Google Sheets: несколько комментариев на ячейку,
 у каждого — автор (Имя Фамилия из app_users), дата создания/изменения.
+Отметки (с 19.11.2026) — необязательный список marks: ads «Реклама», content «Контент»,
+important «Важно»; пустой — обычный комментарий. В ячейке — цветные точки.
 
 Эндпоинты (все требуют авторизации):
   GET    /api/rnp-comments?marketplace=&date_from=&date_to=  — список площадки за диапазон
@@ -37,9 +39,13 @@ MAX_BODY = 2000  # предел длины комментария (символ�
 
 MAX_CATEGORY = 600  # предел длины пути категории «L1|L2|L3»
 
-# По порядку: площадка у комментариев, комментарии категорий L3. ALTER существующей таблицы:
+# Отметки комментария в постоянном порядке: так же — точки в ячейке (Реклама, Контент, Важно).
+MARKS = ("ads", "content", "important")
+
+# По порядку: площадка у комментариев, комментарии категорий L3, отметки. ALTER существующей таблицы:
 # в TimeWeb применять под gen_user до выкладки.
-MIGRATIONS = ["2026_10_23_rnp_comments_marketplace", "2026_10_23_rnp_comments_category"]
+MIGRATIONS = ["2026_10_23_rnp_comments_marketplace", "2026_10_23_rnp_comments_category",
+              "2026_11_19_rnp_comments_marks"]
 
 
 def migrate():
@@ -65,6 +71,15 @@ def _mp(value):
     return mp
 
 
+def _marks(v):
+    """Отметки: только известные, без повторов, в порядке MARKS."""
+    v = list(v or [])
+    bad = [m for m in v if m not in MARKS]
+    if bad:
+        raise ValueError("Неизвестная отметка")
+    return [m for m in MARKS if m in v]
+
+
 class CommentCreate(BaseModel):
     """Ячейка — товар (seller_article) или категория третьего уровня (category_key), ровно одно."""
     marketplace: str
@@ -72,6 +87,12 @@ class CommentCreate(BaseModel):
     category_key: Optional[str] = None
     date: date_cls
     body: str
+    marks: list[str] = []
+
+    @field_validator("marks")
+    @classmethod
+    def _mk(cls, v):
+        return _marks(v)
 
     @field_validator("marketplace")
     @classmethod
@@ -104,7 +125,14 @@ class CommentCreate(BaseModel):
 
 
 class CommentUpdate(BaseModel):
+    """marks не передан — отметки не меняются."""
     body: str
+    marks: Optional[list[str]] = None
+
+    @field_validator("marks")
+    @classmethod
+    def _mk(cls, v):
+        return None if v is None else _marks(v)
 
     @field_validator("body")
     @classmethod
@@ -126,6 +154,7 @@ def _row_to_dict(r):
         "category_key": r.get("category_key"),
         "date": r["date"].isoformat() if hasattr(r["date"], "isoformat") else r["date"],
         "body": r["body"],
+        "marks": list(r.get("marks") or []),
         "author_id": r["author_id"],
         "author_name": r.get("author_name") or "—",
         "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
@@ -147,7 +176,7 @@ def list_comments(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     rows = db.query_all(
-        "SELECT c.id, c.marketplace, c.seller_article, c.category_key, c.date, c.body, c.author_id, "
+        "SELECT c.id, c.marketplace, c.seller_article, c.category_key, c.date, c.body, c.marks, c.author_id, "
         "       u.display_name AS author_name, c.created_at, c.updated_at "
         "FROM rnp_comments c "
         "LEFT JOIN app_users u ON u.id = c.author_id "
@@ -162,10 +191,11 @@ def list_comments(
 def create_comment(payload: CommentCreate, user=Depends(auth.require("rnp.comments.add"))):
     """Создать комментарий. Автор = текущий пользователь из сессии."""
     row = db.query_one(
-        "INSERT INTO rnp_comments (marketplace, seller_article, category_key, date, body, author_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s) "
-        "RETURNING id, marketplace, seller_article, category_key, date, body, author_id, created_at, updated_at",
-        (payload.marketplace, payload.seller_article, payload.category_key, payload.date, payload.body, user["id"]),
+        "INSERT INTO rnp_comments (marketplace, seller_article, category_key, date, body, marks, author_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+        "RETURNING id, marketplace, seller_article, category_key, date, body, marks, author_id, created_at, updated_at",
+        (payload.marketplace, payload.seller_article, payload.category_key, payload.date, payload.body,
+         payload.marks, user["id"]),
     )
     # display_name автора известен из сессии — не делаем лишний запрос.
     row["author_name"] = user.get("display_name")
@@ -193,14 +223,14 @@ def _assert_can_modify(comment_row, user):
 @router.patch("/{comment_id}")
 def update_comment(comment_id: int, payload: CommentUpdate,
                    user=Depends(auth.get_current_user)):
-    """Редактировать текст комментария (перезапись). Автор или админ."""
+    """Редактировать текст и отметки комментария (перезапись). Автор или админ."""
     existing = _get_or_404(comment_id)
     _assert_can_modify(existing, user)
     row = db.query_one(
-        "UPDATE rnp_comments SET body = %s, updated_at = now() "
+        "UPDATE rnp_comments SET body = %s, marks = COALESCE(%s, marks), updated_at = now() "
         "WHERE id = %s "
-        "RETURNING id, marketplace, seller_article, category_key, date, body, author_id, created_at, updated_at",
-        (payload.body, comment_id),
+        "RETURNING id, marketplace, seller_article, category_key, date, body, marks, author_id, created_at, updated_at",
+        (payload.body, payload.marks, comment_id),
     )
     author = db.query_one(
         "SELECT display_name FROM app_users WHERE id = %s", (row["author_id"],)

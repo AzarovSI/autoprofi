@@ -5328,6 +5328,46 @@ const Views = (() => {
   // src — откуда окно ячейки берёт данные: rnpSalesState (РНП) или adsState («Реклама WB», 02.11.2026).
   function rnpsCmtFor(sa, date, src) { return (src || rnpSalesState).comments.get(rnpsCmtKey(sa, date)) || []; }
 
+  // Отметки комментариев (19.11.2026, docs/decisions.md): необязательные; в ячейке — цветные точки
+  // в левом нижнем углу, в этом порядке. Цвета — классы .rnps-mk-<код> в app.css.
+  const RNPS_MARKS = [
+    { k: 'ads', label: 'Реклама' }, { k: 'content', label: 'Контент' }, { k: 'important', label: 'Важно' }];
+  // Отметки всех комментариев списка — по одной каждого вида, в порядке RNPS_MARKS.
+  function rnpsMarksOf(list) {
+    const has = new Set();
+    (list || []).forEach(c => (c.marks || []).forEach(m => has.add(m)));
+    return RNPS_MARKS.filter(m => has.has(m.k));
+  }
+  // Точки отметок в ячейке ('' — отметок нет).
+  function rnpsMarkDotsHtml(list) {
+    const ms = rnpsMarksOf(list);
+    if (!ms.length) return '';
+    return '<span class="rnps-cmt-dots">' + ms.map(m => `<i class="rnps-mk-${m.k}"></i>`).join('') + '</span>';
+  }
+  // Метки отметок комментария в окне — строкой под автором ('' — отметок нет).
+  function rnpsMarkTagsHtml(c) {
+    const ms = rnpsMarksOf([c]);
+    return ms.length ? '<div class="rnps-mk-tags">'
+      + ms.map(m => `<span class="rnps-mk-tag rnps-mk-${m.k}"><i></i>${m.label}</span>`).join('') + '</div>' : '';
+  }
+  // Кнопки выбора отметок в окне комментария (sel — выбранные коды).
+  function rnpsMarkPickHtml(sel) {
+    const on = new Set(sel || []);
+    return '<div class="rnps-mk-pick"><span class="rnps-mk-pick-l">Отметить:</span>'
+      + RNPS_MARKS.map(m => `<button type="button" class="rnps-mk-chip rnps-mk-${m.k}${on.has(m.k) ? ' on' : ''}" data-mk="${m.k}"><i></i>${m.label}</button>`).join('')
+      + '</div>';
+  }
+  // Подсказка у заголовка РНП и «Рекламы WB»: что значат уголок и точки.
+  function rnpsMarkKeyHtml() {
+    if (!App.can('rnp.comments.view')) return '';
+    return '<span class="rnps-mk-key"><span><b class="rnps-mk-corner"></b>Комментарий</span>'
+      + RNPS_MARKS.map(m => `<span class="rnps-mk-${m.k}"><i></i>${m.label}</span>`).join('') + '</span>';
+  }
+  // Выбранные отметки в контейнере с кнопками.
+  function rnpsMarkPicked(box) {
+    return box ? Array.from(box.querySelectorAll('.rnps-mk-chip.on')).map(b => b.getAttribute('data-mk')) : [];
+  }
+
   // Акции товара (docs/business_rules.md, «Акции в РНП»): последний день — фактический выход, иначе плановый.
   function rnpsPromoEnd(p) { return p.date_to_fact || p.date_to_plan; }
   // Акция товара, в которую входит день date (у товара одна акция одновременно).
@@ -5352,8 +5392,9 @@ const Views = (() => {
     if (!canCmt && !canPromo) return null;
     let cls = ' rnps-cell-cmt', mark = '';
     let attrs = ` data-sa="${U.esc(sa)}" data-date="${U.esc(date)}"${isCat ? ` data-title="${U.esc(title || '')}"` : ''}`;
-    const n = canCmt ? rnpsCmtFor(sa, date, src).length : 0;
-    if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark" title="Комментарии: ${n}"></span>`; }
+    const list = canCmt ? rnpsCmtFor(sa, date, src) : [];
+    const n = list.length;
+    if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark" title="Комментарии: ${n}"></span>` + rnpsMarkDotsHtml(list); }
     const promo = canPromo ? rnpsPromoAt(sa, date, src) : null;
     if (promo) { cls += ' rnps-promo'; attrs += ` title="${U.esc(rnpsPromoTitle(promo))}"`; }
     return { cls, attrs, mark };
@@ -5578,8 +5619,9 @@ const Views = (() => {
       : (node.level === 3 ? RNPS_CAT + node.key : '');
     let cls = '', mark = '', title = '';
     if (sa && App.can('rnp.comments.view')) {
-      const n = col.days.reduce((acc, d) => acc + rnpsCmtFor(sa, d).length, 0);
-      if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark"></span>`; title = `Комментарии в свёрнутых днях: ${n}`; }
+      const list = col.days.reduce((acc, d) => acc.concat(rnpsCmtFor(sa, d)), []);
+      const n = list.length;
+      if (n) { cls += ' has-cmt'; mark = `<span class="rnps-cmt-mark"></span>` + rnpsMarkDotsHtml(list); title = `Комментарии в свёрнутых днях: ${n}`; }
     }
     if (isItem && sa && App.can('rnp.promos.view') && col.days.some(d => rnpsPromoAt(sa, d))) {
       cls += ' rnps-promo';
@@ -6142,6 +6184,7 @@ const Views = (() => {
           items += `<div class="rnps-cmt-item" data-cid="${c.id}">
             <div class="rnps-cmt-editbox">
               <textarea class="rnps-cmt-edit-ta" maxlength="2000">${U.esc(c.body)}</textarea>
+              ${rnpsMarkPickHtml(c.marks)}
               <div class="rnps-cmt-editrow">
                 <button class="btn-sm rnps-cmt-save" data-cid="${c.id}">Сохранить</button>
                 <button class="btn-sm rnps-cmt-canceledit">Отмена</button>
@@ -6154,6 +6197,7 @@ const Views = (() => {
               <span class="rnps-cmt-author">${U.esc(c.author_name || '—')}</span>
               <span class="rnps-cmt-date">${U.esc(rnpsFmtDT(c.created_at))}${edited ? ' · изм.' : ''}</span>
             </div>
+            ${rnpsMarkTagsHtml(c)}
             <div class="rnps-cmt-body">${U.esc(c.body)}</div>
             ${canMod ? `<div class="rnps-cmt-actions">
               <button class="rnps-cmt-edit" data-cid="${c.id}">Изменить</button>
@@ -6167,6 +6211,7 @@ const Views = (() => {
       <div class="rnps-cmt-list">${items}</div>
       ${App.can('rnp.comments.add') ? `<div class="rnps-cmt-add">
         <textarea class="rnps-cmt-new-ta" placeholder="Добавить комментарий…" maxlength="2000"></textarea>
+        ${rnpsMarkPickHtml([])}
         <button class="btn-sm rnps-cmt-addbtn">Добавить</button>
       </div>` : ''}`;
   }
@@ -6395,7 +6440,8 @@ const Views = (() => {
     if (!host) return;
     const cell = host.querySelector(`.rnps-cell-cmt[data-sa="${(window.CSS && CSS.escape) ? CSS.escape(sa) : sa}"][data-date="${date}"]`);
     if (!cell) return;
-    const n = rnpsCmtFor(sa, date, rnpsCmtSrc()).length, has = n > 0;
+    const list = rnpsCmtFor(sa, date, rnpsCmtSrc());
+    const n = list.length, has = n > 0;
     const mark = cell.querySelector('.rnps-cmt-mark');
     if (has && mark) mark.title = 'Комментарии: ' + n;
     if (has && !mark) {
@@ -6408,6 +6454,10 @@ const Views = (() => {
       mark.remove();
       cell.classList.remove('has-cmt');
     }
+    // Точки отметок — заново, сразу после уголка.
+    const old = cell.querySelector('.rnps-cmt-dots');
+    if (old) old.remove();
+    if (has) cell.querySelector('.rnps-cmt-mark').insertAdjacentHTML('afterend', rnpsMarkDotsHtml(list));
   }
 
   // Навесить обработчики внутри popover.
@@ -6428,6 +6478,11 @@ const Views = (() => {
     });
     rnpsBindPromoPane(pop, sa, date);
 
+    // Отметки: кнопка включается и выключается, окно не перерисовывается (текст не теряется).
+    pop.querySelectorAll('.rnps-mk-chip').forEach(b => {
+      b.addEventListener('click', () => b.classList.toggle('on'));
+    });
+
     // Добавить.
     const addBtn = pop.querySelector('.rnps-cmt-addbtn');
     const newTa = pop.querySelector('.rnps-cmt-new-ta');
@@ -6437,7 +6492,8 @@ const Views = (() => {
         if (!body) { newTa.focus(); return; }
         addBtn.disabled = true;
         try {
-          const c = await API.rnpCommentCreate(rnpsCmtSrc().mp, rnpsCmtRef(sa), date, body);
+          const c = await API.rnpCommentCreate(rnpsCmtSrc().mp, rnpsCmtRef(sa), date, body,
+            rnpsMarkPicked(pop.querySelector('.rnps-cmt-add')));
           const k = rnpsCmtKey(sa, date);
           const arr = rnpsCmtSrc().comments.get(k) || [];
           arr.unshift(c); // новые сверху
@@ -6472,12 +6528,13 @@ const Views = (() => {
         if (!body) { editTa.focus(); return; }
         saveBtn.disabled = true;
         try {
-          const upd = await API.rnpCommentUpdate(cid, body);
+          const upd = await API.rnpCommentUpdate(cid, body, rnpsMarkPicked(pop.querySelector('.rnps-cmt-editbox')));
           const k = rnpsCmtKey(sa, date);
           const arr = rnpsCmtSrc().comments.get(k) || [];
           const idx = arr.findIndex(x => x.id === cid);
           if (idx >= 0) arr[idx] = upd;
           rnpsCmtSrc().comments.set(k, arr);
+          rnpsUpdateCellMark(sa, date);
           rnpsCmtPop.editingId = null;
           rnpsRefreshCmtPop();
           App.toast('Комментарий обновлён', 'ok');
@@ -7475,7 +7532,7 @@ const Views = (() => {
           </div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">${mpTitle}</div>
+          <div class="rnp-card-title">${mpTitle}${rnpsMarkKeyHtml()}</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             <span class="rnp-status-leg rnp-fixleft">Статус</span>
@@ -12299,7 +12356,7 @@ const Views = (() => {
           </div>
         </div>
         <div class="rnp-head-sticky">
-          <div class="rnp-card-title">Реклама по дням Wildberries</div>
+          <div class="rnp-card-title">Реклама по дням Wildberries${rnpsMarkKeyHtml()}</div>
           <div class="rnp-legend-row">
             <span class="rnp-legend-fill rnp-fixleft"></span>
             <span class="rnp-status-leg rnp-fixleft">Статус</span>

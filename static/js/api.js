@@ -417,13 +417,15 @@ const API = (() => {
     rnpCommentsList: (mp, dateFrom, dateTo) =>
       request('/api/rnp-comments' + qs({ marketplace: mp, date_from: dateFrom, date_to: dateTo })),
     // ref — ячейка: { seller_article } у товара или { category_key: 'L1|L2|L3' } у категории третьего уровня.
-    rnpCommentCreate: (mp, ref, date, body) => request('/api/rnp-comments', {
+    // marks — отметки комментария: 'ads' | 'content' | 'important' (пустой список — обычный).
+    // В правке marks не передан (undefined) — отметки на сервере не меняются.
+    rnpCommentCreate: (mp, ref, date, body, marks) => request('/api/rnp-comments', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ marketplace: mp, ...ref, date: date, body: body }),
+      body: JSON.stringify({ marketplace: mp, ...ref, date: date, body: body, marks: marks || [] }),
     }),
-    rnpCommentUpdate: (id, body) => request('/api/rnp-comments/' + id, {
+    rnpCommentUpdate: (id, body, marks) => request('/api/rnp-comments/' + id, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: body }),
+      body: JSON.stringify(Array.isArray(marks) ? { body: body, marks: marks } : { body: body }),
     }),
     rnpCommentDelete: (id) => request('/api/rnp-comments/' + id, { method: 'DELETE' }),
     // Акции товаров в РНП — свои у каждой площадки (mp: ozon | wb | yandex).

@@ -98,6 +98,33 @@ class RnpCommentsTest(unittest.TestCase):
         self.assertEqual(self.call("GET", f"/api/rnp-comments?{PERIOD}").status_code, 422)
         self.assertEqual(self.call("GET", f"/api/rnp-comments?marketplace=avito&{PERIOD}").status_code, 422)
 
+    def test_marks(self):
+        """Отметки необязательны: без них — обычный комментарий; порядок постоянный, повторы убираются."""
+        self.assertEqual(self.add("wb", "обычный")["marks"], [])
+        self.assertEqual([r["marks"] for r in db.query_all("SELECT marks FROM rnp_comments WHERE body='старый'")], [[]])
+        r = self.call("POST", "/api/rnp-comments", json={"marketplace": "wb", "seller_article": "SKU-1",
+                      "date": "2026-10-22", "body": "ставка", "marks": ["important", "ads", "ads"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        cid = r.json()["id"]
+        self.assertEqual(r.json()["marks"], ["ads", "important"])
+        r = self.call("GET", f"/api/rnp-comments?marketplace=wb&{PERIOD}")
+        self.assertEqual({c["body"]: c["marks"] for c in r.json()["comments"]},
+                         {"обычный": [], "старый": [], "ставка": ["ads", "important"]})
+        # Правка без marks отметки не трогает; с marks — заменяет, пустой список снимает.
+        r = self.call("PATCH", f"/api/rnp-comments/{cid}", json={"body": "ставка 560"})
+        self.assertEqual(r.json()["marks"], ["ads", "important"])
+        r = self.call("PATCH", f"/api/rnp-comments/{cid}", json={"body": "фото", "marks": ["content"]})
+        self.assertEqual((r.json()["body"], r.json()["marks"]), ("фото", ["content"]))
+        r = self.call("PATCH", f"/api/rnp-comments/{cid}", json={"body": "фото", "marks": []})
+        self.assertEqual(r.json()["marks"], [])
+        # Неизвестная отметка — ошибка, и в API, и в БД.
+        r = self.call("POST", "/api/rnp-comments", json={"marketplace": "wb", "seller_article": "SKU-1",
+                      "date": "2026-10-22", "body": "x", "marks": ["seo"]})
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(self.call("PATCH", f"/api/rnp-comments/{cid}", json={"body": "x", "marks": ["seo"]}).status_code, 422)
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            db.execute("UPDATE rnp_comments SET marks = ARRAY['seo'] WHERE id = %s", (cid,))
+
 
 if __name__ == "__main__":
     unittest.main()
