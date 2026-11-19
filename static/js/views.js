@@ -6816,7 +6816,9 @@ const Views = (() => {
     if (!el) return;
     const lastMonth = (rnpSalesState.data || {}).last_month;   // как в rnpsOosTag: метка — только в итоге последнего месяца
     if (!rnpSalesState.oosOn || !rnpSalesState.oos || !viewTree || !lastMonth) { el.textContent = ''; el.title = ''; return; }
-    const walk = (n) => n.level === 4 ? (rnpsOosTitle(n) ? 1 : 0)
+    // Статусы «-» и «Closeout» в счётчик не входят (решение владельца 20.11.2026), метка у них остаётся.
+    const skip = (n) => ['-', 'CLOSEOUT'].includes(String((n.leaf_info || {}).status || '').trim().toUpperCase());
+    const walk = (n) => n.level === 4 ? (!skip(n) && rnpsOosTitle(n) ? 1 : 0)
       : (n.children || []).reduce((a, ch) => a + walk(ch), 0);
     // Короткие подписи групп первого уровня (как util.L1_FIXED_ORDER — по подстроке): «ECOM», «ТД АВТОПРОФИ».
     const short = (name) => {
@@ -6828,7 +6830,7 @@ const Views = (() => {
     const parts = (viewTree.children || []).map(g => ({ name: short(g.name), n: walk(g) }));
     const total = parts.reduce((a, p) => a + p.n, 0);
     el.textContent = parts.length > 1 ? parts.map(p => `${p.name} ${p.n}`).join(' · ') : String(total);
-    el.title = `Товаров с OOS в отчёте: ${total}`;
+    el.title = `Товаров с OOS в отчёте: ${total} (без статусов «-» и «Closeout»)`;
   }
 
   // ===== Компонент выбора периода Ozon (аналог bindRnpPeriod) =====
