@@ -5611,9 +5611,10 @@ const Views = (() => {
     // сумма штук — справа; между ними разрыв (space-between). Только
     // артикул + итог последнего месяца.
     const turnBadge = rnpsTurnBadge(node, col, isItem);
-    // Галочка «OOS»: метка сразу за пилюлей запаса (без пилюли — одна метка слева).
+    // Галочка «OOS»: пилюля запаса — в слоте постоянной ширины, поэтому «OOS» во всех строках стоит
+    // ровным столбиком, сколько бы цифр ни было в пилюле и есть ли она вообще (20.11.2026).
     const oosTag = rnpsOosTag(node, col, isItem);
-    const lead = oosTag ? `<span class="rnps-turn-lead">${turnBadge}${oosTag}</span>` : turnBadge;
+    const lead = oosTag ? `<span class="rnps-turn-lead"><span class="rnps-turn-slot">${turnBadge}</span>${oosTag}</span>` : turnBadge;
     if (lead) cls += ' rnps-has-turn';
     return `<span class="rnps-col${cls}"${style}${cmtAttrs}>${cmtMark}${lead}${text}</span>`;
   }

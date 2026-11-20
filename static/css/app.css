@@ -1463,9 +1463,11 @@ table.sp-tbl tbody tr:hover td.sp-cur {
 /* Ячейка итога с днями запаса: пилюля слева, сумма справа,
    между ними разрыв — чтобы числа не сливались. */
 .rnps-col.rnps-has-turn { justify-content:space-between; padding-left:4px; gap:4px; }
-/* Галочка «OOS» (19.11.2026): мелкое приглушённо-красное «OOS» сразу за пилюлей запаса, без рамки — не бросается в глаза. */
+/* Галочка «OOS» (20.11.2026): мелкое красное «OOS» за пилюлей запаса, без рамки. Пилюля — в слоте постоянной
+   ширины (до трёх цифр или ∞), чтобы «OOS» стояло ровным столбиком во всех строках. */
 .rnps-turn-lead { display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; }
-.rnps-oos { font-size:8px; font-weight:600; letter-spacing:.05em; color:#c0675e; line-height:1; cursor:default; }
+.rnps-turn-slot { display:inline-flex; align-items:center; width:30px; flex:0 0 30px; }
+.rnps-oos { font-size:8px; font-weight:700; letter-spacing:.05em; color:#d11414; line-height:1; cursor:default; }
 /* Счётчик у галочки: сколько товаров с OOS — светло-серым. */
 .rnps-oos-count { color:var(--text-mute); font-size:12px; }
 .rnps-oos-count:empty { display:none; }
