@@ -431,7 +431,7 @@
 
 ## ABC
 
-Код: `static/js/abc_module.js:computeAll`, `aggregate`, `abcClassify`, `makeRecommendation`, `isDashNoMove`; данные — `app/routers/abc_router.py:abc_data`. Тестов нет.
+Код: `static/js/abc_module.js:computeAll`, `aggregate`, `abcClassify`, `makeRecommendation`, `isDashNoMove`; данные — `app/routers/abc_router.py:abc_data`. Тестов расчёта в браузере нет; сервер — `tests/test_abc_data.py`, пометки и Excel «Ревизии матрицы» — `tests/test_abc_revision.py`.
 
 - Считается в браузере по `fact_monthly`. Колонки `abc_*` из MPPROFIT не используются (`abc_profit` там испорчен).
 - **Вкладка «Ревизия матрицы»** (20.11.2026, решение владельца по макету `Макет ABC — ревизия матрицы.png`;
