@@ -2363,22 +2363,35 @@ window.ABCDash = (function () {
   }
 
   /* ============ Вкладка «Ревизия матрицы» (решение владельца 20.11.2026) ============
-     Иерархия L1 → L2 → L3 → товар за выбранный период, все площадки СУММАРНО: шт, GMV, прибыль,
-     маржа, средние в месяц, ABC по всем товарам отдела (по GMV и по прибыли, 80/95%),
-     текущие статусы площадок (только просмотр) и пометки ревизии — решение и заметка
+     Иерархия как в РНП (Итоги → L1 → L2 → L3 → артикул; порядок групп — ECOM, ТД «АВТОПРОФИ», прочие по алфавиту,
+     L2/L3 по алфавиту, товары по артикулу; нераспределённые — «Не распределены по группам» в конце) за выбранный
+     период: все площадки суммарно или одна площадка (переключатель). Шт, выручка, прибыль, маржа, средние в месяц,
+     ABC по выручке и по прибыли, текущие статусы площадок (только просмотр) и пометки ревизии — решение и заметка
      (таблица abc_revision; статусы площадок НЕ меняются). Право №132 — вкладка, №133 — пометки. */
   const RV_DECISIONS = ['Усилить', 'Оставить', 'Только Ozon', 'Только WB', 'Вывести', 'Подумать'];
   const RV_DEC_CLS = { 'Усилить': 'up', 'Оставить': 'keep', 'Только Ozon': 'oz', 'Только WB': 'wb', 'Вывести': 'out', 'Подумать': 'think' };
-  const RV_MP = [['ozon', 'O', 'Ozon'], ['vb', 'W', 'Wildberries'], ['yandex', 'Я', 'Яндекс']];
+  // [ключ STATE.raw, подпись, класс карточки/вкладки]
+  const RV_MP = [['ozon', 'Ozon', 'ozon'], ['vb', 'Wildberries', 'wb'], ['yandex', 'Яндекс', 'yandex']];
+  const RV_TABS = [['all', 'Все площадки', 'cross']].concat(RV_MP);
+  const RV_L1_ORDER = ['ECOM', 'АВТОПРОФИ'];            // как util.L1_FIXED_ORDER / views.js PL_L1_FIXED_ORDER
+  const RV_UNASSIGNED = 'Не распределены по группам';
   const RV = {
     marks: null,          // {АРТИКУЛ: {decision, note, at, by}} — /api/abc/revision
     loading: false,
-    open: null,           // Set ключей раскрытых групп («L1», «L1␟L2», …); null — ещё не открывали
+    mp: 'all',            // 'all' | 'ozon' | 'vb' | 'yandex'
+    open: null,           // Set ключей раскрытых групп; null — ещё не открывали (тогда раскрыто всё)
+    closed: new Set(),    // группы, свёрнутые вручную (новые группы при смене периода/площадки раскрываются)
     f: { cls: '', dec: '', st: '', loss: false, q: '' },
     data: null,           // последний расчёт {root, items, n, totRev}
   };
 
-  // Товары периода по всем площадкам + ABC + дерево. Считается из тех же строк, что и вкладки площадок.
+  function rvL1Rank(name) {
+    const s = (name || '').trim().toUpperCase();
+    const i = RV_L1_ORDER.findIndex(t => s.indexOf(t) !== -1);
+    return i === -1 ? RV_L1_ORDER.length : i;
+  }
+
+  // Товары периода (все площадки или выбранная) + ABC + дерево. Те же строки, что у вкладок площадок.
   function rvCompute() {
     const months = new Set(STATE.selectedMonths);
     const n = STATE.selectedMonths.length || 1;
@@ -2386,43 +2399,40 @@ window.ABCDash = (function () {
     for (const [mp] of RV_MP) {
       for (const r of (STATE.raw[mp] || [])) {
         if (!months.has(r.ym)) continue;
-        const p = P[r.sku] || (P[r.sku] = { sku: r.sku, name: '', ym: '', q: 0, rev: 0, prof: 0, st: {} });
-        p.q += r.sales_qty; p.rev += r.revenue; p.prof += r.profit;
-        p.st[mp] = r.status || '';
+        const p = P[r.sku] || (P[r.sku] = { sku: r.sku, name: '', ym: '', q: 0, rev: 0, prof: 0, st: {}, here: false });
+        p.st[mp] = r.status || '';                        // статусы всех площадок — для колонок «Статус сейчас»
         if (r.name && r.ym >= p.ym) { p.name = r.name; p.ym = r.ym; }   // наименование — из последнего месяца
+        if (RV.mp !== 'all' && mp !== RV.mp) continue;
+        p.here = true;
+        p.q += r.sales_qty; p.rev += r.revenue; p.prof += r.profit;
       }
     }
-    // Как во всех таблицах ABC: товар без движения за период не показывается.
-    const items = Object.values(P).filter(p => p.q || p.rev || p.prof);
+    // Как во всех таблицах ABC: товар без движения за период (на выбранной площадке) не показывается.
+    const items = Object.values(P).filter(p => p.here && (p.q || p.rev || p.prof));
     const cr = abcClassify(items.map(p => [p.sku, p.rev]));
     const cp = abcClassify(items.map(p => [p.sku, p.prof]));
     items.forEach(p => { p.cr = cr[p.sku]; p.cp = cp[p.sku]; });
 
-    const NONE = ['(без категории)', '(без подгруппы)', '(без вида)'];
-    const mk = (name, key, depth) => ({ name, key, depth, kids: {}, items: [], q: 0, rev: 0, prof: 0, cnt: { A: 0, B: 0, C: 0, D: 0 } });
+    const mk = (name, key, depth) => ({ name, key, depth, kids: {}, items: [], q: 0, rev: 0, prof: 0 });
     const root = mk('Итоги', '', -1);
     for (const p of items) {
-      const c = STATE.cats[p.sku] || [];
+      const c = (STATE.cats[p.sku] || []).map(x => (x == null ? '' : String(x).trim()));
       let node = root;
-      for (let i = 0; i < 3; i++) {
-        const seg = (c[i] && String(c[i]).trim()) || NONE[i];
-        const key = node.key ? node.key + '␟' + seg : seg;
-        node = node.kids[seg] || (node.kids[seg] = mk(seg, key, i));
+      if (!c[0] || !c[1] || !c[2]) {
+        node = root.kids[RV_UNASSIGNED] || (root.kids[RV_UNASSIGNED] = Object.assign(mk(RV_UNASSIGNED, '__unassigned__', 0), { na: true }));
+      } else {
+        for (let i = 0; i < 3; i++) {
+          const key = node.key ? node.key + '␟' + c[i] : c[i];
+          node = node.kids[c[i]] || (node.kids[c[i]] = mk(c[i], key, i));
+        }
       }
       node.items.push(p);
     }
     (function agg(node) {
-      for (const k of Object.values(node.kids)) {
-        agg(k);
-        node.q += k.q; node.rev += k.rev; node.prof += k.prof;
-        for (const c in node.cnt) node.cnt[c] += k.cnt[c];
-      }
-      for (const p of node.items) {
-        node.q += p.q; node.rev += p.rev; node.prof += p.prof;
-        node.cnt[p.cr === 'Z' ? 'C' : p.cr] += 1;
-      }
+      for (const k of Object.values(node.kids)) { agg(k); node.q += k.q; node.rev += k.rev; node.prof += k.prof; }
+      for (const p of node.items) { node.q += p.q; node.rev += p.rev; node.prof += p.prof; }
     })(root);
-    return { root, items, n, totRev: root.rev };
+    return { root, items, n, totRev: root.rev, totProf: root.prof };
   }
 
   function rvStatus(v) { return stDisplay(v); }
@@ -2431,20 +2441,22 @@ window.ABCDash = (function () {
     const f = RV.f, m = (RV.marks || {})[p.sku] || {};
     if (f.cls) { const [k, c] = f.cls.split(':'); const v = k === 'r' ? p.cr : p.cp; if ((v === 'Z' ? 'C' : v) !== c) return false; }
     if (f.dec === '__none' ? !!m.decision : (f.dec && m.decision !== f.dec)) return false;
-    if (f.st && !RV_MP.some(([mp]) => (mp in p.st) && rvStatus(p.st[mp]) === f.st)) return false;
+    // Статус: на выбранной площадке; на «Все площадки» — на любой.
+    if (f.st && !RV_MP.some(([mp]) => (RV.mp === 'all' || mp === RV.mp) && (mp in p.st) && rvStatus(p.st[mp]) === f.st)) return false;
     if (f.loss && !(p.prof < 0)) return false;
     if (f.q) { const q = f.q.toLowerCase(); if (!p.sku.toLowerCase().includes(q) && !(p.name || '').toLowerCase().includes(q)) return false; }
     return true;
   }
   function rvFiltered() { const f = RV.f; return !!(f.cls || f.dec || f.st || f.loss || f.q); }
-  const rvSort = (a, b) => (b.rev - a.rev) || a.name.localeCompare(b.name, 'ru');
-  const rvNone = (n) => /^\(без /.test(n.name) ? 1 : 0;   // «(без категории)» — в конце уровня
-  function rvKids(node) { return Object.values(node.kids).sort((a, b) => (rvNone(a) - rvNone(b)) || rvSort(a, b)); }
-  function rvHasMatch(node) {
-    return node.items.some(rvMatch) || Object.values(node.kids).some(rvHasMatch);
+  // Порядок как в РНП: L1 — ECOM, ТД «АВТОПРОФИ», прочие по алфавиту; глубже — алфавит; нераспределённые — в конце.
+  function rvKids(node) {
+    return Object.values(node.kids).sort((a, b) => ((a.na ? 1 : 0) - (b.na ? 1 : 0))
+      || (a.depth === 0 ? rvL1Rank(a.name) - rvL1Rank(b.name) : 0) || a.name.localeCompare(b.name, 'ru'));
   }
+  function rvHasMatch(node) { return node.items.some(rvMatch) || Object.values(node.kids).some(rvHasMatch); }
+  function rvAllKeys(node, set) { for (const k of Object.values(node.kids)) { set.add(k.key); rvAllKeys(k, set); } return set; }
 
-  // Видимые строки дерева: {type:'total'|'grp'|'item', node|p}. all=true — без учёта сворачивания (Excel).
+  // Видимые строки дерева: {type:'total'|'grp'|'item', node|p, depth}. all=true — без учёта сворачивания (Excel).
   function rvRows(all) {
     const out = [], filt = rvFiltered();
     out.push({ type: 'total', node: RV.data.root });
@@ -2452,28 +2464,26 @@ window.ABCDash = (function () {
       for (const k of rvKids(node)) {
         if (filt && !rvHasMatch(k)) continue;
         out.push({ type: 'grp', node: k });
-        if (!(all || filt || RV.open.has(k.key))) continue;
-        if (k.depth < 2) walk(k);
-        else k.items.filter(rvMatch).sort((a, b) => (b.rev - a.rev) || a.sku.localeCompare(b.sku, 'ru'))
-          .forEach(p => out.push({ type: 'item', p }));
+        if (all || filt || RV.open.has(k.key)) walk(k);
       }
+      node.items.filter(rvMatch).sort((a, b) => a.sku.localeCompare(b.sku, 'ru'))
+        .forEach(p => out.push({ type: 'item', p, depth: node.depth + 1 }));
     })(RV.data.root);
     return out;
   }
 
   const rvN = (v) => { const r = Math.round(v); return r === 0 ? '0' : fmtRub.format(r); };
-  const rvPct = (a, b) => (b ? (a / b * 100).toFixed(1).replace('.', ',') + '%' : '—');
+  // «-0,0%» не показываем: доля меньше 0,05% по модулю — «0,0%».
+  const rvPct = (a, b) => { if (!b) return '—'; const v = a / b * 100; return (Math.abs(v) < 0.05 ? 0 : v).toFixed(1).replace('.', ',') + '%'; };
 
   function rvValCells(x, isItem) {
     const n = RV.data.n, neg = x.prof < 0 ? ' rv-neg' : '';
     const low = isItem && x.prof >= 0 && x.rev > 0 && x.prof / x.rev < 0.1 ? ' rv-warn' : '';
-    return `<td class="pnl-tstart rv-b">${rvN(x.q)}</td><td class="rv-b">${rvN(x.rev)}</td><td class="pnl-pct">${rvPct(x.rev, RV.data.totRev)}</td>`
-      + `<td class="rv-b${neg}">${rvN(x.prof)}</td><td class="pnl-pct${neg}${low}">${rvPct(x.prof, x.rev)}</td>`
+    return `<td class="pnl-tstart">${rvN(x.q)}</td><td>${rvN(x.rev)}</td><td class="rv-pct">${rvPct(x.rev, RV.data.totRev)}</td>`
+      + `<td class="${neg}">${rvN(x.prof)}</td><td class="rv-pct${neg}">${RV.data.totProf > 0 ? rvPct(x.prof, RV.data.totProf) : '—'}</td><td class="rv-pct${neg}${low}">${rvPct(x.prof, x.rev)}</td>`
       + `<td class="pnl-tstart rv-avg">${rvN(x.q / n)}</td><td class="rv-avg">${rvN(x.rev / n)}</td><td class="rv-avg${neg}">${rvN(x.prof / n)}</td>`;
   }
-  function rvMix(c) {
-    return `<span class="rv-mix" title="Товаров в классе по GMV"><b class="A">A ${c.A}</b><b class="B">B ${c.B}</b><b class="C">C ${c.C}</b>${c.D ? `<b class="D">D ${c.D}</b>` : ''}</span>`;
-  }
+  const RV_EMPTY_TAIL = '<td class="pnl-tstart"></td><td></td><td class="pnl-tstart"></td><td></td><td></td><td class="pnl-tstart"></td><td></td>';
   function rvDecHtml(p) {
     const m = (RV.marks || {})[p.sku] || {}, d = m.decision || '';
     const off = App.can('abc.revision.edit') ? '' : ' disabled';
@@ -2488,33 +2498,32 @@ window.ABCDash = (function () {
     if (!m.note) return can ? `<span class="rv-note rv-note-empty" data-sku="${escapeAttr(p.sku)}">+ заметка</span>` : '';
     return `<span class="rv-note${can ? ' rv-note-edit' : ''}" data-sku="${escapeAttr(p.sku)}" title="${escapeAttr(m.note + who)}">${escapeHtml(m.note)}</span>`;
   }
-  function rvStHtml(p) {
-    return RV_MP.map(([mp, l, title]) => {
-      if (!(mp in p.st)) return `<span class="rv-st rv-st-off" title="${title}: нет продаж за период"><i>${l}</i><span class="rv-stv">·</span></span>`;
-      const s = rvStatus(p.st[mp]);
-      return `<span class="rv-st rv-st-${mp}" title="${title}: ${escapeAttr(s)}"><i>${l}</i>`
-        + (s === '-' ? '<span class="rv-stv rv-dash">—</span>' : `<span class="rv-stv status-badge ${stClass(s)}">${escapeHtml(s)}</span>`) + '</span>';
-    }).join('');
+  // Статус площадки: плашка как в РНП; «—» — без статуса; пусто — нет продаж на площадке за период.
+  function rvStCell(p, mp) {
+    if (!(mp in p.st)) return '';
+    const s = rvStatus(p.st[mp]);
+    return s === '-' ? '<span class="rv-dash">—</span>' : `<span class="rv-stv status-badge ${stClass(s)}">${escapeHtml(s)}</span>`;
   }
 
   function rvRowHtml(row) {
     if (row.type === 'item') {
       const p = row.p;
-      return `<tr class="pnl-r rv-item"><td class="pnl-name"><span class="rv-sku">${escapeHtml(p.sku)}</span><span class="rv-iname" title="${escapeAttr(p.name)}">${escapeHtml(p.name)}</span></td>`
+      return `<tr class="pnl-r rv-item"><td class="pnl-name" style="padding-left:${12 + row.depth * 14 + 22}px"><span class="rnp-nm rnp-art-main" title="${escapeAttr(p.name)}">${escapeHtml(p.sku)}</span></td>`
         + rvValCells(p, true)
         + `<td class="pnl-tstart rv-c"><span class="pill ${p.cr}">${p.cr}</span></td><td class="rv-c"><span class="pill ${p.cp}">${p.cp}</span></td>`
-        + `<td class="pnl-tstart rv-sts">${rvStHtml(p)}</td><td class="pnl-tstart rv-left">${rvDecHtml(p)}</td><td class="rv-left rv-note-td">${rvNoteHtml(p)}</td></tr>`;
+        + RV_MP.map(([mp], i) => `<td class="rv-c${i === 0 ? ' pnl-tstart' : ''}">${rvStCell(p, mp)}</td>`).join('')
+        + `<td class="pnl-tstart rv-left">${rvDecHtml(p)}</td><td class="rv-left rv-note-td">${rvNoteHtml(p)}</td></tr>`;
     }
     const k = row.node;
     if (row.type === 'total') {
-      return `<tr class="pnl-r pnl-key"><td class="pnl-name"><span class="pnl-nm">Итоги · товаров: ${RV.data.items.length}</span></td>${rvValCells(k, false)}`
-        + `<td class="pnl-tstart rv-c" colspan="2">${rvMix(k.cnt)}</td><td class="pnl-tstart"></td><td class="pnl-tstart"></td><td></td></tr>`;
+      return `<tr class="pnl-r rv-l0"><td class="pnl-name" style="padding-left:12px"><span class="exp-spacer"></span><span class="rnp-nm">Итоги</span></td>${rvValCells(k, false)}${RV_EMPTY_TAIL}</tr>`;
     }
     const open = rvFiltered() || RV.open.has(k.key);
-    return `<tr class="pnl-r rv-grp rv-l${k.depth + 1}" data-key="${escapeAttr(k.key)}"><td class="pnl-name"><button type="button" class="rnp-exp-btn" tabindex="-1">${open ? '▾' : '▸'}</button><span class="pnl-nm">${escapeHtml(k.name)}</span></td>`
-      + rvValCells(k, false) + `<td class="pnl-tstart rv-c" colspan="2">${rvMix(k.cnt)}</td><td class="pnl-tstart"></td><td class="pnl-tstart"></td><td></td></tr>`;
+    return `<tr class="pnl-r rv-grp rv-l${k.depth + 1}" data-key="${escapeAttr(k.key)}"><td class="pnl-name" style="padding-left:${12 + (k.depth + 1) * 14}px"><button type="button" class="rnp-exp-btn" tabindex="-1">${open ? '▾' : '▸'}</button><span class="rnp-nm">${escapeHtml(k.name)}</span></td>`
+      + rvValCells(k, false) + RV_EMPTY_TAIL + '</tr>';
   }
 
+  function rvMpLabel() { return (RV_TABS.find(t => t[0] === RV.mp) || RV_TABS[0])[1]; }
   function rvPeriodText() { return abcPeriodLabel() + ' · ' + RV.data.n + ' мес.'; }
 
   function renderRevision() {
@@ -2531,52 +2540,67 @@ window.ABCDash = (function () {
       }
       return;
     }
+    const prevScroll = host.querySelector('.rv-scroll');
+    const keep = prevScroll ? { x: prevScroll.scrollLeft, y: prevScroll.scrollTop } : null;
     RV.data = rvCompute();
-    // Первое открытие: развёрнут первый уровень (видны группы второго уровня).
-    if (!RV.open) RV.open = new Set(Object.values(RV.data.root.kids).map(k => k.key));
+    // Первое открытие — развёрнуто до товаров (как РНП); новые группы при смене периода/площадки — тоже раскрыты.
+    if (!RV.open) { RV.open = rvAllKeys(RV.data.root, new Set()); RV.closed = new Set(); }
+    else rvAllKeys(RV.data.root, new Set()).forEach(k => { if (!RV.closed.has(k)) RV.open.add(k); });
     const f = RV.f, marks = RV.marks;
     const nDec = RV.data.items.filter(p => (marks[p.sku] || {}).decision).length;
+    const cardCls = (RV_TABS.find(t => t[0] === RV.mp) || RV_TABS[0])[2];
     const sel = (cls, opts, val) => `<select class="rv-filter ${cls}">${opts.map(([v, l]) => `<option value="${escapeAttr(v)}"${v === val ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
-    const clsOpts = [['', 'Класс: все']].concat(['A', 'B', 'C', 'D'].map(c => ['r:' + c, 'GMV: ' + c]), ['A', 'B', 'C', 'D'].map(c => ['p:' + c, 'Прибыль: ' + c]));
+    const clsOpts = [['', 'Класс: все']].concat(['A', 'B', 'C', 'D'].map(c => ['r:' + c, 'Выручка: ' + c]), ['A', 'B', 'C', 'D'].map(c => ['p:' + c, 'Прибыль: ' + c]));
     const decOpts = [['', 'Решение: все'], ['__none', 'Без решения']].concat(RV_DECISIONS.map(d => [d, d]));
     const stOpts = [['', 'Статус: все']].concat(STATUS_PRESETS.map(s => [s, 'Статус: ' + s]));
     const H = (a, b, cls = '') => `<th class="${cls}"><span class="pnl-h1">${a}</span><span class="pnl-h2">${b || '&nbsp;'}</span></th>`;
     host.innerHTML = `
-      <div class="rv-bar">
-        <div class="rv-bar-l"><span class="rv-ttl">Ревизия матрицы</span><span class="rv-sub">все площадки вместе · ${escapeHtml(rvPeriodText())}</span></div>
-        <div class="rv-filters">
-          ${sel('rv-f-cls', clsOpts, f.cls)}${sel('rv-f-dec', decOpts, f.dec)}${sel('rv-f-st', stOpts, f.st)}
-          <label class="rv-chk"><input type="checkbox" class="rv-f-loss"${f.loss ? ' checked' : ''}> только с убытком</label>
-          <input type="search" class="rv-search" placeholder="Артикул или название" value="${escapeAttr(f.q)}">
-          <button type="button" class="rv-btn rv-expand">Развернуть всё</button>
-          <button type="button" class="rv-btn rv-collapse">Свернуть</button>
-          <button type="button" class="rv-btn rv-export">⬇ Excel</button>
+      <div class="card rnp-card mp-${cardCls} rv-card">
+        <div class="rnp-toolbar rv-toolbar">
+          <div class="rnp-toolbar-top"><div class="subtabs">${RV_TABS.map(([id, l, cls]) =>
+            `<button type="button" class="subtab ${cls}${id === RV.mp ? ' active' : ''}" data-rvmp="${id}">${l}</button>`).join('')}</div></div>
+          <div class="rnp-filters rv-filters">
+            ${sel('rv-f-cls', clsOpts, f.cls)}${sel('rv-f-dec', decOpts, f.dec)}${sel('rv-f-st', stOpts, f.st)}
+            <label class="rv-chk"><input type="checkbox" class="rv-f-loss"${f.loss ? ' checked' : ''}> только с убытком</label>
+            <input type="search" class="rv-search" placeholder="Артикул или название" value="${escapeAttr(f.q)}">
+            <span class="rv-sp"></span>
+            <button type="button" class="rv-btn rv-expand">Развернуть всё</button>
+            <button type="button" class="rv-btn rv-collapse">Свернуть всё</button>
+            <button type="button" class="rv-btn rv-export">⬇ Excel</button>
+          </div>
         </div>
-      </div>
-      <div class="rv-info"><b>Решения ревизии:</b> ${nDec} из ${RV.data.items.length} товаров · пометки для себя, статусы площадок не меняются${rvFiltered() ? ' · <span class="rv-finfo">фильтр — только список товаров, суммы групп по всем товарам</span>' : ''}</div>
-      <div class="rnp-card mp-cross rv-card">
+        <div class="rv-head">
+          <div class="rnp-card-title">Ревизия матрицы — ${escapeHtml(rvMpLabel())}</div>
+          <div class="rv-sub">${escapeHtml(rvPeriodText())} · товаров ${RV.data.items.length} · решений ревизии ${nDec} — пометки для себя, статусы площадок не меняются${rvFiltered() ? ' · <span class="rv-finfo">фильтр сужает список товаров, суммы групп — по всем товарам</span>' : ''}</div>
+        </div>
         <div class="rv-scroll"><table class="pnl-t rv-t">
-          <colgroup><col style="width:340px"><col style="width:76px"><col style="width:108px"><col style="width:54px"><col style="width:104px"><col style="width:56px"><col style="width:76px"><col style="width:96px"><col style="width:88px"><col style="width:58px"><col style="width:58px"><col style="width:206px"><col style="width:124px"><col style="width:220px"></colgroup>
+          <colgroup><col style="width:300px"><col style="width:80px"><col style="width:122px"><col style="width:62px"><col style="width:112px"><col style="width:62px"><col style="width:64px"><col style="width:72px"><col style="width:110px"><col style="width:100px"><col style="width:64px"><col style="width:64px"><col style="width:84px"><col style="width:84px"><col style="width:84px"><col style="width:128px"><col></colgroup>
           <thead>
-            <tr class="rv-hgrp"><th class="pnl-name"></th><th class="pnl-tstart" colspan="5">За период</th><th class="pnl-tstart" colspan="3">В среднем за месяц</th><th class="pnl-tstart" colspan="2">ABC</th><th class="pnl-tstart">Статус сейчас</th><th class="pnl-tstart" colspan="2">Ревизия</th></tr>
-            <tr class="rv-hcol"><th class="pnl-name"><span class="pnl-h1">Группа / товар</span><span class="pnl-h2">по GMV за период</span></th>
-              ${H('Продажи', 'шт', 'pnl-tstart')}${H('GMV', 'руб')}${H('доля', '')}${H('Прибыль', 'руб')}${H('маржа', '')}
-              ${H('Продажи', 'шт', 'pnl-tstart')}${H('GMV', 'руб')}${H('Прибыль', 'руб')}
-              ${H('GMV', '', 'pnl-tstart rv-c')}${H('приб.', '', 'rv-c')}
-              ${H('Ozon · WB · Яндекс', '', 'pnl-tstart rv-c')}
+            <tr class="rv-hgrp"><th class="pnl-name"></th><th class="pnl-tstart" colspan="6">За период</th><th class="pnl-tstart" colspan="3">В среднем за месяц</th><th class="pnl-tstart" colspan="2">ABC</th><th class="pnl-tstart" colspan="3">Статус сейчас</th><th class="pnl-tstart" colspan="2">Ревизия</th></tr>
+            <tr class="rv-hcol"><th class="pnl-name"><span class="pnl-h1">Группа / артикул</span><span class="pnl-h2">&nbsp;</span></th>
+              ${H('Продажи', 'шт', 'pnl-tstart')}${H('Выручка', 'руб')}${H('доля', '')}${H('Прибыль', 'руб')}${H('доля', '')}${H('маржа', '')}
+              ${H('Продажи', 'шт', 'pnl-tstart')}${H('Выручка', 'руб')}${H('Прибыль', 'руб')}
+              ${H('выручка', '', 'pnl-tstart rv-c')}${H('прибыль', '', 'rv-c')}
+              ${H('Ozon', '', 'pnl-tstart rv-c rv-h-ozon')}${H('WB', '', 'rv-c rv-h-vb')}${H('Яндекс', '', 'rv-c rv-h-yandex')}
               ${H('Решение', '', 'pnl-tstart rv-left')}${H('Заметка', '', 'rv-left')}</tr>
           </thead>
           <tbody>${rvRows(false).map(rvRowHtml).join('')}</tbody>
         </table></div>
-      </div>
-      <div class="rv-legend"><b>ABC</b> — по всем товарам отдела за период: <span class="pill A">A</span> 80% GMV / прибыли, <span class="pill B">B</span> следующие 15%,
-        <span class="pill C">C</span> последние 5%, <span class="pill D">D</span> убыток (по GMV — возвратов больше продаж), <span class="pill Z">Z</span> ноль (в счётчиках групп и фильтре — вместе с C). Первая буква — по GMV, вторая — по прибыли.
-        У групп — сколько товаров в каждом классе по GMV. Прибыль — товарная, без общих удержаний площадок. Маржа ниже 10% — оранжевым, убыток — красным.</div>`;
+        <div class="rv-legend"><b>ABC</b> — по всем товарам ${RV.mp === 'all' ? 'отдела' : 'площадки'} за период, отдельно по выручке и по прибыли:
+          <span class="pill A">A</span> первые 80%, <span class="pill B">B</span> следующие 15%, <span class="pill C">C</span> последние 5%,
+          <span class="pill D">D</span> минус, <span class="pill Z">Z</span> ноль. Прибыль — товарная, без общих удержаний площадок.
+          Доля — от выручки и от прибыли всех товаров периода. Маржа ниже 10% — оранжевым, убыток — красным. Наименование товара — при наведении на артикул.</div>
+      </div>`;
+    if (keep) { const sc = host.querySelector('.rv-scroll'); sc.scrollLeft = keep.x; sc.scrollTop = keep.y; }
     rvBind(host);
   }
 
   function rvBind(host) {
     const rerender = () => renderRevision();
+    host.querySelectorAll('[data-rvmp]').forEach(b => b.addEventListener('click', () => {
+      if (RV.mp === b.dataset.rvmp) return;
+      RV.mp = b.dataset.rvmp; rerender();
+    }));
     host.querySelector('.rv-f-cls').addEventListener('change', e => { RV.f.cls = e.target.value; rerender(); });
     host.querySelector('.rv-f-dec').addEventListener('change', e => { RV.f.dec = e.target.value; rerender(); });
     host.querySelector('.rv-f-st').addEventListener('change', e => { RV.f.st = e.target.value; rerender(); });
@@ -2591,17 +2615,18 @@ window.ABCDash = (function () {
       }, 300);
     });
     host.querySelector('.rv-expand').addEventListener('click', () => {
-      (function all(node) { for (const k of Object.values(node.kids)) { RV.open.add(k.key); all(k); } })(RV.data.root);
-      rerender();
+      RV.open = rvAllKeys(RV.data.root, new Set()); RV.closed = new Set(); rerender();
     });
-    host.querySelector('.rv-collapse').addEventListener('click', () => { RV.open = new Set(); rerender(); });
+    host.querySelector('.rv-collapse').addEventListener('click', () => {
+      RV.open = new Set(); RV.closed = rvAllKeys(RV.data.root, new Set()); rerender();
+    });
     host.querySelector('.rv-export').addEventListener('click', e => rvExport(e.currentTarget));
     const tbody = host.querySelector('tbody');
     tbody.addEventListener('click', (e) => {
       const grp = e.target.closest('tr.rv-grp');
       if (grp && !rvFiltered()) {
         const key = grp.dataset.key;
-        RV.open.has(key) ? RV.open.delete(key) : RV.open.add(key);
+        if (RV.open.has(key)) { RV.open.delete(key); RV.closed.add(key); } else { RV.open.add(key); RV.closed.delete(key); }
         rerender();
         return;
       }
@@ -2619,7 +2644,7 @@ window.ABCDash = (function () {
     try {
       const res = await (window.API || API).abcRevisionSave(Object.assign({ seller_article: sku }, body));
       if (res.item) RV.marks[res.seller_article] = Object.assign({}, RV.marks[res.seller_article], res.item,
-        { at: new Date().toISOString(), by: (function () { const u = (window.API || API).getUser && (window.API || API).getUser(); return (u && (u.display_name || u.email)) || ''; })() });
+        { at: new Date().toISOString(), by: (function () { const u = (window.API || API).getUser && (window.API || API).getUser(); return (u && (u.display_name || u.name || u.email)) || ''; })() });
       else delete RV.marks[res.seller_article];
       App.toast('Сохранено: ' + sku, 'ok');
     } catch (err) {
@@ -2654,7 +2679,9 @@ window.ABCDash = (function () {
     btn.disabled = true;
     try {
       const n = RV.data.n, tot = RV.data.totRev, marks = RV.marks || {};
+      const totP = RV.data.totProf;
       const base = (x) => ({ q: Math.round(x.q), rev: Math.round(x.rev), share: tot ? x.rev / tot : 0, prof: Math.round(x.prof),
+        prof_share: totP > 0 ? x.prof / totP : null,   // общая прибыль ≤ 0 — доля не имеет смысла
         margin: x.rev ? x.prof / x.rev : null, q_m: Math.round(x.q / n), rev_m: Math.round(x.rev / n), prof_m: Math.round(x.prof / n) });
       const rows = rvRows(true).map(row => {
         if (row.type !== 'item') {
@@ -2664,10 +2691,10 @@ window.ABCDash = (function () {
         }
         const p = row.p, m = marks[p.sku] || {};
         const st = (mp) => (mp in p.st ? rvStatus(p.st[mp]) : '');
-        return Object.assign({ level: 'item', name: p.sku, title: p.name, cr: p.cr, cp: p.cp,
+        return Object.assign({ level: 'item', depth: row.depth, name: p.sku, title: p.name, cr: p.cr, cp: p.cp,
           st_ozon: st('ozon'), st_vb: st('vb'), st_ya: st('yandex'), decision: m.decision || '', note: m.note || '' }, base(p));
       });
-      const resp = await (window.API || API).abcRevisionExport({ period: rvPeriodText(), rows });
+      const resp = await (window.API || API).abcRevisionExport({ period: rvMpLabel() + ' · ' + rvPeriodText(), rows });
       const cd = resp.headers.get('Content-Disposition') || '';
       let fname = 'revision.xlsx';
       const mm = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);

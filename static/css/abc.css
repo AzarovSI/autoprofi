@@ -855,67 +855,61 @@
 @media (max-width: 600px) { .abc-dash .filters select.f-cat2, .abc-dash .filters select.f-cat3 { max-width: 100%; flex: 1 1 45%; } }
 
 /* ============ Вкладка «Ревизия матрицы» (20.11.2026) ============
-   Общий отчёт по всем площадкам — серые уровни (.rnp-card.mp-cross), цвета площадок только у меток O / W / Я.
+   Оформление как у РНП / P&L: карточка .rnp-card с полосой площадки (Все площадки — серая .mp-cross), вкладки площадок
+   .subtabs, заголовок .rnp-card-title, уровни групп — оттенки --lvl-bg-* карточки, артикул — .rnp-art-main.
    Таблица — классы P&L (.pnl-t), шапка липкая внутри .rv-scroll. */
-.abc-dash .rv-bar { display:flex; align-items:center; justify-content:space-between; gap:12px 16px; margin:4px 0 10px; flex-wrap:wrap; }
-.abc-dash .rv-ttl { font-size:16px; font-weight:700; color:var(--text); margin-right:10px; }
-.abc-dash .rv-sub { font-size:12.5px; color:var(--text-mute); }
-.abc-dash .rv-filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.abc-dash .rv-card { padding-bottom:12px; }
+.abc-dash .rv-toolbar { position:static; }          /* в ABC свой тулбар сверху — без второго липкого */
+.abc-dash .rv-filters { flex-wrap:wrap; }
 .abc-dash .rv-filter, .abc-dash .rv-search, .abc-dash .rv-btn { font:inherit; font-size:12.5px; height:30px; box-sizing:border-box;
   border:1px solid var(--border); border-radius:7px; padding:0 10px; background:var(--bg-elev); color:var(--text-dim); }
 .abc-dash .rv-filter { padding-right:6px; cursor:pointer; }
-.abc-dash .rv-search { width:200px; color:var(--text); }
+.abc-dash .rv-search { width:210px; color:var(--text); }
+.abc-dash .rv-sp { flex:1 1 auto; }
 .abc-dash .rv-btn { cursor:pointer; white-space:nowrap; }
 .abc-dash .rv-btn:hover, .abc-dash .rv-filter:hover { border-color:#c3cad3; color:var(--text); }
 .abc-dash .rv-btn:disabled { opacity:.5; cursor:default; }
-.abc-dash .rv-chk { font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:5px; cursor:pointer; }
-.abc-dash .rv-info { font-size:12.5px; color:var(--text-dim); background:#f6f8fb; border:1px solid var(--border-soft);
-  border-radius:8px; padding:7px 12px; margin-bottom:10px; }
+.abc-dash .rv-chk { font-size:12.5px; color:var(--text-dim); display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
+.abc-dash .rv-head { margin:2px 0 10px; }
+.abc-dash .rv-head .rnp-card-title { margin:0 0 3px; }
+.abc-dash .rv-sub { font-size:12px; color:var(--text-mute); }
 .abc-dash .rv-finfo { color:#9a6512; }
-.abc-dash .rv-card { padding:0 0 4px; overflow:hidden; }
-.abc-dash .rv-scroll { overflow:auto; max-height:calc(100vh - 230px); min-height:240px; }
-.abc-dash .rv-t { width:1664px; }
+.abc-dash .rv-scroll { overflow:auto; max-height:calc(100vh - 210px); min-height:240px; margin:0 -20px;
+  border-top:1px solid var(--border-soft); }
+.abc-dash .rv-t { width:100%; min-width:1700px; }
+.abc-dash .rv-t th, .abc-dash .rv-t td { padding-left:10px; padding-right:12px; }
 .abc-dash .rv-t thead th { position:sticky; z-index:3; }
-.abc-dash .rv-t thead tr.rv-hgrp th { top:0; height:24px; font-size:11px; font-weight:700; color:var(--text-dim); text-align:center; padding:6px 4px 2px; border-bottom:none; }
-.abc-dash .rv-t thead tr.rv-hcol th { top:24px; }
+.abc-dash .rv-t thead tr.rv-hgrp th { top:0; height:26px; font-size:11px; font-weight:700; color:var(--text-dim); text-align:center;
+  padding:7px 4px 2px; border-bottom:none; }
+.abc-dash .rv-t thead tr.rv-hcol th { top:26px; }
 .abc-dash .rv-t thead th.pnl-name { z-index:4; }
-.abc-dash .rv-t td.rv-b { font-weight:600; }
+.abc-dash .rv-t td { font-size:12.5px; padding-top:6px; padding-bottom:6px; }
+.abc-dash .rv-t td.rv-pct { font-size:11.5px; color:var(--text-dim); }
 .abc-dash .rv-t td.rv-avg { color:var(--text-dim); }
 .abc-dash .rv-t td.rv-neg { color:var(--bad) !important; }
 .abc-dash .rv-t td.rv-warn { color:#c77700 !important; font-weight:600; }
-.abc-dash .rv-t .rv-c { text-align:center !important; }
+.abc-dash .rv-t .rv-c { text-align:center !important; padding-left:4px; padding-right:4px; }
 .abc-dash .rv-t .rv-left { text-align:left !important; font-family:var(--sans); }
-.abc-dash .rv-t .rv-l1 td { --row-tint:var(--lvl-bg-0); }
-.abc-dash .rv-t .rv-l1 .pnl-nm { font-weight:700; font-size:13px; }
-.abc-dash .rv-t .rv-l2 td { --row-tint:var(--lvl-bg-1); }
-.abc-dash .rv-t .rv-l2 td.pnl-name { padding-left:30px; }
-.abc-dash .rv-t .rv-l3 td { --row-tint:var(--lvl-bg-2); }
-.abc-dash .rv-t .rv-l3 td.pnl-name { padding-left:48px; }
-.abc-dash .rv-t .rv-l3 .pnl-nm { font-weight:600; font-size:12px; }
+.abc-dash .rv-t th.rv-h-ozon .pnl-h1 { color:var(--ozon-soft); }
+.abc-dash .rv-t th.rv-h-vb .pnl-h1 { color:var(--wb-soft); }
+.abc-dash .rv-t th.rv-h-yandex .pnl-h1 { color:var(--ya-soft); }
+/* уровни — как узлы РНП: Итоги lvl-0 … L3 lvl-3, товар без заливки */
+.abc-dash .rv-t .rv-l0 td { --row-tint:var(--lvl-bg-0); font-weight:700; }
+.abc-dash .rv-t .rv-l0 .rnp-nm { font-size:13.5px; font-weight:700; }
+.abc-dash .rv-t .rv-l1 td { --row-tint:var(--lvl-bg-1); font-weight:600; }
+.abc-dash .rv-t .rv-l2 td { --row-tint:var(--lvl-bg-2); font-weight:600; }
+.abc-dash .rv-t .rv-l3 td { --row-tint:var(--lvl-bg-3); font-weight:600; }
+.abc-dash .rv-t td.pnl-name .rnp-nm { display:inline-block; max-width:calc(100% - 24px); vertical-align:middle; }
+.abc-dash .rv-t td.pnl-name .exp-spacer { display:inline-block; width:18px; margin-right:4px; }
 .abc-dash .rv-t tr.rv-grp { cursor:pointer; }
-.abc-dash .rv-t tr.rv-grp td.rv-b { font-weight:700; }
-.abc-dash .rv-t .pnl-key td.pnl-name { padding-left:12px; }
-.abc-dash .rv-t .rv-l1 td.pnl-name { padding-left:12px; }
-.abc-dash .rv-t .rv-item td.pnl-name { padding-left:86px; }
-.abc-dash .rv-t .rv-item td { padding-top:3px; padding-bottom:3px; }
-.abc-dash .rv-t .rv-item .pnl-name { overflow:hidden; text-overflow:ellipsis; }
-.abc-dash .rv-sku { font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--text); margin-right:8px; }
-.abc-dash .rv-iname { font-size:11.5px; color:var(--text-mute); }
-.abc-dash .rv-mix { font-family:var(--sans); font-size:11px; white-space:nowrap; }
-.abc-dash .rv-mix b { font-weight:600; margin:0 3px; }
-.abc-dash .rv-mix b.A { color:var(--good); } .abc-dash .rv-mix b.B { color:#2f6bff; }
-.abc-dash .rv-mix b.C { color:var(--text-mute); } .abc-dash .rv-mix b.D { color:var(--bad); }
-.abc-dash .rv-t .pill, .abc-dash .rv-legend .pill { font-size:10.5px; padding:0 6px; border-radius:4px; font-weight:700; font-family:var(--sans); line-height:17px; display:inline-block; }
-.abc-dash .rv-sts { white-space:nowrap; font-family:var(--sans) !important; }
-.abc-dash .rv-st { display:inline-flex; align-items:center; gap:2px; margin:0 3px; font-size:10.5px; vertical-align:middle; }
-.abc-dash .rv-st i { font-style:normal; font-weight:700; font-size:10px; }
-.abc-dash .rv-st-ozon i { color:var(--ozon); } .abc-dash .rv-st-vb i { color:var(--wb); } .abc-dash .rv-st-yandex i { color:var(--ya-soft); }
-.abc-dash .rv-st-off i, .abc-dash .rv-st-off .rv-stv { color:#c9d0d8; }
-.abc-dash .rv-stv { display:inline-block; min-width:44px; text-align:center; font-size:10px; font-weight:600; line-height:16px;
-  padding:0 4px; border-radius:4px; border:1px solid transparent; box-sizing:border-box; }
-.abc-dash .rv-dash { color:#b8c0c8; font-weight:400; }
+.abc-dash .rv-t .rv-item td.pnl-name { overflow:hidden; text-overflow:ellipsis; }
+.abc-dash .rv-t .pill, .abc-dash .rv-legend .pill { font-size:10.5px; padding:0 6px; border-radius:4px; font-weight:700; font-family:var(--sans);
+  line-height:17px; display:inline-block; }
+.abc-dash .rv-stv { display:inline-block; min-width:62px; text-align:center; font-size:10.5px; font-weight:600; line-height:18px;
+  padding:0 6px; border-radius:5px; border:1px solid transparent; box-sizing:border-box; font-family:var(--sans); }
+.abc-dash .rv-dash { color:#b8c0c8; font-family:var(--sans); }
 .abc-dash .rv-dec { font:inherit; font-size:11.5px; font-weight:600; height:22px; border-radius:5px; padding:0 4px 0 7px;
-  border:1px solid transparent; cursor:pointer; max-width:116px; }
+  border:1px solid transparent; cursor:pointer; max-width:120px; }
 .abc-dash .rv-dec:disabled { cursor:default; opacity:1; }
 .abc-dash .rv-dec option { color:var(--text); background:#fff; font-weight:500; }
 .abc-dash .rv-d-none  { color:var(--text-mute); background:transparent; border:1px dashed var(--border); font-weight:400; }
@@ -925,10 +919,10 @@
 .abc-dash .rv-d-wb    { color:var(--wb-soft); background:var(--wb-bg); border-color:var(--wb-line); }
 .abc-dash .rv-d-out   { color:#b02a1e; background:rgba(192,57,43,.12); }
 .abc-dash .rv-d-think { color:#8a6d00; background:rgba(232,162,0,.16); }
-.abc-dash .rv-note { font-size:11.5px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:204px; }
+.abc-dash .rv-note { font-size:11.5px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:420px; }
 .abc-dash .rv-note-edit, .abc-dash .rv-note-empty { cursor:text; }
 .abc-dash .rv-note-empty { color:#b8c0c8; }
 .abc-dash .rv-note-edit:hover { color:var(--text); }
 .abc-dash .rv-note-in { width:100%; box-sizing:border-box; font:inherit; font-size:11.5px; height:22px; padding:0 6px;
   border:1px solid #c3cad3; border-radius:5px; background:#fff; color:var(--text); }
-.abc-dash .rv-legend { font-size:12px; color:var(--text-mute); margin:10px 2px 0; line-height:1.8; }
+.abc-dash .rv-legend { font-size:12px; color:var(--text-mute); margin:10px 0 0; line-height:1.8; }

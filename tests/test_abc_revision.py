@@ -92,7 +92,7 @@ class AbcRevisionTest(unittest.TestCase):
             {"level": "total", "name": "Итоги · товаров: 1", "q": 10, "rev": 1000, "share": 1, "prof": -50, "margin": -0.05,
              "q_m": 5, "rev_m": 500, "prof_m": -25},
             {"level": "0", "name": "Продукция ECOM", "q": 10, "rev": 1000, "share": 1, "prof": -50, "margin": -0.05},
-            {"level": "item", "name": "AK-590L", "title": "Компрессор", "q": 10, "rev": 1000, "prof": -50,
+            {"level": "item", "depth": 3, "name": "AK-590L", "title": "Компрессор", "q": 10, "rev": 1000, "prof": -50,
              "cr": "C", "cp": "D", "st_ozon": "CORE", "decision": "Вывести", "note": "=проверить цену"},
         ]
         r = self.call("POST", "/api/abc/revision/export", json={"period": "Ноябрь 2025 — Октябрь 2026", "rows": rows})
@@ -101,10 +101,15 @@ class AbcRevisionTest(unittest.TestCase):
         ws = load_workbook(io.BytesIO(r.content)).active
         self.assertIn("Ноябрь 2025 — Октябрь 2026", ws["A1"].value)
         self.assertEqual([c.value for c in ws[6]][:3], ["AK-590L", "Компрессор", 10])
-        self.assertEqual(ws.cell(row=6, column=16).value, "Вывести")
+        self.assertEqual(ws.cell(row=6, column=17).value, "Вывести")
         self.assertEqual(ws.row_dimensions[5].outlineLevel, 1)
         self.assertEqual(ws.row_dimensions[6].outlineLevel, 4)
-        note = ws.cell(row=6, column=17)
+        # товар «Не распределены по группам» (группа первого уровня) — на уровень ниже своей группы
+        r2 = self.call("POST", "/api/abc/revision/export", json={"rows": [
+            {"level": "0", "name": "Не распределены по группам"}, {"level": "item", "depth": 1, "name": "X-1"}]})
+        ws2 = load_workbook(io.BytesIO(r2.content)).active
+        self.assertEqual((ws2.row_dimensions[4].outlineLevel, ws2.row_dimensions[5].outlineLevel), (1, 2))
+        note = ws.cell(row=6, column=18)
         self.assertEqual((note.value, note.data_type), ("=проверить цену", "s"))   # текст, не формула
         for bad in ("x", [], [1], [{"level": "x"}], [{"level": "item", "q": "10"}]):
             self.assertEqual(self.call("POST", "/api/abc/revision/export", json={"rows": bad}).status_code, 400, bad)

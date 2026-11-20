@@ -100,7 +100,7 @@ def check_rows(rows):
     for row in rows:
         if not isinstance(row, dict) or str(row.get("level")) not in _LEVELS:
             raise ValueError("Неверная строка выгрузки")
-        for k in ("q", "rev", "share", "prof", "margin", "q_m", "rev_m", "prof_m"):
+        for k in ("q", "rev", "share", "prof", "prof_share", "margin", "q_m", "rev_m", "prof_m"):
             v = row.get(k)
             if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
                 raise ValueError("Неверное число в строке выгрузки")
@@ -118,12 +118,12 @@ def workbook(period, rows):
     thin = Side(style="thin", color="BFC9D4")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     head_fill = PatternFill("solid", fgColor="2E5A87")
-    cols = ["Группа / товар", "Наименование", "Продажи, шт", "GMV, руб", "Доля GMV", "Прибыль, руб", "Маржа",
-            "Продажи в мес., шт", "GMV в мес., руб", "Прибыль в мес., руб", "ABC GMV", "ABC прибыль",
+    cols = ["Группа / артикул", "Наименование", "Продажи, шт", "Выручка, руб", "Доля выручки", "Прибыль, руб", "Доля прибыли", "Маржа",
+            "Продажи в мес., шт", "Выручка в мес., руб", "Прибыль в мес., руб", "ABC выручка", "ABC прибыль",
             "Статус Ozon", "Статус WB", "Статус Яндекс", "Решение", "Заметка"]
-    widths = [44, 46, 12, 15, 9, 15, 9, 12, 14, 14, 8, 9, 11, 11, 11, 13, 46]
+    widths = [44, 46, 12, 15, 9, 15, 9, 9, 12, 14, 14, 8, 9, 11, 11, 11, 13, 46]
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(cols))
-    t = ws.cell(row=1, column=1, value=f"Ревизия матрицы · все площадки · {period}")
+    t = ws.cell(row=1, column=1, value=f"Ревизия матрицы · {period}")
     t.font = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
     t.fill = PatternFill("solid", fgColor="1F3B57")
     t.alignment = Alignment(vertical="center")
@@ -142,7 +142,7 @@ def workbook(period, rows):
         lvl = row.get("level")
         is_item = lvl == "item"
         vals = [row.get("name") or "", row.get("title") or "",
-                row.get("q"), row.get("rev"), row.get("share"), row.get("prof"), row.get("margin"),
+                row.get("q"), row.get("rev"), row.get("share"), row.get("prof"), row.get("prof_share"), row.get("margin"),
                 row.get("q_m"), row.get("rev_m"), row.get("prof_m"),
                 row.get("cr") or "", row.get("cp") or "",
                 row.get("st_ozon") or "", row.get("st_vb") or "", row.get("st_ya") or "",
@@ -155,18 +155,21 @@ def workbook(period, rows):
                 c.data_type = "s"   # заметка «=…» — текст, а не формула
             c.border = border
             c.font = Font(name="Calibri", size=10, color="333333")
-            if 3 <= i <= 10:
-                c.number_format = "0.0%" if i in (5, 7) else "#,##0"
+            if 3 <= i <= 11:
+                c.number_format = "0.0%" if i in (5, 7, 8) else "#,##0"
                 c.alignment = Alignment(horizontal="right")
-            elif 11 <= i <= 15:
+            elif 12 <= i <= 16:
                 c.alignment = Alignment(horizontal="center")
         if is_item:
-            ws.cell(row=r, column=1).alignment = Alignment(indent=6)
-            for i in (11, 12):
+            # depth — уровень группы товара + 1 (товар под L3 — 3; под «Не распределены по группам» — 1)
+            d = row.get("depth")
+            d = d if isinstance(d, int) and not isinstance(d, bool) and 1 <= d <= 3 else 3
+            ws.cell(row=r, column=1).alignment = Alignment(indent=d * 2)
+            for i in (12, 13):
                 cls = vals[i - 1]
                 if cls in _CLS_FONT:
                     ws.cell(row=r, column=i).font = Font(name="Calibri", size=10, bold=True, color=_CLS_FONT[cls])
-            ws.row_dimensions[r].outlineLevel = 4
+            ws.row_dimensions[r].outlineLevel = d + 1
         else:
             fill = PatternFill("solid", fgColor=_LVL_FILL.get(depth, "BDD7EE"))
             for i in range(1, len(cols) + 1):
@@ -176,7 +179,7 @@ def workbook(period, rows):
             ws.cell(row=r, column=1).alignment = Alignment(indent=max(0, depth) * 2)
             if depth >= 0:
                 ws.row_dimensions[r].outlineLevel = depth + 1
-        for i in (6, 10):
+        for i in (6, 11):
             v = vals[i - 1]
             if isinstance(v, (int, float)) and v < 0:
                 ws.cell(row=r, column=i).font = Font(name="Calibri", size=size, bold=not is_item, color="9C0006")
