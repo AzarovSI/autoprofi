@@ -32,9 +32,12 @@
 import calendar
 import datetime as dt
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+import urllib.parse
 
-from .. import db, auth, abc_rules
+from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import Response
+
+from .. import db, auth, abc_rules, abc_revision
 
 router = APIRouter(prefix="/api/abc", tags=["abc"])
 
@@ -303,3 +306,37 @@ def save_rules(payload: dict = Body(...), user=Depends(auth.require("abc.rules.e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"rules": rules, "defaults": abc_rules.DEFAULTS}
+
+
+# --- Вкладка «Ревизия матрицы» (20.11.2026): решения и заметки, Excel ------
+@router.get("/revision")
+def revision_list(user=Depends(auth.require("abc.tab.revision"))):
+    """Решения и заметки ревизии: {"items": {АРТИКУЛ: {decision, note, at, by}}, "decisions": [...]}."""
+    return {"items": abc_revision.load(), "decisions": list(abc_revision.DECISIONS)}
+
+
+@router.put("/revision")
+def revision_save(payload: dict = Body(...), user=Depends(auth.require("abc.revision.edit"))):
+    """{"seller_article", "decision"?, "note"?} → {"seller_article", "item": {decision, note} | null}."""
+    try:
+        sku, item = abc_revision.save(payload, user.get("id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"seller_article": sku, "item": item}
+
+
+@router.post("/revision/export")
+def revision_export(payload: dict = Body(...), user=Depends(auth.require("abc.tab.revision"))):
+    """Excel «Ревизия матрицы» из строк, показанных на экране: {"period": str, "rows": [...]}."""
+    rows = payload.get("rows")
+    try:
+        abc_revision.check_rows(rows)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    data = abc_revision.workbook(str(payload.get("period") or ""), rows)
+    fname = "Ревизия матрицы %s.xlsx" % dt.date.today().strftime("%d.%m.%Y")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(fname)},
+    )

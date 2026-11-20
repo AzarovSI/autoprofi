@@ -19,7 +19,7 @@ window.ABCDash = (function () {
     monthMeta: [],        // [{ key:'2026-01', start:'2026-01-01', end:'2026-01-31', label:'Янв 2026' }]
     period: { from: '', to: '' },
     loaded: false,        // данные уже получены с API в этой сессии страницы (кэш)
-    activeTab: 'overview', // активная под-вкладка — восстанавливаем при возврате
+    activeTab: 'revision', // активная под-вкладка — восстанавливаем при возврате (без права — первая доступная)
     rules: null,          // пороги рекомендаций {param: {ozon|vb|ya|all: value}} — из /api/abc/data
     rulesDefaults: null,  // исходные значения (кнопка «Сбросить к исходным»)
     cats: {},             // категории товара {SKU: [L1, L2, L3]} — справочник «Товары»
@@ -183,6 +183,7 @@ window.ABCDash = (function () {
     renderTable('ya', STATE.computed.ya);
     renderCross();
     renderActions();
+    renderRevision();
     fillRuleTexts();
   }
 
@@ -2361,10 +2362,330 @@ window.ABCDash = (function () {
     });
   }
 
+  /* ============ Вкладка «Ревизия матрицы» (решение владельца 20.11.2026) ============
+     Иерархия L1 → L2 → L3 → товар за выбранный период, все площадки СУММАРНО: шт, GMV, прибыль,
+     маржа, средние в месяц, ABC по всем товарам отдела (по GMV и по прибыли, 80/95%),
+     текущие статусы площадок (только просмотр) и пометки ревизии — решение и заметка
+     (таблица abc_revision; статусы площадок НЕ меняются). Право №132 — вкладка, №133 — пометки. */
+  const RV_DECISIONS = ['Усилить', 'Оставить', 'Только Ozon', 'Только WB', 'Вывести', 'Подумать'];
+  const RV_DEC_CLS = { 'Усилить': 'up', 'Оставить': 'keep', 'Только Ozon': 'oz', 'Только WB': 'wb', 'Вывести': 'out', 'Подумать': 'think' };
+  const RV_MP = [['ozon', 'O', 'Ozon'], ['vb', 'W', 'Wildberries'], ['yandex', 'Я', 'Яндекс']];
+  const RV = {
+    marks: null,          // {АРТИКУЛ: {decision, note, at, by}} — /api/abc/revision
+    loading: false,
+    open: null,           // Set ключей раскрытых групп («L1», «L1␟L2», …); null — ещё не открывали
+    f: { cls: '', dec: '', st: '', loss: false, q: '' },
+    data: null,           // последний расчёт {root, items, n, totRev}
+  };
+
+  // Товары периода по всем площадкам + ABC + дерево. Считается из тех же строк, что и вкладки площадок.
+  function rvCompute() {
+    const months = new Set(STATE.selectedMonths);
+    const n = STATE.selectedMonths.length || 1;
+    const P = {};
+    for (const [mp] of RV_MP) {
+      for (const r of (STATE.raw[mp] || [])) {
+        if (!months.has(r.ym)) continue;
+        const p = P[r.sku] || (P[r.sku] = { sku: r.sku, name: '', ym: '', q: 0, rev: 0, prof: 0, st: {} });
+        p.q += r.sales_qty; p.rev += r.revenue; p.prof += r.profit;
+        p.st[mp] = r.status || '';
+        if (r.name && r.ym >= p.ym) { p.name = r.name; p.ym = r.ym; }   // наименование — из последнего месяца
+      }
+    }
+    // Как во всех таблицах ABC: товар без движения за период не показывается.
+    const items = Object.values(P).filter(p => p.q || p.rev || p.prof);
+    const cr = abcClassify(items.map(p => [p.sku, p.rev]));
+    const cp = abcClassify(items.map(p => [p.sku, p.prof]));
+    items.forEach(p => { p.cr = cr[p.sku]; p.cp = cp[p.sku]; });
+
+    const NONE = ['(без категории)', '(без подгруппы)', '(без вида)'];
+    const mk = (name, key, depth) => ({ name, key, depth, kids: {}, items: [], q: 0, rev: 0, prof: 0, cnt: { A: 0, B: 0, C: 0, D: 0 } });
+    const root = mk('Итоги', '', -1);
+    for (const p of items) {
+      const c = STATE.cats[p.sku] || [];
+      let node = root;
+      for (let i = 0; i < 3; i++) {
+        const seg = (c[i] && String(c[i]).trim()) || NONE[i];
+        const key = node.key ? node.key + '␟' + seg : seg;
+        node = node.kids[seg] || (node.kids[seg] = mk(seg, key, i));
+      }
+      node.items.push(p);
+    }
+    (function agg(node) {
+      for (const k of Object.values(node.kids)) {
+        agg(k);
+        node.q += k.q; node.rev += k.rev; node.prof += k.prof;
+        for (const c in node.cnt) node.cnt[c] += k.cnt[c];
+      }
+      for (const p of node.items) {
+        node.q += p.q; node.rev += p.rev; node.prof += p.prof;
+        node.cnt[p.cr === 'Z' ? 'C' : p.cr] += 1;
+      }
+    })(root);
+    return { root, items, n, totRev: root.rev };
+  }
+
+  function rvStatus(v) { return stDisplay(v); }
+  // Фильтры — только список товаров; суммы групп всегда по всем товарам группы.
+  function rvMatch(p) {
+    const f = RV.f, m = (RV.marks || {})[p.sku] || {};
+    if (f.cls) { const [k, c] = f.cls.split(':'); const v = k === 'r' ? p.cr : p.cp; if ((v === 'Z' ? 'C' : v) !== c) return false; }
+    if (f.dec === '__none' ? !!m.decision : (f.dec && m.decision !== f.dec)) return false;
+    if (f.st && !RV_MP.some(([mp]) => (mp in p.st) && rvStatus(p.st[mp]) === f.st)) return false;
+    if (f.loss && !(p.prof < 0)) return false;
+    if (f.q) { const q = f.q.toLowerCase(); if (!p.sku.toLowerCase().includes(q) && !(p.name || '').toLowerCase().includes(q)) return false; }
+    return true;
+  }
+  function rvFiltered() { const f = RV.f; return !!(f.cls || f.dec || f.st || f.loss || f.q); }
+  const rvSort = (a, b) => (b.rev - a.rev) || a.name.localeCompare(b.name, 'ru');
+  const rvNone = (n) => /^\(без /.test(n.name) ? 1 : 0;   // «(без категории)» — в конце уровня
+  function rvKids(node) { return Object.values(node.kids).sort((a, b) => (rvNone(a) - rvNone(b)) || rvSort(a, b)); }
+  function rvHasMatch(node) {
+    return node.items.some(rvMatch) || Object.values(node.kids).some(rvHasMatch);
+  }
+
+  // Видимые строки дерева: {type:'total'|'grp'|'item', node|p}. all=true — без учёта сворачивания (Excel).
+  function rvRows(all) {
+    const out = [], filt = rvFiltered();
+    out.push({ type: 'total', node: RV.data.root });
+    (function walk(node) {
+      for (const k of rvKids(node)) {
+        if (filt && !rvHasMatch(k)) continue;
+        out.push({ type: 'grp', node: k });
+        if (!(all || filt || RV.open.has(k.key))) continue;
+        if (k.depth < 2) walk(k);
+        else k.items.filter(rvMatch).sort((a, b) => (b.rev - a.rev) || a.sku.localeCompare(b.sku, 'ru'))
+          .forEach(p => out.push({ type: 'item', p }));
+      }
+    })(RV.data.root);
+    return out;
+  }
+
+  const rvN = (v) => { const r = Math.round(v); return r === 0 ? '0' : fmtRub.format(r); };
+  const rvPct = (a, b) => (b ? (a / b * 100).toFixed(1).replace('.', ',') + '%' : '—');
+
+  function rvValCells(x, isItem) {
+    const n = RV.data.n, neg = x.prof < 0 ? ' rv-neg' : '';
+    const low = isItem && x.prof >= 0 && x.rev > 0 && x.prof / x.rev < 0.1 ? ' rv-warn' : '';
+    return `<td class="pnl-tstart rv-b">${rvN(x.q)}</td><td class="rv-b">${rvN(x.rev)}</td><td class="pnl-pct">${rvPct(x.rev, RV.data.totRev)}</td>`
+      + `<td class="rv-b${neg}">${rvN(x.prof)}</td><td class="pnl-pct${neg}${low}">${rvPct(x.prof, x.rev)}</td>`
+      + `<td class="pnl-tstart rv-avg">${rvN(x.q / n)}</td><td class="rv-avg">${rvN(x.rev / n)}</td><td class="rv-avg${neg}">${rvN(x.prof / n)}</td>`;
+  }
+  function rvMix(c) {
+    return `<span class="rv-mix" title="Товаров в классе по GMV"><b class="A">A ${c.A}</b><b class="B">B ${c.B}</b><b class="C">C ${c.C}</b>${c.D ? `<b class="D">D ${c.D}</b>` : ''}</span>`;
+  }
+  function rvDecHtml(p) {
+    const m = (RV.marks || {})[p.sku] || {}, d = m.decision || '';
+    const off = App.can('abc.revision.edit') ? '' : ' disabled';
+    const opts = ['<option value="">—</option>'].concat(RV_DECISIONS.map(x =>
+      `<option value="${escapeAttr(x)}"${x === d ? ' selected' : ''}>${escapeHtml(x)}</option>`)).join('');
+    return `<select class="rv-dec rv-d-${RV_DEC_CLS[d] || 'none'}" data-sku="${escapeAttr(p.sku)}" title="Решение ревизии (статусы площадок не меняются)"${off}>${opts}</select>`;
+  }
+  function rvNoteHtml(p) {
+    const m = (RV.marks || {})[p.sku] || {};
+    const who = m.by || m.at ? `\n\n${m.by || ''}${m.at ? ' · ' + new Date(m.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}` : '';
+    const can = App.can('abc.revision.edit');
+    if (!m.note) return can ? `<span class="rv-note rv-note-empty" data-sku="${escapeAttr(p.sku)}">+ заметка</span>` : '';
+    return `<span class="rv-note${can ? ' rv-note-edit' : ''}" data-sku="${escapeAttr(p.sku)}" title="${escapeAttr(m.note + who)}">${escapeHtml(m.note)}</span>`;
+  }
+  function rvStHtml(p) {
+    return RV_MP.map(([mp, l, title]) => {
+      if (!(mp in p.st)) return `<span class="rv-st rv-st-off" title="${title}: нет продаж за период"><i>${l}</i><span class="rv-stv">·</span></span>`;
+      const s = rvStatus(p.st[mp]);
+      return `<span class="rv-st rv-st-${mp}" title="${title}: ${escapeAttr(s)}"><i>${l}</i>`
+        + (s === '-' ? '<span class="rv-stv rv-dash">—</span>' : `<span class="rv-stv status-badge ${stClass(s)}">${escapeHtml(s)}</span>`) + '</span>';
+    }).join('');
+  }
+
+  function rvRowHtml(row) {
+    if (row.type === 'item') {
+      const p = row.p;
+      return `<tr class="pnl-r rv-item"><td class="pnl-name"><span class="rv-sku">${escapeHtml(p.sku)}</span><span class="rv-iname" title="${escapeAttr(p.name)}">${escapeHtml(p.name)}</span></td>`
+        + rvValCells(p, true)
+        + `<td class="pnl-tstart rv-c"><span class="pill ${p.cr}">${p.cr}</span></td><td class="rv-c"><span class="pill ${p.cp}">${p.cp}</span></td>`
+        + `<td class="pnl-tstart rv-sts">${rvStHtml(p)}</td><td class="pnl-tstart rv-left">${rvDecHtml(p)}</td><td class="rv-left rv-note-td">${rvNoteHtml(p)}</td></tr>`;
+    }
+    const k = row.node;
+    if (row.type === 'total') {
+      return `<tr class="pnl-r pnl-key"><td class="pnl-name"><span class="pnl-nm">Итоги · товаров: ${RV.data.items.length}</span></td>${rvValCells(k, false)}`
+        + `<td class="pnl-tstart rv-c" colspan="2">${rvMix(k.cnt)}</td><td class="pnl-tstart"></td><td class="pnl-tstart"></td><td></td></tr>`;
+    }
+    const open = rvFiltered() || RV.open.has(k.key);
+    return `<tr class="pnl-r rv-grp rv-l${k.depth + 1}" data-key="${escapeAttr(k.key)}"><td class="pnl-name"><button type="button" class="rnp-exp-btn" tabindex="-1">${open ? '▾' : '▸'}</button><span class="pnl-nm">${escapeHtml(k.name)}</span></td>`
+      + rvValCells(k, false) + `<td class="pnl-tstart rv-c" colspan="2">${rvMix(k.cnt)}</td><td class="pnl-tstart"></td><td class="pnl-tstart"></td><td></td></tr>`;
+  }
+
+  function rvPeriodText() { return abcPeriodLabel() + ' · ' + RV.data.n + ' мес.'; }
+
+  function renderRevision() {
+    const host = document.getElementById('rv-host');
+    if (!host || !App.can('abc.tab.revision')) return;
+    if (!RV.marks) {
+      host.innerHTML = '<div class="loader"><span class="spinner"></span></div>';
+      if (!RV.loading) {
+        RV.loading = true;
+        (window.API || API).abcRevision()
+          .then(res => { RV.marks = (res && res.items) || {}; })
+          .catch(err => { RV.marks = {}; App.toast('Не удалось загрузить решения ревизии: ' + ((err && err.message) || err), 'err'); })
+          .finally(() => { RV.loading = false; renderRevision(); });
+      }
+      return;
+    }
+    RV.data = rvCompute();
+    // Первое открытие: развёрнут первый уровень (видны группы второго уровня).
+    if (!RV.open) RV.open = new Set(Object.values(RV.data.root.kids).map(k => k.key));
+    const f = RV.f, marks = RV.marks;
+    const nDec = RV.data.items.filter(p => (marks[p.sku] || {}).decision).length;
+    const sel = (cls, opts, val) => `<select class="rv-filter ${cls}">${opts.map(([v, l]) => `<option value="${escapeAttr(v)}"${v === val ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>`;
+    const clsOpts = [['', 'Класс: все']].concat(['A', 'B', 'C', 'D'].map(c => ['r:' + c, 'GMV: ' + c]), ['A', 'B', 'C', 'D'].map(c => ['p:' + c, 'Прибыль: ' + c]));
+    const decOpts = [['', 'Решение: все'], ['__none', 'Без решения']].concat(RV_DECISIONS.map(d => [d, d]));
+    const stOpts = [['', 'Статус: все']].concat(STATUS_PRESETS.map(s => [s, 'Статус: ' + s]));
+    const H = (a, b, cls = '') => `<th class="${cls}"><span class="pnl-h1">${a}</span><span class="pnl-h2">${b || '&nbsp;'}</span></th>`;
+    host.innerHTML = `
+      <div class="rv-bar">
+        <div class="rv-bar-l"><span class="rv-ttl">Ревизия матрицы</span><span class="rv-sub">все площадки вместе · ${escapeHtml(rvPeriodText())}</span></div>
+        <div class="rv-filters">
+          ${sel('rv-f-cls', clsOpts, f.cls)}${sel('rv-f-dec', decOpts, f.dec)}${sel('rv-f-st', stOpts, f.st)}
+          <label class="rv-chk"><input type="checkbox" class="rv-f-loss"${f.loss ? ' checked' : ''}> только с убытком</label>
+          <input type="search" class="rv-search" placeholder="Артикул или название" value="${escapeAttr(f.q)}">
+          <button type="button" class="rv-btn rv-expand">Развернуть всё</button>
+          <button type="button" class="rv-btn rv-collapse">Свернуть</button>
+          <button type="button" class="rv-btn rv-export">⬇ Excel</button>
+        </div>
+      </div>
+      <div class="rv-info"><b>Решения ревизии:</b> ${nDec} из ${RV.data.items.length} товаров · пометки для себя, статусы площадок не меняются${rvFiltered() ? ' · <span class="rv-finfo">фильтр — только список товаров, суммы групп по всем товарам</span>' : ''}</div>
+      <div class="rnp-card mp-cross rv-card">
+        <div class="rv-scroll"><table class="pnl-t rv-t">
+          <colgroup><col style="width:340px"><col style="width:76px"><col style="width:108px"><col style="width:54px"><col style="width:104px"><col style="width:56px"><col style="width:76px"><col style="width:96px"><col style="width:88px"><col style="width:58px"><col style="width:58px"><col style="width:206px"><col style="width:124px"><col style="width:220px"></colgroup>
+          <thead>
+            <tr class="rv-hgrp"><th class="pnl-name"></th><th class="pnl-tstart" colspan="5">За период</th><th class="pnl-tstart" colspan="3">В среднем за месяц</th><th class="pnl-tstart" colspan="2">ABC</th><th class="pnl-tstart">Статус сейчас</th><th class="pnl-tstart" colspan="2">Ревизия</th></tr>
+            <tr class="rv-hcol"><th class="pnl-name"><span class="pnl-h1">Группа / товар</span><span class="pnl-h2">по GMV за период</span></th>
+              ${H('Продажи', 'шт', 'pnl-tstart')}${H('GMV', 'руб')}${H('доля', '')}${H('Прибыль', 'руб')}${H('маржа', '')}
+              ${H('Продажи', 'шт', 'pnl-tstart')}${H('GMV', 'руб')}${H('Прибыль', 'руб')}
+              ${H('GMV', '', 'pnl-tstart rv-c')}${H('приб.', '', 'rv-c')}
+              ${H('Ozon · WB · Яндекс', '', 'pnl-tstart rv-c')}
+              ${H('Решение', '', 'pnl-tstart rv-left')}${H('Заметка', '', 'rv-left')}</tr>
+          </thead>
+          <tbody>${rvRows(false).map(rvRowHtml).join('')}</tbody>
+        </table></div>
+      </div>
+      <div class="rv-legend"><b>ABC</b> — по всем товарам отдела за период: <span class="pill A">A</span> 80% GMV / прибыли, <span class="pill B">B</span> следующие 15%,
+        <span class="pill C">C</span> последние 5%, <span class="pill D">D</span> убыток (по GMV — возвратов больше продаж), <span class="pill Z">Z</span> ноль (в счётчиках групп и фильтре — вместе с C). Первая буква — по GMV, вторая — по прибыли.
+        У групп — сколько товаров в каждом классе по GMV. Прибыль — товарная, без общих удержаний площадок. Маржа ниже 10% — оранжевым, убыток — красным.</div>`;
+    rvBind(host);
+  }
+
+  function rvBind(host) {
+    const rerender = () => renderRevision();
+    host.querySelector('.rv-f-cls').addEventListener('change', e => { RV.f.cls = e.target.value; rerender(); });
+    host.querySelector('.rv-f-dec').addEventListener('change', e => { RV.f.dec = e.target.value; rerender(); });
+    host.querySelector('.rv-f-st').addEventListener('change', e => { RV.f.st = e.target.value; rerender(); });
+    host.querySelector('.rv-f-loss').addEventListener('change', e => { RV.f.loss = e.target.checked; rerender(); });
+    const q = host.querySelector('.rv-search');
+    let t = null;
+    q.addEventListener('input', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        RV.f.q = q.value.trim(); const pos = q.selectionStart; rerender();
+        const nq = document.querySelector('#rv-host .rv-search'); if (nq) { nq.focus(); nq.setSelectionRange(pos, pos); }
+      }, 300);
+    });
+    host.querySelector('.rv-expand').addEventListener('click', () => {
+      (function all(node) { for (const k of Object.values(node.kids)) { RV.open.add(k.key); all(k); } })(RV.data.root);
+      rerender();
+    });
+    host.querySelector('.rv-collapse').addEventListener('click', () => { RV.open = new Set(); rerender(); });
+    host.querySelector('.rv-export').addEventListener('click', e => rvExport(e.currentTarget));
+    const tbody = host.querySelector('tbody');
+    tbody.addEventListener('click', (e) => {
+      const grp = e.target.closest('tr.rv-grp');
+      if (grp && !rvFiltered()) {
+        const key = grp.dataset.key;
+        RV.open.has(key) ? RV.open.delete(key) : RV.open.add(key);
+        rerender();
+        return;
+      }
+      const note = e.target.closest('.rv-note[data-sku]');
+      if (note && App.can('abc.revision.edit')) rvEditNote(note);
+    });
+    tbody.addEventListener('change', (e) => {
+      const s = e.target.closest('select.rv-dec');
+      if (s) rvSave(s.dataset.sku, { decision: s.value }, s);
+    });
+  }
+
+  async function rvSave(sku, body, el) {
+    if (el) el.disabled = true;
+    try {
+      const res = await (window.API || API).abcRevisionSave(Object.assign({ seller_article: sku }, body));
+      if (res.item) RV.marks[res.seller_article] = Object.assign({}, RV.marks[res.seller_article], res.item,
+        { at: new Date().toISOString(), by: (function () { const u = (window.API || API).getUser && (window.API || API).getUser(); return (u && (u.display_name || u.email)) || ''; })() });
+      else delete RV.marks[res.seller_article];
+      App.toast('Сохранено: ' + sku, 'ok');
+    } catch (err) {
+      App.toast('Ошибка сохранения: ' + ((err && err.message) || err), 'err');
+    }
+    renderRevision();
+  }
+
+  function rvEditNote(span) {
+    const sku = span.dataset.sku;
+    const cur = ((RV.marks || {})[sku] || {}).note || '';
+    const td = span.closest('td');
+    td.innerHTML = `<input type="text" class="rv-note-in" maxlength="500" value="${escapeAttr(cur)}" placeholder="Заметка — Enter сохранить, Esc отмена">`;
+    const inp = td.querySelector('input');
+    inp.focus(); inp.select();
+    let done = false;
+    const finish = (save) => {
+      if (done) return; done = true;
+      const v = inp.value.trim();
+      if (save && v !== cur) rvSave(sku, { note: v }, inp);
+      else renderRevision();
+    };
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    // Таблицу перерисовали, пока шла правка (сохранение другой строки, поиск), — не сохранять недописанное.
+    inp.addEventListener('blur', () => { if (inp.isConnected) finish(true); });
+  }
+
+  async function rvExport(btn) {
+    btn.disabled = true;
+    try {
+      const n = RV.data.n, tot = RV.data.totRev, marks = RV.marks || {};
+      const base = (x) => ({ q: Math.round(x.q), rev: Math.round(x.rev), share: tot ? x.rev / tot : 0, prof: Math.round(x.prof),
+        margin: x.rev ? x.prof / x.rev : null, q_m: Math.round(x.q / n), rev_m: Math.round(x.rev / n), prof_m: Math.round(x.prof / n) });
+      const rows = rvRows(true).map(row => {
+        if (row.type !== 'item') {
+          const k = row.node;
+          return Object.assign({ level: row.type === 'total' ? 'total' : String(k.depth),
+            name: row.type === 'total' ? `Итоги · товаров: ${RV.data.items.length}` : k.name }, base(k));
+        }
+        const p = row.p, m = marks[p.sku] || {};
+        const st = (mp) => (mp in p.st ? rvStatus(p.st[mp]) : '');
+        return Object.assign({ level: 'item', name: p.sku, title: p.name, cr: p.cr, cp: p.cp,
+          st_ozon: st('ozon'), st_vb: st('vb'), st_ya: st('yandex'), decision: m.decision || '', note: m.note || '' }, base(p));
+      });
+      const resp = await (window.API || API).abcRevisionExport({ period: rvPeriodText(), rows });
+      const cd = resp.headers.get('Content-Disposition') || '';
+      let fname = 'revision.xlsx';
+      const mm = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+      if (mm) { try { fname = decodeURIComponent(mm[1]); } catch (e) { fname = mm[1]; } }
+      const url = URL.createObjectURL(await resp.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+    } catch (err) {
+      App.toast('Ошибка выгрузки: ' + ((err && err.message) || err), 'err');
+    } finally { btn.disabled = false; }
+  }
+
   /* ============ Под-навигация вкладок внутри ABC ============ */
   // Вкладка → функция роли (app/permissions.py).
   const TAB_RIGHTS = {
-    overview: 'abc.tab.overview', ozon: 'abc.tab.ozon', vb: 'abc.tab.wb', yandex: 'abc.tab.ya',
+    revision: 'abc.tab.revision', overview: 'abc.tab.overview', ozon: 'abc.tab.ozon', vb: 'abc.tab.wb', yandex: 'abc.tab.ya',
     cross: 'abc.tab.compare', actions: 'abc.tab.actions',
   };
   function bindSubNav() {
@@ -2402,6 +2723,7 @@ window.ABCDash = (function () {
 
   <div class="abc-toolbar">
     <nav class="abc-subnav tabs">
+      <button class="tab" data-tab="revision">Ревизия матрицы</button>
       <button class="tab active" data-tab="overview">Обзор</button>
       <button class="tab" data-tab="ozon">ОЗОН</button>
       <button class="tab" data-tab="vb">Wildberries</button>
@@ -2424,6 +2746,8 @@ window.ABCDash = (function () {
   </div>
 
   <main class="abc-main">
+
+  <section id="tab-revision" class="tab-panel"><div id="rv-host"></div></section>
 
   <section id="tab-overview" class="tab-panel active">
     <div class="page-intro">

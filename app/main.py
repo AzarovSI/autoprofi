@@ -81,6 +81,12 @@ def migrate_abc_rules():
 
 
 @app.on_event("startup")
+def migrate_abc_revision():
+    from .abc_revision import migrate
+    migrate()
+
+
+@app.on_event("startup")
 def migrate_fact_schema():
     from .fact_schema import migrate
     migrate()

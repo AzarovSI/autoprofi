@@ -59,7 +59,7 @@ production продолжает работать на Perplexity, а код та
 - **В БД `avtoprofi` в Yandex Cloud под тем же пользователем `app` работает другой рабочий
   сервис владельца — azarov_capital (личная финансовая аналитика), схема
   `azarov_capital`, 20 таблиц.** АВТОПРОФИ — только схема `public` (41 таблица с 28.10.2026,
-  `recovery/schema_contract.json` — 31 базовая, роли, ценовую модель (`price_model_hist`, `price_model_rules`), пороги ABC и акции РНП (`rnp_promos`, `rnp_promo_events`), статистику рекламы WB (`wb_ads_*`) создают миграции). Не трогать схему `azarov_capital`, кластер в Yandex
+  `recovery/schema_contract.json` — 31 базовая, роли, ценовую модель (`price_model_hist`, `price_model_rules`), пороги и ревизию ABC (`abc_rules`, `abc_revision`), акции РНП (`rnp_promos`, `rnp_promo_events`), статистику рекламы WB (`wb_ads_*`) создают миграции). Не трогать схему `azarov_capital`, кластер в Yandex
   не удалять. Дампы — только `pg_dump -n public`, никогда всей базы; права, очистки,
   миграции — только по явному списку таблиц `public`. Пароль `app` не менять, настройки и
   перезапуск кластера — только по согласованию: это остановит оба сервиса.
@@ -147,7 +147,7 @@ PG=/Applications/Postgres.app/Contents/Versions/latest/bin
 $PG/pg_ctl -D ~/.local/share/autoprofi-pgdata -o "-c listen_addresses=127.0.0.1 -p 5432" \
   -l ~/.local/share/autoprofi-pgdata/server.log -w start
 
-# Тесты (эталон 20.11.2026: 312 passed, 4 skipped)
+# Тесты (эталон 20.11.2026: 317 passed, 4 skipped)
 DB_DSN="postgresql://wb_test:local-test-only@127.0.0.1:5432/wb_price_test" \
   SECRET_KEY=local-test-secret-key-0123456789abcdef PYTHONPATH=.:tests .venv/bin/python -m pytest -q tests
 

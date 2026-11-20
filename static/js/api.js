@@ -157,6 +157,30 @@ const API = (() => {
     abcData: () => cget('/api/abc/data'),
     // P&L (раздел «P&L»): помесячные итоги вкладки cross | ozon | wb
     pnlData: (mp) => cget('/api/pnl/data?marketplace=' + encodeURIComponent(mp)),
+    // ABC → «Ревизия матрицы»: решения и заметки (не кэшируются — правятся на вкладке)
+    abcRevision: () => request('/api/abc/revision'),
+    abcRevisionSave: (body) => request('/api/abc/revision', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+    // Excel «Ревизия матрицы» из строк экрана: {period, rows} → Response (blob).
+    abcRevisionExport: async (body) => {
+      const headers = { 'Content-Type': 'application/json' };
+      const t = getToken();
+      if (t) headers.Authorization = 'Bearer ' + t;
+      const resp = await fetch(API_BASE + '/api/abc/revision/export', { method: 'POST', headers, body: JSON.stringify(body) });
+      if (resp.status === 401) {
+        clearToken();
+        window.dispatchEvent(new CustomEvent('ap:unauthorized'));
+        throw new Error('Не авторизовано');
+      }
+      if (!resp.ok) {
+        let msg = 'Ошибка ' + resp.status;
+        try { const j = await resp.json(); if (j.detail) msg = j.detail; } catch (e) {}
+        throw new Error(msg);
+      }
+      return resp;
+    },
     abcRulesSave: (rules) => request('/api/abc/rules', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rules }),
